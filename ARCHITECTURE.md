@@ -19,6 +19,14 @@ Vero-Backend/
 │   ├── __init__.py            # Makes app a Python package
 │   ├── main.py                # FastAPI application entry point
 │   ├── dependencies.py        # Shared dependency injection functions
+│   ├── models/                # Data models (organized by category)
+│   │   ├── __init__.py        # Package exports
+│   │   ├── work.py            # Work/paper models
+│   │   ├── topic.py           # Topic/subject models
+│   │   ├── candidate.py       # Candidate pool models
+│   │   ├── graph.py           # Citation graph models
+│   │   ├── map.py             # Finalized map models
+│   │   └── ranking.py         # Ranking models
 │   ├── routers/               # API route modules
 │   │   ├── __init__.py
 │   │   ├── users.py           # User management endpoints
@@ -47,7 +55,50 @@ The central FastAPI application instance that:
 - Prefix and tag organization for admin routes
 - Root health check endpoint at `/`
 
-### 2. Dependencies (`app/dependencies.py`)
+### 2. Data Models (`app/models/` package)
+
+**Organized by domain concept across 6 modules:**
+
+#### Work Models (`work.py`)
+- **WorkRef**: Complete paper metadata (identifiers, title, abstract, authors, citations, topics, open access URL, ingest state)
+- **WorkRefThin**: Lightweight version for performance-critical operations
+- **Author**: Author information (name, IDs, position)
+- **IngestState**: Enum tracking data completeness (resolved/partially_resolved/unresolved)
+
+#### Topic Models (`topic.py`)
+- **TopicRef**: Topic with hierarchy and relevance score
+- **TopicQueryRef**: Topics extracted from user text query
+- **TopicHierarchy**: OpenAlex structure (Domain → Field → Subfield → Topic)
+
+#### Candidate Models (`candidate.py`)
+- **CandidateSet**: Pool of papers fetched from OpenAlex (Feature 1)
+- **CandidateItem**: Individual paper with discovery metadata (why included, when fetched)
+
+#### Graph Models (`graph.py`)
+- **GraphDraft**: Temporary citation graph (ephemeral, expires in 24h)
+- **GraphStats**: Quality metrics (coverage, completeness)
+- **CitationEdge**: Directed citation relationship
+
+#### Map Models (`map.py`)
+- **Map**: Permanent stored graph with visualization data
+- **MapNode**: Node with full metadata + layout coordinates
+- **SubtopicDefinition**: Node grouping strategy (domain/field/subfield/topic)
+- **FieldContext**: Research field context
+- **LayoutCoordinates**: 2D visualization position
+
+#### Ranking Models (`ranking.py`)
+- **RankedList**: Scored paper recommendations
+- **RankedItem**: Single ranked paper with score and explanation
+- **RankingContext**: What ranking is based on (topic/subtopic/seed_paper)
+- **ScoreBreakdown**: Transparent calculation (topic relevance, citations, recency, etc.)
+
+**Design Principles:**
+- Progressive enrichment: Start minimal, enrich over time
+- Immutability where appropriate (CandidateSet, Map versions)
+- Transparent scoring with explainability
+- OpenAlex-compatible identifiers (W..., T..., F..., A...)
+
+### 3. Dependencies (`app/dependencies.py`)
 
 Contains reusable dependency injection functions used across routes:
 
@@ -56,7 +107,7 @@ Contains reusable dependency injection functions used across routes:
 
 **Purpose**: Centralize authentication and validation logic to avoid duplication.
 
-### 3. Routers
+### 4. Routers
 
 #### Users Router (`app/routers/users.py`)
 - **Prefix**: `/users`

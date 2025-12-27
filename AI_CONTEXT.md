@@ -14,6 +14,7 @@ This file provides structured context for AI coding assistants (GitHub Copilot, 
 ### 1. Project Structure Pattern
 This project follows **FastAPI's official "Bigger Applications" pattern**:
 - Main app in `app/main.py`
+- **Shared models in `app/models/`** - Organized by category (work, topic, candidate, graph, map, ranking)
 - Routers in `app/routers/` directory
 - Dependencies in `app/dependencies.py`
 - Internal/admin routes in `app/internal/`
@@ -25,10 +26,12 @@ This project follows **FastAPI's official "Bigger Applications" pattern**:
 ✅ CORRECT:
 from app.routers import users
 from app.dependencies import get_token_header
+from app.models import WorkRef, TopicRef, CandidateSet
 
 ❌ INCORRECT:
 from .routers import users
 from ..dependencies import get_token_header
+from .core import WorkRef
 ```
 
 ### 3. Router Pattern
@@ -66,6 +69,14 @@ Shared dependencies go in `app/dependencies.py`. Use FastAPI's `Depends()` for:
 | File/Directory | Purpose | Modify When |
 |----------------|---------|-------------|
 | `app/main.py` | FastAPI app instance, router inclusion | Adding new routers |
+| `app/models/` | **Shared data models (organized by category)** | Adding/modifying domain models |
+| `app/models/__init__.py` | Package exports all models for easy importing | Adding new model files |
+| `app/models/work.py` | Work/paper models | Adding paper-related models |
+| `app/models/topic.py` | Topic/subject models | Adding topic-related models |
+| `app/models/candidate.py` | Discovery result models | Adding candidate models |
+| `app/models/graph.py` | Citation graph models | Adding graph models |
+| `app/models/map.py` | Finalized map models | Adding visualization models |
+| `app/models/ranking.py` | Ranking/recommendation models | Adding ranking models |
 | `app/dependencies.py` | Shared dependencies | Adding auth/validation logic |
 | `app/routers/*.py` | Domain-specific endpoints | Adding/modifying API routes |
 | `app/internal/*.py` | Admin/internal endpoints | Adding privileged operations |
@@ -76,6 +87,7 @@ Shared dependencies go in `app/dependencies.py`. Use FastAPI's `Depends()` for:
 
 ### Implemented
 - ✅ Basic FastAPI structure
+- ✅ **Core data models** (WorkRef, TopicRef, CandidateSet, GraphDraft, Map, RankedList)
 - ✅ User endpoints (GET list, GET by username)
 - ✅ Item endpoints (GET, PUT with auth)
 - ✅ Admin endpoint (POST)
@@ -85,12 +97,83 @@ Shared dependencies go in `app/dependencies.py`. Use FastAPI's `Depends()` for:
 ### Not Implemented (TODO)
 - ❌ Database integration
 - ❌ Real authentication (currently uses fake tokens)
-- ❌ Request/response Pydantic models
 - ❌ Unit tests
 - ❌ Environment configuration
 - ❌ Logging
 - ❌ CORS configuration
 - ❌ Rate limiting
+
+## Data Models (app/models/)
+
+All domain objects are defined as Pydantic models organized by category in `app/models/`.
+
+**Package Structure:**
+```
+app/models/
+├── __init__.py       # Exports all models for easy importing
+├── work.py           # WorkRef, WorkRefThin, Author, IngestState
+├── topic.py          # TopicRef, TopicQueryRef, TopicHierarchy  
+├── candidate.py      # CandidateSet, CandidateItem
+├── graph.py          # GraphDraft, GraphStats, CitationEdge
+├── map.py            # Map, MapNode, SubtopicDefinition, FieldContext, LayoutCoordinates
+└── ranking.py        # RankedList, RankedItem, RankingContext, ScoreBreakdown
+```
+
+### Work Models
+- **WorkRef**: Full paper metadata (DOI, title, abstract, authors, citations, topics)
+- **WorkRefThin**: Lightweight version with minimal fields
+- **Author**: Author information
+- **IngestState**: Enum for data completeness (resolved/partially_resolved/unresolved)
+
+### Topic Models
+- **TopicRef**: Research topic with hierarchy and score
+- **TopicQueryRef**: Topics extracted from text query
+- **TopicHierarchy**: Domain → Field → Subfield → Topic structure
+
+### Candidate Models
+- **CandidateSet**: Pool of papers from discovery (Feature 1)
+- **CandidateItem**: Individual paper with discovery metadata
+
+### Graph Models
+- **GraphDraft**: Temporary citation graph before finalization
+- **GraphStats**: Coverage and quality metrics
+- **CitationEdge**: Directed citation relationship
+
+### Map Models
+- **Map**: Final stored graph with visualization data
+- **MapNode**: Node with full metadata + layout coordinates
+- **SubtopicDefinition**: Node grouping strategy
+- **FieldContext**: Research field context
+- **LayoutCoordinates**: 2D position for visualization
+
+### Ranking Models
+- **RankedList**: Scored paper recommendations
+- **RankedItem**: Single ranked paper with explanation
+- **RankingContext**: What ranking is based on
+- **ScoreBreakdown**: Transparent score calculation
+
+**Usage:**
+```python
+# Import from package __init__.py (easiest)
+from app.models import WorkRef, TopicRef, CandidateSet, IngestState
+
+# Or import from specific module
+from app.models.work import WorkRef, IngestState
+from app.models.topic import TopicRef
+from app.models.candidate import CandidateSet
+
+# Create a work
+work = WorkRef(
+    work_id="W123",
+    title="Paper Title",
+    ingest_state=IngestState.RESOLVED
+)
+
+# Use in API responses
+@router.get("/work/{work_id}")
+async def get_work(work_id: str) -> WorkRef:
+    return WorkRef(...)
+```
 
 ## Common Tasks
 

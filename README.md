@@ -10,6 +10,14 @@ A FastAPI backend application following the recommended project structure.
 │   ├── __init__.py
 │   ├── main.py              # Main FastAPI application
 │   ├── dependencies.py      # Shared dependencies
+│   ├── models/              # Data models (organized by category)
+│   │   ├── __init__.py
+│   │   ├── work.py          # Work/paper models
+│   │   ├── topic.py         # Topic/subject models
+│   │   ├── candidate.py     # Candidate pool models
+│   │   ├── graph.py         # Citation graph models
+│   │   ├── map.py           # Finalized map models
+│   │   └── ranking.py       # Ranking models
 │   ├── routers/             # API route modules
 │   │   ├── __init__.py
 │   │   ├── users.py         # User-related endpoints
@@ -20,6 +28,20 @@ A FastAPI backend application following the recommended project structure.
 ├── requirements.txt         # Python dependencies
 └── venv/                    # Virtual environment
 ```
+
+## Data Models
+
+All domain objects organized in `app/models/` package:
+- **work.py**: WorkRef, WorkRefThin, Author, IngestState
+- **topic.py**: TopicRef, TopicQueryRef, TopicHierarchy
+- **candidate.py**: CandidateSet, CandidateItem
+- **graph.py**: GraphDraft, GraphStats, CitationEdge
+- **map.py**: Map, MapNode, SubtopicDefinition, FieldContext, LayoutCoordinates
+- **ranking.py**: RankedList, RankedItem, RankingContext, ScoreBreakdown
+
+Import any model from the package: `from app.models import WorkRef, TopicRef, ...`
+
+See `ARCHITECTURE.md` and `DATA_MODELS.md` for detailed documentation.
 
 ## Setup
 
