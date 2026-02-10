@@ -1,0 +1,25 @@
+from __future__ import annotations
+
+from pathlib import Path
+from dotenv import load_dotenv
+
+# app/main.py -> repo root is ../
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env", override=True)
+
+from fastapi import FastAPI
+from app.feature1.api import router as feature1_router
+from app.feature2.maps_api import router as feature2_maps_router
+from app.feature2.rank_api import router as feature2_rank_router
+from app.feature3.node_details_api import router as feature3_node_details_router
+from app.feature4.compare_api import router as feature4_compare_router
+from app.feature5.gap_api import router as feature5_gap_router
+from app.settings.api import router as settings_router
+
+app = FastAPI()
+app.include_router(feature1_router)
+app.include_router(feature2_maps_router)
+app.include_router(feature2_rank_router)
+app.include_router(feature3_node_details_router)
+app.include_router(feature4_compare_router)
+app.include_router(feature5_gap_router)
+app.include_router(settings_router)
