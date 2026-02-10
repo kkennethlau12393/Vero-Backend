@@ -47,7 +47,8 @@ class RateLimiter:
 
 
 ARXIV_RATE_LIMITER = RateLimiter(calls_per_second=1.0)
-S2_RATE_LIMITER = RateLimiter(calls_per_second=3.0)
+S2_RATE_LIMITER = RateLimiter(calls_per_second=1.0)
+OPENALEX_RATE_LIMITER = RateLimiter(calls_per_second=5.0)  # OpenAlex is generous
 
 # API timeouts
 API_TIMEOUT = 15
@@ -118,6 +119,49 @@ def is_abstract_valid(
 
     if len(abstract.strip()) < 50:
         return False, "Abstract too short (<50 chars)"
+
+    # Detect acknowledgments/boilerplate text masquerading as abstracts
+    abstract_lower = abstract.lower()
+
+    # Acknowledgments patterns - these indicate this is NOT an abstract
+    acknowledgment_patterns = [
+        "referees for help",
+        "the authors thank",
+        "we thank the",
+        "we are grateful",
+        "supported by the",
+        "funded by the",
+        "grant from the",
+        "financial support from",
+        "this work was supported",
+        "this research was supported",
+        "this study was funded",
+        "acknowledges support from",
+        "acknowledges funding from",
+        "revision of work originally",
+        "study commission",
+    ]
+
+    for pattern in acknowledgment_patterns:
+        if pattern in abstract_lower:
+            return False, f"Abstract appears to be acknowledgments text (contains '{pattern}')"
+
+    # Detect if abstract is mostly about funding/support rather than research content
+    # Count funding-related words vs research-content words
+    funding_words = {'thank', 'thanks', 'grateful', 'supported', 'funded', 'grant',
+                     'funding', 'support', 'commission', 'foundation', 'acknowledge',
+                     'acknowledged', 'acknowledges', 'referee', 'referees', 'reviewer'}
+    content_words = {'we', 'this', 'paper', 'study', 'show', 'propose', 'present',
+                     'method', 'approach', 'results', 'demonstrate', 'find', 'analyze',
+                     'analysis', 'model', 'data', 'evidence', 'effect', 'impact'}
+
+    words = set(re.findall(r'\b\w+\b', abstract_lower))
+    funding_count = len(words & funding_words)
+    content_count = len(words & content_words)
+
+    # If funding words dominate and there's little research content, reject
+    if funding_count >= 3 and content_count <= 2:
+        return False, f"Abstract appears to be acknowledgments (funding words: {funding_count}, content words: {content_count})"
 
     # Language check
     detected_lang = detect_language_simple(abstract)
@@ -240,6 +284,68 @@ def search_arxiv_by_title(title: str, max_results: int = 5) -> List[Dict[str, An
     except Exception as e:
         logger.warning(f"ArXiv search error for '{title[:50]}...': {e}")
         return []
+
+
+# ============================================================================
+# OpenAlex API
+# ============================================================================
+
+def fetch_openalex_abstract(work_id: str, title: str = None) -> Optional[Dict[str, Any]]:
+    """
+    Fetch abstract from OpenAlex API by work_id.
+
+    OpenAlex stores abstracts as inverted indexes, so we reconstruct them.
+    """
+    if not work_id or not work_id.startswith("W"):
+        return None
+
+    OPENALEX_RATE_LIMITER.wait()
+
+    try:
+        url = f"https://api.openalex.org/works/{work_id}"
+        headers = {"User-Agent": "Alexandria/1.0 (mailto:contact@example.com)"}
+
+        resp = requests.get(url, headers=headers, timeout=API_TIMEOUT)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+
+        data = resp.json()
+
+        # Reconstruct abstract from inverted index
+        abstract_inv = data.get("abstract_inverted_index")
+        if not abstract_inv:
+            return None
+
+        word_positions = []
+        for word, positions in abstract_inv.items():
+            for pos in positions:
+                word_positions.append((pos, word))
+        word_positions.sort()
+        abstract = " ".join(word for _, word in word_positions)
+
+        if not abstract or len(abstract) < 50:
+            return None
+
+        # Verify title match if provided
+        if title:
+            api_title = data.get("title", "")
+            overlap = title_word_overlap(title, api_title)
+            if overlap < 0.5:
+                logger.warning(f"OpenAlex title mismatch for {work_id}: {overlap:.2f} overlap")
+                return None
+
+        return {
+            "title": data.get("title"),
+            "abstract": abstract,
+            "year": data.get("publication_year"),
+            "doi": data.get("doi"),
+            "source": "openalex",
+        }
+
+    except Exception as e:
+        logger.warning(f"OpenAlex API error for {work_id}: {e}")
+        return None
 
 
 # ============================================================================
@@ -387,15 +493,14 @@ def ensure_valid_abstract(
     Returns:
         (abstract, source)
         - abstract: The validated/enriched abstract
-        - source: "cached" | "arxiv" | "semantic_scholar" | "unavailable"
+        - source: "cached" | "openalex" | "arxiv" | "unavailable"
 
     Flow:
     1. If abstract exists and is valid -> return (abstract, "cached")
-    2. Try ArXiv by ID (if available)
-    3. Try Semantic Scholar by DOI (if available)
+    2. Try OpenAlex by work_id (most reliable - we have the ID)
+    3. Try ArXiv by ID (if available)
     4. Try ArXiv search by title
-    5. Try Semantic Scholar search by title
-    6. Return (original_abstract, "unavailable") - keep what we have
+    5. Return (None, "unavailable") if all fail
     """
     # Check if current abstract is valid
     is_valid, reason = is_abstract_valid(title, abstract)
@@ -414,7 +519,16 @@ def ensure_valid_abstract(
         arxiv_id=arxiv_id,
     )
 
-    # Try ArXiv by ID first
+    # Try OpenAlex first - most reliable since we have the work_id
+    if work_id and work_id.startswith("W"):
+        logger.debug(f"Trying OpenAlex by work_id: {work_id}")
+        result = fetch_openalex_abstract(work_id, title)
+        if result and result.get("abstract"):
+            logger.info(f"Found valid abstract from OpenAlex for {work_id}")
+            _cache_validated_abstract(conn, work_id, result["abstract"], "openalex")
+            return result["abstract"], "openalex"
+
+    # Try ArXiv by ID
     if arxiv_id:
         logger.debug(f"Trying ArXiv by ID: {arxiv_id}")
         result = fetch_arxiv_by_id(arxiv_id)
@@ -424,28 +538,6 @@ def ensure_valid_abstract(
                 logger.info(f"Found valid abstract from ArXiv for {work_id} ({match_reason})")
                 _cache_validated_abstract(conn, work_id, result["abstract"], "arxiv")
                 return result["abstract"], "arxiv"
-
-    # Try Semantic Scholar by DOI
-    if doi:
-        logger.debug(f"Trying Semantic Scholar by DOI: {doi}")
-        result = fetch_s2_by_doi(doi)
-        if result and result.get("abstract"):
-            is_match, confidence, match_reason = verify_paper_match(identity, result)
-            if is_match:
-                logger.info(f"Found valid abstract from S2 (DOI) for {work_id} ({match_reason})")
-                _cache_validated_abstract(conn, work_id, result["abstract"], "semantic_scholar")
-                return result["abstract"], "semantic_scholar"
-
-    # Try Semantic Scholar by ArXiv ID
-    if arxiv_id:
-        logger.debug(f"Trying Semantic Scholar by ArXiv: {arxiv_id}")
-        result = fetch_s2_by_arxiv(arxiv_id)
-        if result and result.get("abstract"):
-            is_match, confidence, match_reason = verify_paper_match(identity, result)
-            if is_match:
-                logger.info(f"Found valid abstract from S2 (ArXiv) for {work_id} ({match_reason})")
-                _cache_validated_abstract(conn, work_id, result["abstract"], "semantic_scholar")
-                return result["abstract"], "semantic_scholar"
 
     # Try ArXiv search by title
     logger.debug(f"Trying ArXiv search for: {title[:50]}...")
@@ -458,20 +550,12 @@ def ensure_valid_abstract(
                 _cache_validated_abstract(conn, work_id, candidate["abstract"], "arxiv")
                 return candidate["abstract"], "arxiv"
 
-    # Try Semantic Scholar search by title
-    logger.debug(f"Trying S2 search for: {title[:50]}...")
-    candidates = search_s2_by_title(title)
-    for candidate in candidates:
-        if candidate.get("abstract"):
-            is_match, confidence, match_reason = verify_paper_match(identity, candidate, strict=True)
-            if is_match:
-                logger.info(f"Found valid abstract from S2 search for {work_id} ({match_reason})")
-                _cache_validated_abstract(conn, work_id, candidate["abstract"], "semantic_scholar")
-                return candidate["abstract"], "semantic_scholar"
+    # NOTE: Semantic Scholar removed - was returning 429 rate limit errors without API key
 
-    # All fallbacks failed - return original (possibly invalid) abstract
+    # All fallbacks failed - return None to signal no usable abstract
+    # Don't return the invalid original - it would pollute LLM generation
     logger.warning(f"Could not find valid abstract for {work_id} from any source")
-    return abstract, "unavailable"
+    return None, "unavailable"
 
 
 def _cache_validated_abstract(

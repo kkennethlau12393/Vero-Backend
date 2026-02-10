@@ -22,7 +22,7 @@ from app.feature3.schemas import NodeDetailsResponse
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1/feature3", tags=["feature3-node-details"])
+router = APIRouter(prefix="/v1", tags=["node-details"])
 
 
 @lru_cache(maxsize=1)
@@ -38,6 +38,7 @@ def get_engine() -> Engine:
 def get_node_details_endpoint(
     map_id: UUID,
     work_id: str,
+    include_timeline: bool = False,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
 ):
@@ -46,6 +47,10 @@ def get_node_details_endpoint(
 
     Returns metadata (title, year, authors, etc.), an LLM-generated summary,
     extracted keywords, novelty assessment, and connected works.
+
+    Args:
+        include_timeline: If True, includes a temporal timeline showing
+            references, landmarks, and citing papers grouped by era.
     """
     try:
         return get_node_details(
@@ -53,6 +58,7 @@ def get_node_details_endpoint(
             tenant_id=tenant_id,
             map_id=map_id,
             work_id=work_id,
+            include_timeline=include_timeline,
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))

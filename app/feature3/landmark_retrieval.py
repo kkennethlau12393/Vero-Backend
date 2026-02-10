@@ -11,14 +11,59 @@ import logging
 import math
 from typing import Any, Dict, List, Optional
 
+import requests
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 logger = logging.getLogger(__name__)
 
+# OpenAlex API settings
+OPENALEX_TIMEOUT = 10
+
 # Bounds for landmark count
 MIN_LANDMARKS = 3
 MAX_LANDMARKS = 6
+
+
+def _verify_topic_from_openalex(work_id: str) -> Optional[str]:
+    """Fetch and return the actual topic_id from OpenAlex for a work.
+
+    Returns the topic_id (e.g., "T12535") or None if lookup fails.
+    """
+    if not work_id or not work_id.startswith("W"):
+        return None
+
+    try:
+        url = f"https://api.openalex.org/works/{work_id}"
+        resp = requests.get(url, timeout=OPENALEX_TIMEOUT)
+        if resp.status_code != 200:
+            return None
+
+        data = resp.json()
+        primary_topic = data.get("primary_topic", {})
+        topic_url = primary_topic.get("id")
+        if topic_url and "/" in topic_url:
+            return topic_url.rsplit("/", 1)[-1]
+        return None
+    except Exception as e:
+        logger.debug(f"OpenAlex topic lookup failed for {work_id}: {e}")
+        return None
+
+
+def _update_work_topic(conn: Connection, work_id: str, correct_topic_id: str) -> None:
+    """Update a work's topic_id in the database."""
+    try:
+        conn.execute(
+            text("""
+                UPDATE works SET primary_topic_id = :topic_id
+                WHERE work_id = :work_id
+            """),
+            {"work_id": work_id, "topic_id": correct_topic_id},
+        )
+        conn.commit()
+        logger.info(f"Updated topic for {work_id} to {correct_topic_id}")
+    except Exception as e:
+        logger.warning(f"Failed to update topic for {work_id}: {e}")
 
 
 def calc_landmark_count(span_years: int) -> int:
@@ -104,8 +149,42 @@ def get_topic_landmarks(
         if paper:
             landmarks.append(paper)
 
-    logger.info(f"Found {len(landmarks)} landmarks for topic {topic_id}")
-    return landmarks
+    # Step 5: Verify landmarks have correct topics (DB data may be stale)
+    # This prevents cross-domain contamination from incorrectly-classified papers
+    verified_landmarks = []
+    for lm in landmarks:
+        lm_work_id = lm.get("work_id")
+        lm_db_topic = lm.get("primary_topic_id")
+
+        # Verify against OpenAlex for high-cited papers (worth the API call)
+        if lm.get("cited_by_count", 0) > 1000:
+            actual_topic = _verify_topic_from_openalex(lm_work_id)
+            if actual_topic and actual_topic != lm_db_topic:
+                # Stale data - update DB and skip this landmark
+                logger.warning(
+                    f"Stale topic for landmark {lm_work_id}: "
+                    f"DB={lm_db_topic}, OpenAlex={actual_topic}. Updating and skipping."
+                )
+                _update_work_topic(conn, lm_work_id, actual_topic)
+                continue
+            elif actual_topic and actual_topic == topic_id:
+                # Verified correct - keep it
+                verified_landmarks.append(lm)
+            elif not actual_topic:
+                # Couldn't verify - keep it (OpenAlex might be down)
+                verified_landmarks.append(lm)
+        else:
+            # Lower-cited papers - trust DB data
+            verified_landmarks.append(lm)
+
+    if len(verified_landmarks) < len(landmarks):
+        logger.info(
+            f"Topic verification: {len(landmarks)} landmarks -> {len(verified_landmarks)} "
+            f"(removed {len(landmarks) - len(verified_landmarks)} with stale topics)"
+        )
+
+    logger.info(f"Found {len(verified_landmarks)} verified landmarks for topic {topic_id}")
+    return verified_landmarks
 
 
 def _get_topic_time_range(
@@ -141,7 +220,7 @@ def _get_top_paper_in_period(
     """Get the highest-cited paper in the given time period."""
     row = conn.execute(
         text("""
-            SELECT work_id, title, year, cited_by_count, abstract, category
+            SELECT work_id, title, year, cited_by_count, abstract, category, primary_topic_id
             FROM works
             WHERE primary_topic_id = :topic_id
             AND year IS NOT NULL
@@ -169,6 +248,7 @@ def _get_top_paper_in_period(
         "cited_by_count": int(row["cited_by_count"] or 0),
         "abstract": row["abstract"],
         "category": row["category"],
+        "primary_topic_id": row["primary_topic_id"],
     }
 
 
@@ -181,7 +261,7 @@ def _get_top_papers_in_topic(
     """Fallback: get top papers by citation count (no period filtering)."""
     rows = conn.execute(
         text("""
-            SELECT work_id, title, year, cited_by_count, abstract, category
+            SELECT work_id, title, year, cited_by_count, abstract, category, primary_topic_id
             FROM works
             WHERE primary_topic_id = :topic_id
             AND year IS NOT NULL
@@ -200,6 +280,7 @@ def _get_top_papers_in_topic(
             "cited_by_count": int(row["cited_by_count"] or 0),
             "abstract": row["abstract"],
             "category": row["category"],
+            "primary_topic_id": row["primary_topic_id"],
         }
         for row in rows
     ]

@@ -20,14 +20,16 @@ from openai import OpenAI
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app.feature3.json_utils import extract_json_from_llm_response
 from app.feature3.paper_identity import normalize_doi, normalize_arxiv_id
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
-# Use same model as other feature3 modules
-MODEL_VERSION = "gpt-4o-mini"
+# Groq Llama 4 Maverick - fast and high quality
+MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # API settings
 OPENALEX_TIMEOUT = 15
@@ -202,9 +204,9 @@ def infer_topic_via_llm(
         "confidence": float,
     }
     """
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        logger.warning("OPENAI_API_KEY not found, skipping LLM inference")
+        logger.warning("GROQ_API_KEY not found, skipping LLM inference")
         return None
 
     if not title:
@@ -217,7 +219,7 @@ def infer_topic_via_llm(
         abstract=abstract_text[:1500],  # Truncate long abstracts
     )
 
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -230,20 +232,20 @@ def infer_topic_via_llm(
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.3,
                 timeout=30.0,
             )
 
             content = (resp.choices[0].message.content or "").strip()
 
-            # Handle markdown code blocks
-            if content.startswith("```"):
-                lines = content.split("\n")
-                content = "\n".join(
-                    lines[1:-1] if lines[-1].startswith("```") else lines[1:]
-                )
+            # Use robust JSON extraction (handles code blocks, extra text, etc.)
+            result, error = extract_json_from_llm_response(content, expected_type="object")
 
-            result = json.loads(content)
+            if result is None:
+                logger.warning(f"Failed to parse LLM topic response: {error}")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(RETRY_BACKOFF * (2 ** attempt))
+                    continue
+                return None
 
             # Validate required fields
             if not result.get("field") or not result.get("subfield"):
@@ -257,10 +259,6 @@ def infer_topic_via_llm(
                 "confidence": float(result.get("confidence", 0.5)),
             }
 
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse LLM topic response: {e}")
-            if attempt == MAX_RETRIES - 1:
-                return None
         except Exception as e:
             logger.warning(f"LLM topic inference error: {e}")
             if attempt < MAX_RETRIES - 1:

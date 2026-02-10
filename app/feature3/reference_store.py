@@ -18,7 +18,7 @@ from sqlalchemy.engine import Connection
 logger = logging.getLogger(__name__)
 
 OPENALEX_BATCH_SIZE = 50
-MAX_REFERENCES_TO_FETCH = 10
+MAX_REFERENCES_TO_FETCH = 7
 
 
 def get_referenced_works(
@@ -40,7 +40,11 @@ def get_referenced_works(
     cached = _get_cached_references(conn, work_id)
     if cached is not None:
         logger.info(f"Reference cache hit for {work_id}: {len(cached)} refs")
-        return _load_reference_details(conn, cached[:MAX_REFERENCES_TO_FETCH])
+        # Ensure referenced works exist in DB (may be missing if cache was populated
+        # but works weren't inserted, or if works table was modified)
+        top_refs = cached[:MAX_REFERENCES_TO_FETCH]
+        _ensure_works_exist(conn, top_refs)
+        return _load_reference_details(conn, top_refs)
 
     # Step 2: Fetch from OpenAlex
     ref_ids = _fetch_references_from_openalex(work_id)
@@ -182,11 +186,19 @@ def _fetch_and_insert_works(conn: Connection, work_ids: List[str]) -> None:
             # Decode abstract from inverted index
             abstract = _decode_abstract(w.get("abstract_inverted_index"))
 
+            # Extract primary_topic_id for cross-domain filtering
+            primary_topic = w.get("primary_topic", {})
+            topic_id = None
+            if primary_topic and primary_topic.get("id"):
+                topic_url = primary_topic["id"]
+                if "/" in topic_url:
+                    topic_id = topic_url.rsplit("/", 1)[-1]
+
             # Insert (ignore conflicts)
             conn.execute(
                 text("""
-                    INSERT INTO works (work_id, title, year, cited_by_count, abstract)
-                    VALUES (:work_id, :title, :year, :cited_by_count, :abstract)
+                    INSERT INTO works (work_id, title, year, cited_by_count, abstract, primary_topic_id)
+                    VALUES (:work_id, :title, :year, :cited_by_count, :abstract, :primary_topic_id)
                     ON CONFLICT (work_id) DO NOTHING
                 """),
                 {
@@ -195,6 +207,7 @@ def _fetch_and_insert_works(conn: Connection, work_ids: List[str]) -> None:
                     "year": year,
                     "cited_by_count": cited_by_count,
                     "abstract": abstract,
+                    "primary_topic_id": topic_id,
                 },
             )
 
@@ -236,7 +249,7 @@ def _load_reference_details(
 
     rows = conn.execute(
         text("""
-            SELECT work_id, title, year, cited_by_count, abstract, category
+            SELECT work_id, title, year, cited_by_count, abstract, category, primary_topic_id
             FROM works
             WHERE work_id = ANY(:ids)
         """),
@@ -253,6 +266,7 @@ def _load_reference_details(
             "cited_by_count": int(row["cited_by_count"] or 0),
             "abstract": row["abstract"],
             "category": row["category"],
+            "primary_topic_id": row["primary_topic_id"],
         })
 
     # Sort by citation count descending (most influential first)
