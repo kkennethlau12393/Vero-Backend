@@ -52,6 +52,9 @@ RETRY_BACKOFF_BASE = 0.5
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
+# Bump this when model OR prompt changes to auto-invalidate cached assessments
+ASSESSMENT_VERSION = "maverick-v4"
+
 
 def get_cached_details(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
     """Retrieve cached node details for a work."""
@@ -61,9 +64,9 @@ def get_cached_details(conn: Connection, work_id: str) -> Optional[Dict[str, Any
                 SELECT summary, keywords, novelty_assessment, model_version,
                        assessment_unavailable_reason
                 FROM node_details_cache
-                WHERE work_id = :work_id
+                WHERE work_id = :work_id AND model_version = :model_version
             """),
-            {"work_id": work_id},
+            {"work_id": work_id, "model_version": ASSESSMENT_VERSION},
         ).mappings().first()
 
         if row:
@@ -106,7 +109,7 @@ def cache_details(
                 "summary": summary,
                 "keywords": json.dumps(keywords),
                 "novelty_assessment": json.dumps(novelty_assessment) if novelty_assessment else None,
-                "model_version": MODEL_VERSION,
+                "model_version": ASSESSMENT_VERSION,
                 "assessment_unavailable_reason": assessment_unavailable_reason,
             },
         )
@@ -126,6 +129,117 @@ def _truncate_text(text_val: str, max_chars: int = 500) -> str:
     if last_space > max_chars * 0.8:
         truncated = truncated[:last_space]
     return truncated + "..."
+
+
+# ============================================================================
+# Post-LLM Validation: Banned Verbs
+# ============================================================================
+
+import re as _re
+
+# Banned verbs from the novelty prompt rubric (all forms)
+_BANNED_VERB_PATTERNS = [
+    # Order: match 3rd person ('s' suffix) BEFORE base/infinitive form
+    # to avoid base form regex turning "evaluates" into "validatees"
+    (r'\bexplores\b', 'demonstrates'),
+    (r'\bexplore\b', 'demonstrate'),
+    (r'\bexplored\b', 'demonstrated'),
+    (r'\bexploring\b', 'demonstrating'),
+    (r'\bdiscusses\b', 'presents'),
+    (r'\bdiscuss\b', 'present'),
+    (r'\bdiscussed\b', 'presented'),
+    (r'\bdiscussing\b', 'presenting'),
+    (r'\bexamines\b', 'establishes'),
+    (r'\bexamine\b', 'establish'),
+    (r'\bexamined\b', 'established'),
+    (r'\bexamining\b', 'establishing'),
+    (r'\binvestigates\b', 'demonstrates'),
+    (r'\binvestigate\b', 'demonstrate'),
+    (r'\binvestigated\b', 'demonstrated'),
+    (r'\binvestigating\b', 'demonstrating'),
+    (r'\bassesses\b', 'validates'),
+    (r'\bassess\b', 'validate'),
+    (r'\bassessed\b', 'validated'),
+    (r'\bassessing\b', 'validating'),
+    (r'\bevaluates\b', 'validates'),
+    (r'\bevaluate\b', 'validate'),
+    (r'\bevaluated\b', 'validated'),
+    (r'\bevaluating\b', 'validating'),
+    (r'\baddresses\b', 'presents'),
+    (r'\baddress\b', 'present'),
+    (r'\baddressed\b', 'presented'),
+    (r'\baddressing\b', 'presenting'),
+    (r'\blooks at\b', 'presents'),
+    (r'\blook at\b', 'present'),
+    (r'\blooked at\b', 'presented'),
+    (r'\blooking at\b', 'presenting'),
+    (r'\bstudies\b', 'demonstrates'),
+    (r'\bstudy\b', 'demonstrate'),
+    (r'\bstudied\b', 'demonstrated'),
+    (r'\bstudying\b', 'demonstrating'),
+    (r'\banalyzes\b', 'establishes'),
+    (r'\banalyze\b', 'establish'),
+    (r'\banalyzed\b', 'established'),
+    (r'\banalyzing\b', 'establishing'),
+    (r'\banalyses\b', 'establishes'),
+    (r'\banalyse\b', 'establish'),
+    (r'\banalysed\b', 'established'),
+    (r'\banalysing\b', 'establishing'),
+    # "reviews" as a verb (not "this review" as a noun)
+    (r'\breviews\b(?!\s+(?:of|paper|article))', 'synthesizes'),
+    (r'\breview\b(?=\s+(?:the|this|how|what|key|recent|current))', 'synthesize'),
+    (r'\breviewed\b', 'synthesized'),
+    (r'\breviewing\b', 'synthesizing'),
+]
+
+# Pre-compile for performance
+_BANNED_COMPILED = [(_re.compile(pat, _re.IGNORECASE), repl) for pat, repl in _BANNED_VERB_PATTERNS]
+
+
+def _scrub_banned_verbs(text: str) -> str:
+    """Replace banned verbs with approved alternatives. Returns cleaned text."""
+    if not text:
+        return text
+    result = text
+    for pattern, replacement in _BANNED_COMPILED:
+        result = pattern.sub(replacement, result)
+    return result
+
+
+def _has_banned_verbs(text: str) -> bool:
+    """Check if text contains any banned verbs."""
+    if not text:
+        return False
+    for pattern, _ in _BANNED_COMPILED:
+        if pattern.search(text):
+            return True
+    return False
+
+
+# Boilerplate relevance patterns that should be replaced
+_BOILERPLATE_RELEVANCE = {
+    "Landmark paper in this field for context",
+    "Cited reference for methodology comparison",
+    "Cited in novelty assessment narrative",
+}
+
+
+def _generate_relevance(paper: Dict[str, Any], relationship: str) -> str:
+    """Generate a meaningful relevance string from paper metadata instead of boilerplate."""
+    title = paper.get("title", "")
+    year = paper.get("year")
+    cites = paper.get("cited_by_count", 0) or 0
+
+    # Build a relevance string from the paper's title
+    if relationship == "field_landmark":
+        if cites > 10000:
+            return f"Established foundational work ({title[:60]}{'...' if len(title) > 60 else ''}) widely adopted in this field."
+        elif year and year < 2000:
+            return f"Introduced early methods ({title[:60]}{'...' if len(title) > 60 else ''}) that shaped this research area."
+        else:
+            return f"Contributed key advances ({title[:60]}{'...' if len(title) > 60 else ''}) relevant to this paper's domain."
+    else:
+        return f"Cited by this paper for its contribution: {title[:80]}{'...' if len(title) > 80 else ''}"
 
 
 def _generate_summary_from_abstract(abstract: Optional[str], title: Optional[str] = None) -> str:
@@ -319,12 +433,16 @@ def _build_grounded_prompt(
     # Detect potential pioneering work based on citation impact
     # High citation count is a strong signal of paradigm-shifting work
     # We provide context to help the LLM, but don't override its judgment
+    paper_age = max(2025 - year, 1) if year else 1
+    cites_per_year = cited_by_count / paper_age if cited_by_count > 0 else 0
     is_extremely_cited = cited_by_count > 50000
-    is_highly_cited_with_few_refs = (
-        cited_by_count > 20000
-        and len(referenced_works) < 5
+    is_old_and_foundational = (
+        year is not None and year < 2000
+        and cited_by_count > 5000
+        and len(referenced_works) < 10
     )
-    is_candidate_pioneer = is_extremely_cited or is_highly_cited_with_few_refs
+    is_exceptional_rate = cites_per_year > 500 and len(referenced_works) < 10
+    is_candidate_pioneer = is_extremely_cited or is_old_and_foundational or is_exceptional_rate
     pioneering_context = ""
     if is_candidate_pioneer:
         pioneering_context = f"""
@@ -494,7 +612,7 @@ Return JSON (include q0_is_review, q1_is_software, q2_new_framework, q3_improvem
         "q3_improvement": "major" | "incremental" | "n/a",
         "novelty_level": "low" | "medium" | "high" | "pioneering",
         "confidence": "low" | "medium" | "high",
-        "whats_new": "NEVER use banned verbs. Use: introduces/builds upon/develops. Cite work_ids. ONLY null if pioneering.",
+        "whats_new": "NEVER use banned verbs. Use: introduces/builds upon/develops. Cite work_ids. ONLY null if pioneering. For reviews/surveys: describe what the review SYNTHESIZES or ORGANIZES (e.g. 'Synthesizes recent advances in X, organizing methods by Y'). NEVER null for reviews.",
         "compared_to_prior_work": "Compare to landmarks (cite work_ids). ONLY null if pioneering. For reviews: explain how it builds on prior work.",
         "novelty_explanation": "REQUIRED: (1) Cite specific work_ids [W...] that support classification, (2) Make specific technical claims about WHY this level. BAD: 'classified as review due to title'. GOOD: 'classified as high because it validates SOFA scores [W1898928487] for sepsis diagnosis, updating the SIRS criteria established by [W2168803832]'. NEVER just restate the Q0-Q3 decision without substantive technical claims.",
         "grounding_papers": [
@@ -591,6 +709,7 @@ def generate_node_details_llm(
                     {"role": "user", "content": prompt},
                 ],
                 timeout=90.0,
+                temperature=0,
             )
             content = (resp.choices[0].message.content or "").strip()
 
@@ -892,7 +1011,7 @@ def _validate_llm_response(
                     "year": lm.get("year"),
                     "cited_by_count": lm.get("cited_by_count"),
                     "relationship": lm.get("relationship", "field_landmark"),
-                    "relevance": "Landmark paper in this field for context",
+                    "relevance": _generate_relevance(lm, "field_landmark"),
                 })
                 grounding_work_ids.add(lm["work_id"])
                 landmarks_needed -= 1
@@ -914,7 +1033,7 @@ def _validate_llm_response(
                     "year": ref.get("year"),
                     "cited_by_count": ref.get("cited_by_count"),
                     "relationship": ref.get("relationship", "cited_reference"),
-                    "relevance": "Cited reference for methodology comparison",
+                    "relevance": _generate_relevance(ref, "cited_reference"),
                 })
                 grounding_work_ids.add(ref["work_id"])
 
@@ -935,7 +1054,7 @@ def _validate_llm_response(
                     "year": lm.get("year"),
                     "cited_by_count": lm.get("cited_by_count"),
                     "relationship": lm.get("relationship", "field_landmark"),
-                    "relevance": "Landmark paper in this field for context",
+                    "relevance": _generate_relevance(lm, "field_landmark"),
                 })
                 grounding_work_ids.add(lm["work_id"])
 
@@ -991,7 +1110,7 @@ def _validate_llm_response(
                     "year": paper.get("year"),
                     "cited_by_count": paper.get("cited_by_count"),
                     "relationship": relationship,
-                    "relevance": "Cited in novelty assessment narrative",
+                    "relevance": _generate_relevance(paper, relationship),
                 })
                 grounding_work_ids.add(orphan_id)
                 logger.info(f"Added orphaned citation {orphan_id} to grounding_papers")
@@ -1018,6 +1137,47 @@ def _validate_llm_response(
     if consistency["consistency_score"] < 0.5 and novelty_assessment["confidence"] == "high":
         novelty_assessment["confidence"] = "medium"
         logger.info("Reduced confidence from high to medium due to low grounding consistency")
+
+    # ================================================================
+    # POST-LLM VALIDATION SWEEP (code-level guardrails for durability)
+    # ================================================================
+
+    # 1. Scrub banned verbs from ALL text fields
+    summary = _scrub_banned_verbs(summary)
+    for field_name in ("whats_new", "compared_to_prior_work", "novelty_explanation"):
+        val = novelty_assessment.get(field_name)
+        if val:
+            novelty_assessment[field_name] = _scrub_banned_verbs(val)
+
+    # Scrub banned verbs from grounding paper relevance strings
+    for gp in novelty_assessment.get("grounding_papers", []):
+        if gp.get("relevance"):
+            gp["relevance"] = _scrub_banned_verbs(gp["relevance"])
+
+    # 2. Fix whats_new=null for non-pioneering papers
+    #    Rubric says "ONLY null if pioneering"
+    level = novelty_assessment.get("novelty_level", "medium")
+    if level != "pioneering" and not novelty_assessment.get("whats_new"):
+        # For reviews (medium via Q0), describe what the review synthesizes
+        compared = novelty_assessment.get("compared_to_prior_work") or ""
+        explanation = novelty_assessment.get("novelty_explanation") or ""
+        if "review" in explanation.lower() or "synthes" in explanation.lower():
+            novelty_assessment["whats_new"] = (
+                f"Synthesizes and organizes current knowledge in this area, "
+                f"building upon prior work cited in the assessment."
+            )
+        else:
+            # Non-review: derive from compared_to_prior_work or explanation
+            if compared:
+                novelty_assessment["whats_new"] = compared[:200]
+            elif explanation:
+                novelty_assessment["whats_new"] = explanation[:200]
+        logger.info(f"Fixed null whats_new for non-pioneering paper (level={level})")
+
+    # 3. Replace any remaining boilerplate relevance strings from LLM output
+    for gp in novelty_assessment.get("grounding_papers", []):
+        if gp.get("relevance") in _BOILERPLATE_RELEVANCE:
+            gp["relevance"] = _generate_relevance(gp, gp.get("relationship", "cited_reference"))
 
     return {
         "summary": summary,
@@ -1152,14 +1312,17 @@ def get_node_details(
             arxiv_id=work_data.get("arxiv_id"),
         )
         if abstract_source not in ("cached", "unavailable") and enriched_abstract:
-            logger.info(f"Enriched abstract for {work_id} from {abstract_source}")
-            work_data["abstract"] = enriched_abstract
-            enrichment_happened = True
+            # Only flag enrichment if the abstract actually changed
+            if enriched_abstract != work_data["abstract"]:
+                logger.info(f"Enriched abstract for {work_id} from {abstract_source}")
+                work_data["abstract"] = enriched_abstract
+                enrichment_happened = True
         elif abstract_source == "unavailable":
             # Abstract was invalid and no replacement found - clear it so LLM knows
-            logger.info(f"Abstract for {work_id} is invalid and unfetchable, clearing")
-            work_data["abstract"] = None
-            enrichment_happened = True  # Force regeneration since we changed the abstract
+            if work_data["abstract"] is not None:
+                logger.info(f"Abstract for {work_id} is invalid and unfetchable, clearing")
+                work_data["abstract"] = None
+                enrichment_happened = True
 
         # Infer topic if missing (needed for landmark retrieval)
         inferred_topic_id, topic_source = ensure_topic(
@@ -1172,9 +1335,11 @@ def get_node_details(
             arxiv_id=work_data.get("arxiv_id"),
         )
         if topic_source not in ("cached", "unavailable") and inferred_topic_id:
-            logger.info(f"Inferred topic for {work_id}: {inferred_topic_id} from {topic_source}")
-            work_data["primary_topic_id"] = inferred_topic_id
-            enrichment_happened = True
+            # Only flag enrichment if the topic actually changed
+            if inferred_topic_id != work_data.get("primary_topic_id"):
+                logger.info(f"Inferred topic for {work_id}: {inferred_topic_id} from {topic_source}")
+                work_data["primary_topic_id"] = inferred_topic_id
+                enrichment_happened = True
 
         # Fetch topic display name for "Research this topic" feature
         topic_display_name = None
@@ -1287,15 +1452,23 @@ def get_node_details(
         )
         logger.info(f"Found {len(landmarks)} topic landmarks")
 
-        # Detect if this is a pioneering work (old, highly cited, few predecessors)
+        # Detect if this is a pioneering work (highly cited foundational paper)
+        # Multiple signals: extreme citations, old + well-cited + few refs, high cite-per-year ratio
         cited_by_count = work_data.get("cited_by_count", 0)
         work_year = work_data.get("year")
-        is_pioneering = (
-            work_year is not None
-            and work_year < 1995
-            and cited_by_count > 10000
-            and len(referenced_works) < 5
-        )
+        is_pioneering = False
+        if work_year is not None and cited_by_count > 0:
+            paper_age = max(2025 - work_year, 1)
+            cites_per_year = cited_by_count / paper_age
+            # Extremely cited papers (>50K) are always candidates
+            if cited_by_count > 50000:
+                is_pioneering = True
+            # Old papers (pre-2000) with high citations AND few references (foundational work)
+            elif work_year < 2000 and cited_by_count > 5000 and len(referenced_works) < 10:
+                is_pioneering = True
+            # Any paper with exceptional cite-per-year ratio AND few references
+            elif cites_per_year > 500 and len(referenced_works) < 10:
+                is_pioneering = True
         if is_pioneering:
             logger.info(f"Detected pioneering work: {work_id} (year={work_year}, citations={cited_by_count})")
 
@@ -1377,6 +1550,20 @@ def get_node_details(
                         impact_analysis=_build_impact_analysis_obj(timeline_data.get("impact_analysis")),
                     )
 
+                unavailable_reason = (
+                    "Insufficient reference data - no citations or field landmark papers "
+                    "available for comparison. Novelty assessment requires at least one "
+                    "reference or landmark paper to ground the analysis."
+                )
+
+                # Cache the unavailable result to avoid repeated expensive lookups
+                cache_details(
+                    conn, work_id,
+                    basic_summary, basic_keywords,
+                    None,
+                    assessment_unavailable_reason=unavailable_reason,
+                )
+
                 return NodeDetailsResponse(
                     work_id=work_data["work_id"],
                     title=work_data["title"],
@@ -1389,11 +1576,7 @@ def get_node_details(
                     keywords=basic_keywords,
                     novelty_assessment=None,
                     connected_works=connected_works,
-                    assessment_unavailable_reason=(
-                        "Insufficient reference data - no citations or field landmark papers "
-                        "available for comparison. Novelty assessment requires at least one "
-                        "reference or landmark paper to ground the analysis."
-                    ),
+                    assessment_unavailable_reason=unavailable_reason,
                     timeline=timeline_obj,
                     primary_topic_id=work_data.get("primary_topic_id"),
                     topic_display_name=topic_display_name,

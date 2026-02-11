@@ -335,6 +335,7 @@ def analyze_paper_impact(
                     {"role": "user", "content": prompt},
                 ],
                 timeout=60.0,
+                temperature=0,
             )
             content = (resp.choices[0].message.content or "").strip()
 

@@ -3,6 +3,8 @@ Paper identity verification utilities for Feature 3.
 
 This module provides functions to verify that two papers are the same work,
 critical for safely enriching paper data from multiple sources (ArXiv, Semantic Scholar).
+
+Also provides shared utility functions like abstract decoding.
 """
 
 from __future__ import annotations
@@ -280,3 +282,40 @@ def extract_doi_from_url(url: Optional[str]) -> Optional[str]:
         return normalize_doi(match.group(1))
 
     return None
+
+
+# ============================================================================
+# OpenAlex Abstract Decoding
+# ============================================================================
+
+def decode_openalex_abstract(abstract_inverted_index: Any) -> Optional[str]:
+    """
+    Reconstruct abstract text from OpenAlex's inverted index format.
+
+    OpenAlex stores abstracts as {word: [position1, position2, ...]} dicts.
+    This function reconstructs the original text from that format.
+
+    Args:
+        abstract_inverted_index: Dict mapping words to position lists
+
+    Returns:
+        Reconstructed abstract text, or None if input is invalid
+    """
+    if not abstract_inverted_index or not isinstance(abstract_inverted_index, dict):
+        return None
+
+    word_positions = []
+    for word, positions in abstract_inverted_index.items():
+        if not isinstance(positions, list):
+            continue
+        for pos in positions:
+            try:
+                word_positions.append((int(pos), word))
+            except (ValueError, TypeError):
+                continue
+
+    if not word_positions:
+        return None
+
+    word_positions.sort()
+    return " ".join(w for _, w in word_positions).strip() or None

@@ -19,9 +19,14 @@ import requests
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app.feature3.paper_identity import decode_openalex_abstract
+
 logger = logging.getLogger(__name__)
 
 OPENALEX_TIMEOUT = 15
+
+# Allowed column names for cache read/write (prevents SQL injection)
+_ALLOWED_COLUMNS = frozenset({"citing_works_json", "landmark_works_json", "referenced_works_json"})
 
 
 # ============================================================================
@@ -44,8 +49,10 @@ def read_cache(
     Returns:
         List of paper dicts if cached, None if not cached
     """
+    if column not in _ALLOWED_COLUMNS:
+        raise ValueError(f"Invalid cache column: {column}")
+
     try:
-        # Use parameterized column name safely (column is from our code, not user input)
         query = f"SELECT {column} FROM works WHERE work_id = :work_id"
         row = conn.execute(text(query), {"work_id": work_id}).mappings().first()
 
@@ -88,6 +95,9 @@ def write_cache(
         column: Column name
         papers: List of paper dicts to cache
     """
+    if column not in _ALLOWED_COLUMNS:
+        raise ValueError(f"Invalid cache column: {column}")
+
     try:
         query = f"UPDATE works SET {column} = :papers WHERE work_id = :work_id"
         conn.execute(
@@ -106,19 +116,7 @@ def write_cache(
 
 def _extract_abstract(work: Dict[str, Any]) -> Optional[str]:
     """Extract abstract from OpenAlex work data."""
-    abstract_inv = work.get("abstract_inverted_index")
-    if not abstract_inv:
-        return None
-
-    try:
-        word_positions = []
-        for word, positions in abstract_inv.items():
-            for pos in positions:
-                word_positions.append((pos, word))
-        word_positions.sort()
-        return " ".join(word for _, word in word_positions)
-    except Exception:
-        return None
+    return decode_openalex_abstract(work.get("abstract_inverted_index"))
 
 
 def fetch_citing_papers_openalex(
