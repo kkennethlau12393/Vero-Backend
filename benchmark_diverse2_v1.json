@@ -1,0 +1,2309 @@
+{
+  "protein structure prediction": {
+    "elapsed": 29.785461902618408,
+    "foundational": [
+      {
+        "title": "Gapped BLAST and PSI-BLAST: a new generation of protein database search programs",
+        "year": 1997,
+        "cites": 73596,
+        "llm": 0.75,
+        "score": 0.6129415987729535
+      },
+      {
+        "title": "Highly accurate protein structure prediction with AlphaFold",
+        "year": 2021,
+        "cites": 41095,
+        "llm": 0.95,
+        "score": 0.9273766043684992
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Comparative Protein Modelling by Satisfaction of Spatial Restraints",
+        "year": 1993,
+        "cites": 13001,
+        "llm": 0.75,
+        "score": 0.4694096726454403
+      },
+      {
+        "title": "SWISS-MODEL: homology modelling of protein structures and complexes",
+        "year": 2018,
+        "cites": 12843,
+        "llm": 0.75,
+        "score": 0.6277532968775129
+      },
+      {
+        "title": "The Phyre2 web portal for protein modeling, prediction and analysis",
+        "year": 2015,
+        "cites": 10005,
+        "llm": 0.75,
+        "score": 0.5420380189952941
+      },
+      {
+        "title": "<i>REFMAC</i>5 for the refinement of macromolecular crystal structures",
+        "year": 2011,
+        "cites": 8463,
+        "llm": 0.75,
+        "score": 0.49400107946967114
+      },
+      {
+        "title": "AlphaFold Protein Structure Database: massively expanding the structural coverage of protein-sequence space with high-accuracy models",
+        "year": 2021,
+        "cites": 7714,
+        "llm": 0.95,
+        "score": 0.7301497259374552
+      },
+      {
+        "title": "Accurate prediction of protein structures and interactions using a three-track neural network",
+        "year": 2021,
+        "cites": 5282,
+        "llm": 0.75,
+        "score": 0.5840857330728366
+      },
+      {
+        "title": "Protein structure prediction on the Web: a case study using the Phyre server",
+        "year": 2009,
+        "cites": 4189,
+        "llm": 0.75,
+        "score": 0.5611452749608684
+      },
+      {
+        "title": "Evolutionary-scale prediction of atomic-level protein structure with a language model",
+        "year": 2023,
+        "cites": 3894,
+        "llm": 0.95,
+        "score": 0.7214426056577142
+      },
+      {
+        "title": "The PSIPRED protein structure prediction server",
+        "year": 2000,
+        "cites": 3784,
+        "llm": 0.75,
+        "score": 0.5833006123460269
+      },
+      {
+        "title": "Improved protein structure prediction using potentials from deep learning",
+        "year": 2020,
+        "cites": 3350,
+        "llm": 0.75,
+        "score": 0.5992556854202786
+      },
+      {
+        "title": "AlphaFold Protein Structure Database in 2024: providing structure coverage for over 214 million protein sequences",
+        "year": 2023,
+        "cites": 1539,
+        "llm": 0.75,
+        "score": 0.5344472329170638
+      },
+      {
+        "title": "Improved protein structure prediction using predicted interresidue orientations",
+        "year": 2019,
+        "cites": 1505,
+        "llm": 0.75,
+        "score": 0.5280227970705886
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Protein Structure Prediction and Structural Genomics",
+        "year": 2001,
+        "cites": 1600,
+        "llm": 0.95,
+        "score": 0.5734708847542317
+      },
+      {
+        "title": "Protein structure prediction servers at University College London",
+        "year": 2005,
+        "cites": 729,
+        "llm": 0.75,
+        "score": 0.4444156334394626
+      },
+      {
+        "title": "Before and after AlphaFold2: An overview of protein structure prediction",
+        "year": 2023,
+        "cites": 252,
+        "llm": 0.75,
+        "score": 0.5002897506222979
+      }
+    ],
+    "applications": [
+      {
+        "title": "ColabFold: making protein folding accessible to all",
+        "year": 2022,
+        "cites": 8929,
+        "llm": 0.75,
+        "score": 0.6795286732004263
+      },
+      {
+        "title": "AlphaFold predictions are valuable hypotheses and accelerate but do not replace experimental structure determination",
+        "year": 2023,
+        "cites": 288,
+        "llm": 0.75,
+        "score": 0.5012452046725011
+      },
+      {
+        "title": "AlphaFold accelerates artificial intelligence powered drug discovery: efficient discovery of a novel CDK20 small molecule inhibitor",
+        "year": 2023,
+        "cites": 281,
+        "llm": 0.75,
+        "score": 0.5010594219405171
+      },
+      {
+        "title": "Evaluation of AlphaFold structure-based protein stability prediction on missense variations in cancer",
+        "year": 2023,
+        "cites": 58,
+        "llm": 0.75,
+        "score": 0.49514091490731366
+      },
+      {
+        "title": "PredictProtein - Predicting Protein Structure and Function for 29 Years",
+        "year": 2021,
+        "cites": 255,
+        "llm": 0.75,
+        "score": 0.5383428142610804
+      },
+      {
+        "title": "Predicting protein structures with a multiplayer online game",
+        "year": 2010,
+        "cites": 1362,
+        "llm": 0.75,
+        "score": 0.5791988467992026
+      }
+    ]
+  },
+  "dark matter detection": {
+    "elapsed": 41.784656286239624,
+    "foundational": [
+      {
+        "title": "Observational Evidence from Supernovae for an Accelerating Universe and a Cosmological Constant",
+        "year": 1998,
+        "cites": 18246,
+        "llm": 0.95,
+        "score": 0.7454108529371828
+      },
+      {
+        "title": "<i>Planck</i> 2018 results",
+        "year": 2020,
+        "cites": 12883,
+        "llm": 0.75,
+        "score": 0.6492620333101919
+      },
+      {
+        "title": "<i>Planck</i>2013 results. XVI. Cosmological parameters",
+        "year": 2014,
+        "cites": 6285,
+        "llm": 0.75,
+        "score": 0.6038914874281993
+      },
+      {
+        "title": "Dark Matter Candidates from Particle Physics and Methods of Detection",
+        "year": 2010,
+        "cites": 1338,
+        "llm": 0.75,
+        "score": 0.5477359397572558
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Does the missing mass problem signal the breakdown of Newtonian gravity?",
+        "year": 1984,
+        "cites": 900,
+        "llm": 0.75,
+        "score": 0.5710794101981587
+      },
+      {
+        "title": "Signal modulation in cold-dark-matter detection",
+        "year": 1988,
+        "cites": 464,
+        "llm": 0.95,
+        "score": 0.677362947860042
+      },
+      {
+        "title": "Technocosmology \u2014 could a technibaryon excess provide a \u201cnatural\u201d missing mass candidate?",
+        "year": 1985,
+        "cites": 464,
+        "llm": 0.75,
+        "score": 0.5520099296716198
+      },
+      {
+        "title": "Compatibility of DAMA/LIBRA dark matter detection with other searches",
+        "year": 2009,
+        "cites": 398,
+        "llm": 0.75,
+        "score": 0.5250852231873672
+      },
+      {
+        "title": "Broadband and Resonant Approaches to Axion Dark Matter Detection",
+        "year": 2016,
+        "cites": 361,
+        "llm": 0.75,
+        "score": 0.5159428865044592
+      },
+      {
+        "title": "Detection of (dark) matter concentrations via weak gravitational lensing",
+        "year": 1996,
+        "cites": 318,
+        "llm": 0.75,
+        "score": 0.5668837628211936
+      },
+      {
+        "title": "Can scalar neutrinos or massive Dirac neutrinos be the missing mass?",
+        "year": 1986,
+        "cites": 204,
+        "llm": 0.75,
+        "score": 0.4482630080075918
+      },
+      {
+        "title": "WIMPonium and boost factors for indirect dark matter detection",
+        "year": 2009,
+        "cites": 195,
+        "llm": 0.75,
+        "score": 0.45071616767468736
+      },
+      {
+        "title": "Indirect detection of dark matter in km-size neutrino telescopes",
+        "year": 1998,
+        "cites": 120,
+        "llm": 0.75,
+        "score": 0.45740900302212106
+      },
+      {
+        "title": "Dirac materials for sub-MeV dark matter detection: New targets and improved formalism",
+        "year": 2020,
+        "cites": 91,
+        "llm": 0.75,
+        "score": 0.4536230450823149
+      },
+      {
+        "title": "Maximizing Direct Detection with Highly Interactive Particle Relic Dark Matter",
+        "year": 2023,
+        "cites": 80,
+        "llm": 0.75,
+        "score": 0.48529041827109354
+      },
+      {
+        "title": "Directional dark matter detection in anisotropic Dirac materials",
+        "year": 2021,
+        "cites": 80,
+        "llm": 0.75,
+        "score": 0.4617294868259731
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Non-baryonic dark matter: observational evidence and detection methods",
+        "year": 2000,
+        "cites": 877,
+        "llm": 0.75,
+        "score": 0.4594594912910778
+      },
+      {
+        "title": "The distribution of dark matter in galaxies",
+        "year": 2019,
+        "cites": 287,
+        "llm": 0.75,
+        "score": 0.5899485712130785
+      },
+      {
+        "title": "DARK MATTER DETECTION IN THE LIGHT OF RECENT EXPERIMENTAL RESULTS",
+        "year": 2004,
+        "cites": 285,
+        "llm": 0.75,
+        "score": 0.4617015276975757
+      },
+      {
+        "title": "Current status of direct dark matter detection\u00a0experiments",
+        "year": 2017,
+        "cites": 248,
+        "llm": 0.75,
+        "score": 0.49154961858693536
+      },
+      {
+        "title": "Review of the theoretical and experimental status of dark matter identification with cosmic-ray antideuterons",
+        "year": 2016,
+        "cites": 95,
+        "llm": 0.75,
+        "score": 0.5821352414391101
+      }
+    ],
+    "applications": [
+      {
+        "title": "DarkSide-20k: A 20 tonne two-phase LAr TPC for direct dark matter detection at LNGS",
+        "year": 2018,
+        "cites": 609,
+        "llm": 0.75,
+        "score": 0.5209600260702684
+      },
+      {
+        "title": "First Dark Matter Search with Nuclear Recoils from the XENONnT Experiment",
+        "year": 2023,
+        "cites": 358,
+        "llm": 0.75,
+        "score": 0.5052345468839832
+      },
+      {
+        "title": "First Direct-Detection Results on Sub-GeV Dark Matter Using the SENSEI Detector at SNOLAB",
+        "year": 2025,
+        "cites": 56,
+        "llm": 0.75,
+        "score": 0.5185947639596944
+      },
+      {
+        "title": "Upgrading the COSINE-100 experiment for enhanced sensitivity to low-mass dark matter detection",
+        "year": 2025,
+        "cites": 8,
+        "llm": 0.75,
+        "score": 0.5134293781318956
+      },
+      {
+        "title": "Missing Mass in Collisional Debris from Galaxies",
+        "year": 2007,
+        "cites": 153,
+        "llm": 0.75,
+        "score": 0.45673794055255945
+      },
+      {
+        "title": "Exploring the Potential of Residual Impurities in Germanium Detectors for MeV-Scale Dark Matter Detection",
+        "year": 2024,
+        "cites": 3,
+        "llm": 0.75,
+        "score": 0.494670872372615
+      },
+      {
+        "title": "Limits on cold dark matter candidates from an ultralow background germanium spectrometer",
+        "year": 1987,
+        "cites": 269,
+        "llm": 0.75,
+        "score": 0.4489871146323014
+      }
+    ]
+  },
+  "solar cell perovskite efficiency": {
+    "elapsed": 22.309037685394287,
+    "foundational": [
+      {
+        "title": "Organometal Halide Perovskites as Visible-Light Sensitizers for Photovoltaic Cells",
+        "year": 2009,
+        "cites": 21847,
+        "llm": 0.95,
+        "score": 0.8674999999999999
+      },
+      {
+        "title": "Efficient Hybrid Solar Cells Based on Meso-Superstructured Organometal Halide Perovskites",
+        "year": 2012,
+        "cites": 10403,
+        "llm": 0.95,
+        "score": 0.8359430419205304
+      },
+      {
+        "title": "Electron-Hole Diffusion Lengths Exceeding 1 Micrometer in an Organometal Trihalide Perovskite Absorber",
+        "year": 2013,
+        "cites": 10038,
+        "llm": 0.75,
+        "score": 0.5914460448884603
+      },
+      {
+        "title": "Sequential deposition as a route to high-performance perovskite-sensitized solar cells",
+        "year": 2013,
+        "cites": 9335,
+        "llm": 0.75,
+        "score": 0.6065407092602332
+      },
+      {
+        "title": "Lead Iodide Perovskite Sensitized All-Solid-State Submicron Thin Film Mesoscopic Solar Cell with Efficiency Exceeding 9%",
+        "year": 2012,
+        "cites": 7846,
+        "llm": 0.75,
+        "score": 0.7133879475936431
+      },
+      {
+        "title": "Efficient planar heterojunction perovskite solar cells by vapour deposition",
+        "year": 2013,
+        "cites": 7786,
+        "llm": 0.75,
+        "score": 0.5823776283652244
+      },
+      {
+        "title": "Long-Range Balanced Electron- and Hole-Transport Lengths in Organic-Inorganic CH <sub>3</sub> NH <sub>3</sub> PbI <sub>3</sub>",
+        "year": 2013,
+        "cites": 6649,
+        "llm": 0.75,
+        "score": 0.5576465612395791
+      },
+      {
+        "title": "Compositional engineering of perovskite materials for high-performance solar cells",
+        "year": 2015,
+        "cites": 6262,
+        "llm": 0.75,
+        "score": 0.5797092966647918
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Low trap-state density and long carrier diffusion in organolead trihalide perovskite single crystals",
+        "year": 2015,
+        "cites": 4934,
+        "llm": 0.75,
+        "score": 0.5526684803382611
+      },
+      {
+        "title": "Chemical Management for Colorful, Efficient, and Stable Inorganic\u2013Organic Hybrid Nanostructured Solar Cells",
+        "year": 2013,
+        "cites": 4678,
+        "llm": 0.75,
+        "score": 0.5364438934254655
+      },
+      {
+        "title": "Surface passivation of perovskite film for efficient solar cells",
+        "year": 2019,
+        "cites": 4546,
+        "llm": 0.75,
+        "score": 0.5921422566010364
+      },
+      {
+        "title": "Formamidinium lead trihalide: a broadly tunable perovskite for efficient planar heterojunction solar cells",
+        "year": 2014,
+        "cites": 3966,
+        "llm": 0.75,
+        "score": 0.5342796768733458
+      },
+      {
+        "title": "Incorporation of rubidium cations into perovskite solar cells improves photovoltaic performance",
+        "year": 2016,
+        "cites": 3588,
+        "llm": 0.75,
+        "score": 0.6184681624139725
+      },
+      {
+        "title": "High Charge Carrier Mobilities and Lifetimes in Organolead Trihalide Perovskites",
+        "year": 2013,
+        "cites": 3154,
+        "llm": 0.75,
+        "score": 0.5200497454048114
+      },
+      {
+        "title": "6.5% efficient perovskite quantum-dot-sensitized solar cell",
+        "year": 2011,
+        "cites": 3098,
+        "llm": 0.75,
+        "score": 0.5117971887550201
+      },
+      {
+        "title": "Perovskite solar cells with atomically coherent interlayers on SnO2 electrodes",
+        "year": 2021,
+        "cites": 3037,
+        "llm": 0.75,
+        "score": 0.5987869727646594
+      },
+      {
+        "title": "A hole-conductor\u2013free, fully printable mesoscopic perovskite solar cell with high stability",
+        "year": 2014,
+        "cites": 2970,
+        "llm": 0.75,
+        "score": 0.5228511054447743
+      },
+      {
+        "title": "Pseudo-halide anion engineering for \u03b1-FAPbI3 perovskite solar cells",
+        "year": 2021,
+        "cites": 2948,
+        "llm": 0.75,
+        "score": 0.5968721706992549
+      },
+      {
+        "title": "A mixed-cation lead mixed-halide perovskite absorber for tandem solar cells",
+        "year": 2016,
+        "cites": 2938,
+        "llm": 0.75,
+        "score": 0.5348623104346266
+      },
+      {
+        "title": "Origin and elimination of photocurrent hysteresis by fullerene passivation in CH3NH3PbI3 planar heterojunction solar cells",
+        "year": 2014,
+        "cites": 2925,
+        "llm": 0.75,
+        "score": 0.5223347543260136
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Perovskites: The Emergence of a New Era for Low-Cost, High-Efficiency Solar Cells",
+        "year": 2013,
+        "cites": 2877,
+        "llm": 0.95,
+        "score": 0.7137366358236295
+      },
+      {
+        "title": "High-Efficiency Perovskite Solar Cells",
+        "year": 2020,
+        "cites": 2522,
+        "llm": 0.75,
+        "score": 0.7209292263620107
+      },
+      {
+        "title": "Perovskite solar cells: an emerging photovoltaic technology",
+        "year": 2014,
+        "cites": 1941,
+        "llm": 0.95,
+        "score": 0.7410438765291115
+      },
+      {
+        "title": "Ion Migration in Organometal Trihalide Perovskite and Its Impact on Photovoltaic Efficiency and Stability",
+        "year": 2016,
+        "cites": 1712,
+        "llm": 0.75,
+        "score": 0.6519636829576858
+      },
+      {
+        "title": "Organometal halide perovskite solar cells: degradation and stability",
+        "year": 2015,
+        "cites": 1709,
+        "llm": 0.75,
+        "score": 0.571353424195322
+      },
+      {
+        "title": "A review on perovskite solar cells (PSCs), materials and applications",
+        "year": 2021,
+        "cites": 356,
+        "llm": 0.75,
+        "score": 0.5911062498730932
+      }
+    ],
+    "applications": [
+      {
+        "title": "Managing grains and interfaces via ligand anchoring enables 22.3%-efficiency inverted perovskite solar cells",
+        "year": 2020,
+        "cites": 1187,
+        "llm": 0.75,
+        "score": 0.5612715480296335
+      },
+      {
+        "title": "Fully textured monolithic perovskite/silicon tandem solar cells with 25.2% power conversion efficiency",
+        "year": 2018,
+        "cites": 1326,
+        "llm": 0.75,
+        "score": 0.5807739889392478
+      },
+      {
+        "title": "Homogenizing out-of-plane cation composition in perovskite solar cells",
+        "year": 2023,
+        "cites": 533,
+        "llm": 0.75,
+        "score": 0.5779014905544946
+      }
+    ]
+  },
+  "single cell RNA sequencing": {
+    "elapsed": 23.058467864990234,
+    "foundational": [
+      {
+        "title": "Comprehensive Integration of Single-Cell Data",
+        "year": 2019,
+        "cites": 15780,
+        "llm": 0.75,
+        "score": 0.7709759044225178
+      },
+      {
+        "title": "Integrated analysis of multimodal single-cell data",
+        "year": 2021,
+        "cites": 14517,
+        "llm": 0.75,
+        "score": 0.6576641895753718
+      },
+      {
+        "title": "Integrating single-cell transcriptomic data across different conditions, technologies, and species",
+        "year": 2018,
+        "cites": 13883,
+        "llm": 0.75,
+        "score": 0.6938733278713897
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Normalization and variance stabilization of single-cell RNA-seq data using regularized negative binomial regression",
+        "year": 2019,
+        "cites": 4584,
+        "llm": 0.75,
+        "score": 0.6997967910886195
+      },
+      {
+        "title": "DoubletFinder: Doublet Detection in Single-Cell RNA Sequencing Data Using Artificial Nearest Neighbors",
+        "year": 2018,
+        "cites": 4063,
+        "llm": 0.75,
+        "score": 0.6871177582735721
+      },
+      {
+        "title": "mRNA-Seq whole-transcriptome analysis of a single cell",
+        "year": 2009,
+        "cites": 3836,
+        "llm": 0.95,
+        "score": 0.7793684835127574
+      },
+      {
+        "title": "Dictionary learning for integrative, multimodal and scalable single-cell analysis",
+        "year": 2023,
+        "cites": 3606,
+        "llm": 0.75,
+        "score": 0.6063142916978569
+      },
+      {
+        "title": "MAST: a flexible statistical framework for assessing transcriptional changes and characterizing heterogeneity in single-cell RNA sequencing data",
+        "year": 2015,
+        "cites": 3338,
+        "llm": 0.75,
+        "score": 0.5644906941124631
+      },
+      {
+        "title": "Batch effects in single-cell RNA-sequencing data are corrected by matching mutual nearest neighbors",
+        "year": 2018,
+        "cites": 2567,
+        "llm": 0.75,
+        "score": 0.6034714922737416
+      },
+      {
+        "title": "Scater: pre-processing, quality control, normalization and visualization of single-cell RNA-seq data in R",
+        "year": 2016,
+        "cites": 1950,
+        "llm": 0.75,
+        "score": 0.5460540062268187
+      },
+      {
+        "title": "SC3: consensus clustering of single-cell RNA-seq data",
+        "year": 2017,
+        "cites": 1580,
+        "llm": 0.75,
+        "score": 0.5762597855595261
+      },
+      {
+        "title": "SoupX removes ambient RNA contamination from droplet-based single-cell RNA sequencing data",
+        "year": 2020,
+        "cites": 1476,
+        "llm": 0.75,
+        "score": 0.5646525873556196
+      },
+      {
+        "title": "CEL-Seq2: sensitive highly-multiplexed single-cell RNA-Seq",
+        "year": 2016,
+        "cites": 1206,
+        "llm": 0.75,
+        "score": 0.5465821989659548
+      },
+      {
+        "title": "Comparison and evaluation of statistical error models for scRNA-seq",
+        "year": 2021,
+        "cites": 575,
+        "llm": 0.75,
+        "score": 0.6942660923522492
+      },
+      {
+        "title": "Probe-based bacterial single-cell RNA sequencing predicts toxin regulation",
+        "year": 2023,
+        "cites": 106,
+        "llm": 0.75,
+        "score": 0.5692285919436821
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Current best practices in single\u2010cell RNA\u2010seq analysis: a tutorial",
+        "year": 2019,
+        "cites": 2135,
+        "llm": 0.75,
+        "score": 0.6092271547403952
+      },
+      {
+        "title": "Single-cell RNA sequencing technologies and bioinformatics pipelines",
+        "year": 2018,
+        "cites": 1788,
+        "llm": 0.75,
+        "score": 0.6739691919970919
+      },
+      {
+        "title": "Single-cell RNA sequencing to explore immune cell heterogeneity",
+        "year": 2017,
+        "cites": 1741,
+        "llm": 0.75,
+        "score": 0.5771127566538721
+      },
+      {
+        "title": "The Technology and Biology of Single-Cell RNA Sequencing",
+        "year": 2015,
+        "cites": 1520,
+        "llm": 0.75,
+        "score": 0.6062349632365744
+      },
+      {
+        "title": "Single\u2010cell RNA sequencing technologies and applications: A brief overview",
+        "year": 2022,
+        "cites": 1109,
+        "llm": 0.75,
+        "score": 0.5856343287841029
+      },
+      {
+        "title": "Methods and applications for single-cell and spatial multi-omics",
+        "year": 2023,
+        "cites": 977,
+        "llm": 0.75,
+        "score": 0.5784576332253639
+      },
+      {
+        "title": "Best practices for single-cell analysis across modalities",
+        "year": 2023,
+        "cites": 911,
+        "llm": 0.75,
+        "score": 0.5777583028871424
+      },
+      {
+        "title": "Applications of single-cell RNA sequencing in drug discovery and development",
+        "year": 2023,
+        "cites": 359,
+        "llm": 0.75,
+        "score": 0.5719093582401982
+      }
+    ],
+    "applications": [
+      {
+        "title": "Dissecting the multicellular ecosystem of metastatic melanoma by single-cell RNA-seq",
+        "year": 2016,
+        "cites": 4922,
+        "llm": 0.75,
+        "score": 0.6772550069158247
+      },
+      {
+        "title": "Single-cell transcriptomics of 20 mouse organs creates a Tabula Muris",
+        "year": 2018,
+        "cites": 3020,
+        "llm": 0.75,
+        "score": 0.5685896463498935
+      },
+      {
+        "title": "Cell types in the mouse cortex and hippocampus revealed by single-cell RNA-seq",
+        "year": 2015,
+        "cites": 3319,
+        "llm": 0.75,
+        "score": 0.6144044130967083
+      },
+      {
+        "title": "A molecular cell atlas of the human lung from single-cell RNA sequencing",
+        "year": 2020,
+        "cites": 1716,
+        "llm": 0.75,
+        "score": 0.584205076487239
+      },
+      {
+        "title": "Single-cell RNA-seq reveals new types of human blood dendritic cells, monocytes, and progenitors",
+        "year": 2017,
+        "cites": 2397,
+        "llm": 0.75,
+        "score": 0.570588216516549
+      },
+      {
+        "title": "Single-Cell RNA Sequencing of Microglia throughout the Mouse Lifespan and in the Injured Brain Reveals Complex Cell-State Changes",
+        "year": 2018,
+        "cites": 2153,
+        "llm": 0.75,
+        "score": 0.5460787421909009
+      },
+      {
+        "title": "CellMarker 2.0: an updated database of manually curated cell markers in human/mouse and web tools based on scRNA-seq data",
+        "year": 2022,
+        "cites": 1036,
+        "llm": 0.75,
+        "score": 0.611894404217697
+      },
+      {
+        "title": "PanglaoDB: a web server for exploration of mouse and human single-cell RNA sequencing data",
+        "year": 2019,
+        "cites": 1541,
+        "llm": 0.75,
+        "score": 0.5679507709139987
+      },
+      {
+        "title": "Tumor microenvironment remodeling after neoadjuvant immunotherapy in non-small cell lung cancer revealed by single-cell RNA sequencing",
+        "year": 2023,
+        "cites": 331,
+        "llm": 0.75,
+        "score": 0.5716126726421648
+      },
+      {
+        "title": "Single cell RNA sequencing of human liver reveals distinct intrahepatic macrophage populations",
+        "year": 2018,
+        "cites": 1525,
+        "llm": 0.75,
+        "score": 0.5524491599396352
+      }
+    ]
+  },
+  "blockchain consensus mechanisms": {
+    "elapsed": 17.982203245162964,
+    "foundational": [
+      {
+        "title": "Bitcoin: A Peer-to-Peer Electronic Cash System",
+        "year": 2008,
+        "cites": 11176,
+        "llm": 0.95,
+        "score": 0.7224999999999999
+      },
+      {
+        "title": "In search of an understandable consensus algorithm",
+        "year": 2014,
+        "cites": 1481,
+        "llm": 0.95,
+        "score": 0.8823591902498507
+      },
+      {
+        "title": "A Survey on Consensus Mechanisms and Mining Strategy Management in Blockchain Networks",
+        "year": 2018,
+        "cites": 963,
+        "llm": 0.75,
+        "score": 0.7896498901538239
+      },
+      {
+        "title": "A Survey of Distributed Consensus Protocols for Blockchain Networks",
+        "year": 2019,
+        "cites": 736,
+        "llm": 0.75,
+        "score": 0.7667562958640637
+      },
+      {
+        "title": "Comparative analysis of blockchain consensus algorithms",
+        "year": 2018,
+        "cites": 549,
+        "llm": 0.75,
+        "score": 0.6041814763067674
+      },
+      {
+        "title": "Towards Secure Industrial IoT: Blockchain System With Credit-Based Consensus Mechanism",
+        "year": 2019,
+        "cites": 548,
+        "llm": 0.75,
+        "score": 0.6206334716903887
+      }
+    ],
+    "methodology": [
+      {
+        "title": "The Ripple Protocol Consensus Algorithm",
+        "year": 2014,
+        "cites": 530,
+        "llm": 0.75,
+        "score": 0.5626251789062168
+      },
+      {
+        "title": "Analysis of the main consensus protocols of blockchain",
+        "year": 2019,
+        "cites": 362,
+        "llm": 0.75,
+        "score": 0.5664800392632422
+      },
+      {
+        "title": "Distributed Ledger Technology Systems: A Conceptual Framework",
+        "year": 2018,
+        "cites": 265,
+        "llm": 0.75,
+        "score": 0.5610872690276394
+      },
+      {
+        "title": "A Proof-of-Trust Consensus Protocol for Enhancing Accountability in Crowdsourcing Services",
+        "year": 2018,
+        "cites": 220,
+        "llm": 0.75,
+        "score": 0.505414645640856
+      },
+      {
+        "title": "Consensus mechanism with maximum-return modifications and minimum-cost feedback: A perspective of game theory",
+        "year": 2020,
+        "cites": 173,
+        "llm": 0.75,
+        "score": 0.5194692214796206
+      },
+      {
+        "title": "Improvement of the DPoS Consensus Mechanism in Blockchain Based on Vague Sets",
+        "year": 2019,
+        "cites": 156,
+        "llm": 0.75,
+        "score": 0.5072993560374779
+      },
+      {
+        "title": "Lightweight blockchain consensus mechanism and storage optimization for resource-constrained IoT devices",
+        "year": 2021,
+        "cites": 96,
+        "llm": 0.75,
+        "score": 0.5661043913226916
+      },
+      {
+        "title": "A blockchain consensus mechanism that uses Proof of Solution to optimize energy dispatch and trading",
+        "year": 2022,
+        "cites": 92,
+        "llm": 0.75,
+        "score": 0.5664957231554744
+      },
+      {
+        "title": "Proof-of-Learning: A Blockchain Consensus Mechanism Based on Machine Learning Competitions",
+        "year": 2019,
+        "cites": 89,
+        "llm": 0.75,
+        "score": 0.5077652087192508
+      },
+      {
+        "title": "A Secure Big Data Storage Framework Based on Blockchain Consensus Mechanism With Flexible Finality",
+        "year": 2023,
+        "cites": 24,
+        "llm": 0.75,
+        "score": 0.5121038888764413
+      },
+      {
+        "title": "An Efficient, Secured, and Infinitely Scalable Consensus Mechanism for Peer-to-Peer Energy Trading Blockchain",
+        "year": 2023,
+        "cites": 22,
+        "llm": 0.75,
+        "score": 0.49978310776043233
+      },
+      {
+        "title": "A blockchain consensus mechanism for real-time regulation of renewable energy power systems",
+        "year": 2024,
+        "cites": 18,
+        "llm": 0.75,
+        "score": 0.5271735212762986
+      }
+    ],
+    "reviews": [
+      {
+        "title": "A survey of blockchain consensus algorithms performance evaluation criteria",
+        "year": 2020,
+        "cites": 444,
+        "llm": 0.75,
+        "score": 0.5933205748332231
+      },
+      {
+        "title": "A Comprehensive Review of Blockchain Consensus Mechanisms",
+        "year": 2021,
+        "cites": 406,
+        "llm": 0.75,
+        "score": 0.73204904221258
+      },
+      {
+        "title": "Microgrid Transactive Energy: Review, Architectures, Distributed Ledger Technologies, and Market Analysis",
+        "year": 2020,
+        "cites": 336,
+        "llm": 0.75,
+        "score": 0.5647025245869702
+      },
+      {
+        "title": "Assessing Blockchain Consensus and Security Mechanisms against the 51% Attack",
+        "year": 2019,
+        "cites": 308,
+        "llm": 0.75,
+        "score": 0.539383385183897
+      },
+      {
+        "title": "Blockchain Technology: Security Issues, Healthcare Applications, Challenges and Future Trends",
+        "year": 2023,
+        "cites": 237,
+        "llm": 0.75,
+        "score": 0.5838824623467809
+      },
+      {
+        "title": "A Survey on Decentralized Consensus Mechanisms for Cyber Physical Systems",
+        "year": 2020,
+        "cites": 178,
+        "llm": 0.75,
+        "score": 0.5332406199097321
+      },
+      {
+        "title": "A comparative study on consensus mechanism with security threats and future scopes: Blockchain",
+        "year": 2023,
+        "cites": 91,
+        "llm": 0.75,
+        "score": 0.5387731331858185
+      },
+      {
+        "title": "Overview of Blockchain Consensus Mechanism",
+        "year": 2020,
+        "cites": 77,
+        "llm": 0.75,
+        "score": 0.5726168131799211
+      }
+    ],
+    "applications": [
+      {
+        "title": "Blockchain-Driven IoT for Food Traceability With an Integrated Consensus Mechanism",
+        "year": 2019,
+        "cites": 320,
+        "llm": 0.75,
+        "score": 0.5591228125861447
+      },
+      {
+        "title": "Secure Internet of Vehicles (IoV) With Decentralized Consensus Blockchain Mechanism",
+        "year": 2023,
+        "cites": 63,
+        "llm": 0.75,
+        "score": 0.5158206591001546
+      },
+      {
+        "title": "Designing a Secure E Voting System Using Blockchain with Efficient Smart Contract and Consensus Mechanism",
+        "year": 2023,
+        "cites": 18,
+        "llm": 0.75,
+        "score": 0.4982184686053375
+      },
+      {
+        "title": "KYC Optimization Using Distributed Ledger Technology",
+        "year": 2017,
+        "cites": 158,
+        "llm": 0.75,
+        "score": 0.4830082412992045
+      }
+    ]
+  },
+  "ocean acidification coral reefs": {
+    "elapsed": 16.044663906097412,
+    "foundational": [
+      {
+        "title": "Coral Reefs Under Rapid Climate Change and Ocean Acidification",
+        "year": 2007,
+        "cites": 5805,
+        "llm": 0.95,
+        "score": 0.8752056500041648
+      },
+      {
+        "title": "Ocean Acidification: The Other CO<sub>2</sub>Problem",
+        "year": 2008,
+        "cites": 4079,
+        "llm": 0.95,
+        "score": 0.7550326566034724
+      },
+      {
+        "title": "Climate change, coral bleaching and the future of the world's coral reefs",
+        "year": 1999,
+        "cites": 3918,
+        "llm": 0.95,
+        "score": 0.6266328167313288
+      },
+      {
+        "title": "Climate Change Impacts on Marine Ecosystems",
+        "year": 2011,
+        "cites": 2846,
+        "llm": 0.75,
+        "score": 0.5440569078889549
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Volcanic carbon dioxide vents show ecosystem effects of ocean acidification",
+        "year": 2008,
+        "cites": 1350,
+        "llm": 0.75,
+        "score": 0.4939733126910427
+      },
+      {
+        "title": "Ocean acidification causes bleaching and productivity loss in coral reef builders",
+        "year": 2008,
+        "cites": 1248,
+        "llm": 0.95,
+        "score": 0.7228384119991559
+      },
+      {
+        "title": "Rapid Acidification of the Ocean During the Paleocene-Eocene Thermal Maximum",
+        "year": 2005,
+        "cites": 1173,
+        "llm": 0.75,
+        "score": 0.6029357944730229
+      },
+      {
+        "title": "Mass Spawning in Tropical Reef Corals",
+        "year": 1984,
+        "cites": 758,
+        "llm": 0.75,
+        "score": 0.5256465354032565
+      },
+      {
+        "title": "Dynamic fragility of oceanic coral reef ecosystems",
+        "year": 2006,
+        "cites": 722,
+        "llm": 0.75,
+        "score": 0.4894406404854902
+      },
+      {
+        "title": "THE PHYSIOLOGY OF SKELETON FORMATION IN CORALS. I. A METHOD FOR MEASURING THE RATE OF CALCIUM DEPOSITION BY CORALS UNDER DIFFERENT CONDITIONS",
+        "year": 1959,
+        "cites": 503,
+        "llm": 0.95,
+        "score": 0.6779600530102234
+      },
+      {
+        "title": "Rapid transgenerational acclimation of a tropical reef fish to climate change",
+        "year": 2011,
+        "cites": 432,
+        "llm": 0.75,
+        "score": 0.4874180084821646
+      },
+      {
+        "title": "Reversal of ocean acidification enhances net coral reef calcification",
+        "year": 2016,
+        "cites": 389,
+        "llm": 0.75,
+        "score": 0.5081520621285315
+      },
+      {
+        "title": "Impact of coral predators on tropical reefs",
+        "year": 2008,
+        "cites": 360,
+        "llm": 0.75,
+        "score": 0.48921478458529766
+      },
+      {
+        "title": "Ocean acidification and warming will lower coral reef resilience",
+        "year": 2010,
+        "cites": 356,
+        "llm": 0.95,
+        "score": 0.5897471111951716
+      },
+      {
+        "title": "The Physiological Mechanisms of Acclimatization in Tropical Reef Corals",
+        "year": 1999,
+        "cites": 306,
+        "llm": 0.75,
+        "score": 0.45089635327051847
+      },
+      {
+        "title": "Interacting effects of elevated temperature and ocean acidification on the aerobic performance of coral reef fishes",
+        "year": 2009,
+        "cites": 289,
+        "llm": 0.75,
+        "score": 0.45811757012694393
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Impacts of ocean acidification on marine fauna and ecosystem processes",
+        "year": 2008,
+        "cites": 2219,
+        "llm": 0.75,
+        "score": 0.5496047883717421
+      },
+      {
+        "title": "Global Trajectories of the Long-Term Decline of Coral Reef Ecosystems",
+        "year": 2003,
+        "cites": 1984,
+        "llm": 0.75,
+        "score": 0.6241424473319311
+      },
+      {
+        "title": "Marine Biodiversity Hotspots and Conservation Priorities for Tropical Reefs",
+        "year": 2002,
+        "cites": 1661,
+        "llm": 0.75,
+        "score": 0.6121590419809143
+      },
+      {
+        "title": "Meta\u2010analysis reveals negative yet variable effects of ocean acidification on marine organisms",
+        "year": 2010,
+        "cites": 1609,
+        "llm": 0.75,
+        "score": 0.5145663345659803
+      },
+      {
+        "title": "The Geological Record of Ocean Acidification",
+        "year": 2011,
+        "cites": 1056,
+        "llm": 0.75,
+        "score": 0.4983166579836161
+      },
+      {
+        "title": "The importance of structural complexity in coral reef ecosystems",
+        "year": 2012,
+        "cites": 943,
+        "llm": 0.75,
+        "score": 0.5637912721566329
+      },
+      {
+        "title": "Is Ocean Acidification an Open-Ocean Syndrome? Understanding Anthropogenic Impacts on Seawater pH",
+        "year": 2013,
+        "cites": 718,
+        "llm": 0.75,
+        "score": 0.557013967305616
+      },
+      {
+        "title": "Impacts of ocean acidification on coral reefs and other marine calcifiers : a guide for future research",
+        "year": 2006,
+        "cites": 687,
+        "llm": 0.95,
+        "score": 0.5760084022943496
+      }
+    ],
+    "applications": [
+      {
+        "title": "Ocean acidification does not impair the behaviour of coral reef fishes",
+        "year": 2020,
+        "cites": 153,
+        "llm": 0.75,
+        "score": 0.482219327290291
+      },
+      {
+        "title": "Experimental biology of coral reef ecosystems",
+        "year": 2004,
+        "cites": 254,
+        "llm": 0.75,
+        "score": 0.45181800981477377
+      },
+      {
+        "title": "Rehabilitating coral reefs in the Anthropocene",
+        "year": 2024,
+        "cites": 25,
+        "llm": 0.75,
+        "score": 0.4982378416236628
+      },
+      {
+        "title": "Exposure to global change and microplastics elicits an immune response in an endangered coral",
+        "year": 2023,
+        "cites": 25,
+        "llm": 0.75,
+        "score": 0.48270356074233695
+      },
+      {
+        "title": "Restoration and coral adaptation delay, but do not prevent, climate-driven reef framework erosion of an inshore site in the Florida Keys.",
+        "year": 2023,
+        "cites": 23,
+        "llm": 0.75,
+        "score": 0.4824385096253358
+      },
+      {
+        "title": "Abundance, size, and survival of recruits of the reef coral Pocillopora acuta under ocean warming and acidification",
+        "year": 2020,
+        "cites": 42,
+        "llm": 0.75,
+        "score": 0.4528045928239941
+      },
+      {
+        "title": "Experimental coral reef communities transform yet persist under mitigated future ocean warming and acidification",
+        "year": 2024,
+        "cites": 15,
+        "llm": 0.75,
+        "score": 0.496647534921656
+      },
+      {
+        "title": "Evaluating the effects of climate change and chemical, physical, and biological stressors on nearshore coral reefs: A case study in the Great Barrier Reef, Australia",
+        "year": 2023,
+        "cites": 20,
+        "llm": 0.75,
+        "score": 0.4820409329498341
+      },
+      {
+        "title": "Paris Agreement could prevent regional mass extinctions of coral species",
+        "year": 2023,
+        "cites": 15,
+        "llm": 0.75,
+        "score": 0.48137830515733127
+      },
+      {
+        "title": "Ocean Acidification Has Impacted Coral Growth on the Great Barrier Reef",
+        "year": 2020,
+        "cites": 35,
+        "llm": 0.95,
+        "score": 0.5621861402176581
+      }
+    ]
+  },
+  "transfer learning domain adaptation": {
+    "elapsed": 36.94329309463501,
+    "foundational": [
+      {
+        "title": "A Survey on Transfer Learning",
+        "year": 2009,
+        "cites": 22253,
+        "llm": 0.95,
+        "score": 0.8734408370298719
+      },
+      {
+        "title": "Domain-Adversarial Training of Neural Networks",
+        "year": 2015,
+        "cites": 10786,
+        "llm": 0.75,
+        "score": 0.6671495458609319
+      },
+      {
+        "title": "How transferable are features in deep neural networks?",
+        "year": 2014,
+        "cites": 8976,
+        "llm": 0.95,
+        "score": 0.7323591902498505
+      },
+      {
+        "title": "Dataset Shift in Machine Learning",
+        "year": 2008,
+        "cites": 1457,
+        "llm": 0.75,
+        "score": 0.6162261058269461
+      },
+      {
+        "title": "Simultaneous Deep Transfer Across Domains and Tasks",
+        "year": 2015,
+        "cites": 1215,
+        "llm": 0.75,
+        "score": 0.5227282388765996
+      },
+      {
+        "title": "A unifying view on dataset shift in classification",
+        "year": 2011,
+        "cites": 908,
+        "llm": 0.75,
+        "score": 0.6050368515222996
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Taking a Closer Look at Domain Shift: Category-Level Adversaries for Semantics Consistent Domain Adaptation",
+        "year": 2019,
+        "cites": 828,
+        "llm": 0.75,
+        "score": 0.6607776119233222
+      },
+      {
+        "title": "SynthSeg: Segmentation of brain MRI scans of any contrast and resolution without retraining",
+        "year": 2023,
+        "cites": 460,
+        "llm": 0.75,
+        "score": 0.5530727249206906
+      },
+      {
+        "title": "Standard Plane Localization in Fetal Ultrasound via Domain Transferred Deep Neural Networks",
+        "year": 2015,
+        "cites": 373,
+        "llm": 0.75,
+        "score": 0.49607573171989083
+      },
+      {
+        "title": "Learning Transferrable Representations for Unsupervised Domain Adaptation",
+        "year": 2016,
+        "cites": 264,
+        "llm": 0.75,
+        "score": 0.5005366766165253
+      },
+      {
+        "title": "Domain Transfer SVM for video concept detection",
+        "year": 2009,
+        "cites": 263,
+        "llm": 0.75,
+        "score": 0.49855072713976195
+      },
+      {
+        "title": "Unsupervised Adaptation Across Domain Shifts by Generating Intermediate Data Representations",
+        "year": 2014,
+        "cites": 219,
+        "llm": 0.75,
+        "score": 0.49360676620330896
+      },
+      {
+        "title": "Collaborative fault diagnosis of rotating machinery via dual adversarial guided unsupervised multi-domain adaptation network",
+        "year": 2023,
+        "cites": 217,
+        "llm": 0.75,
+        "score": 0.5216570817403415
+      },
+      {
+        "title": "Deep Learning of Transferable Representation for Scalable Domain Adaptation",
+        "year": 2016,
+        "cites": 186,
+        "llm": 0.75,
+        "score": 0.4879459993199658
+      },
+      {
+        "title": "Relationship Transfer Domain Generalization Network for Rotating Machinery Fault Diagnosis Under Different Working Conditions",
+        "year": 2023,
+        "cites": 158,
+        "llm": 0.75,
+        "score": 0.5140294152891457
+      },
+      {
+        "title": "Failing Loudly: An Empirical Study of Methods for Detecting Dataset Shift",
+        "year": 2018,
+        "cites": 139,
+        "llm": 0.75,
+        "score": 0.48689308813231613
+      },
+      {
+        "title": "Spectral domain-transfer learning",
+        "year": 2008,
+        "cites": 133,
+        "llm": 0.75,
+        "score": 0.4403973127712624
+      },
+      {
+        "title": "Rethinking Federated Learning with Domain Shift: A Prototype View",
+        "year": 2023,
+        "cites": 127,
+        "llm": 0.75,
+        "score": 0.5528788011973551
+      }
+    ],
+    "reviews": [],
+    "applications": [
+      {
+        "title": "Measuring Domain Shift for Deep Learning in Histopathology",
+        "year": 2020,
+        "cites": 247,
+        "llm": 0.75,
+        "score": 0.57633827588828
+      },
+      {
+        "title": "Transfer Learning for Domain Adaptation in MRI: Application in Brain Lesion Segmentation",
+        "year": 2017,
+        "cites": 237,
+        "llm": 0.75,
+        "score": 0.4795165210070562
+      },
+      {
+        "title": "A multi-source transfer learning model based on LSTM and domain adaptation for building energy prediction",
+        "year": 2023,
+        "cites": 89,
+        "llm": 0.75,
+        "score": 0.5189978129046021
+      },
+      {
+        "title": "Domain adaptation transfer learning soft sensor for product quality prediction",
+        "year": 2019,
+        "cites": 134,
+        "llm": 0.75,
+        "score": 0.47546290484390935
+      },
+      {
+        "title": "Domain Transfer Learning for MCI Conversion Prediction",
+        "year": 2015,
+        "cites": 183,
+        "llm": 0.75,
+        "score": 0.46888177721501195
+      },
+      {
+        "title": "An unsupervised domain adaptation deep learning method for spatial and temporal transferable crop type mapping using Sentinel-2 imagery",
+        "year": 2023,
+        "cites": 73,
+        "llm": 0.75,
+        "score": 0.5115874128471433
+      },
+      {
+        "title": "Adversarial discriminative domain adaptation for solar radiation prediction: A cross-regional study for zero-label transfer learning in Japan",
+        "year": 2024,
+        "cites": 35,
+        "llm": 0.75,
+        "score": 0.5179557207498384
+      },
+      {
+        "title": "Transfer learning in bridge monitoring: Laboratory study on domain adaptation for population-based SHM of multispan continuous girder bridges",
+        "year": 2024,
+        "cites": 31,
+        "llm": 0.75,
+        "score": 0.5173351648351648
+      },
+      {
+        "title": "Deep Adversarial Hybrid Domain-Adaptation Network for Varying Working Conditions Fault Diagnosis of High-Speed Train Bogie",
+        "year": 2023,
+        "cites": 30,
+        "llm": 0.75,
+        "score": 0.4974812575645174
+      },
+      {
+        "title": "A Selective Adversarial Adaptation Network for Remaining Useful Life Prediction of Machines Under Different Working Conditions",
+        "year": 2023,
+        "cites": 23,
+        "llm": 0.75,
+        "score": 0.4965762801889518
+      }
+    ]
+  },
+  "Alzheimer's disease biomarkers": {
+    "elapsed": 44.507330894470215,
+    "foundational": [
+      {
+        "title": "Clinical diagnosis of Alzheimer's disease",
+        "year": 1984,
+        "cites": 27784,
+        "llm": 0.75,
+        "score": 0.704469537093329
+      },
+      {
+        "title": "The Montreal Cognitive Assessment, MoCA: A Brief Screening Tool For Mild Cognitive Impairment",
+        "year": 2005,
+        "cites": 23892,
+        "llm": 0.75,
+        "score": 0.6139258367565542
+      },
+      {
+        "title": "The diagnosis of dementia due to Alzheimer's disease: Recommendations from the National Institute on Aging\u2010Alzheimer's Association workgroups on diagnostic guidelines for Alzheimer's disease",
+        "year": 2011,
+        "cites": 18238,
+        "llm": 0.95,
+        "score": 0.8791591865372855
+      },
+      {
+        "title": "The Amyloid Hypothesis of Alzheimer's Disease: Progress and Problems on the Road to Therapeutics",
+        "year": 2002,
+        "cites": 13593,
+        "llm": 0.95,
+        "score": 0.7510974388942072
+      },
+      {
+        "title": "NIA\u2010AA Research Framework: Toward a biological definition of Alzheimer's disease",
+        "year": 2018,
+        "cites": 9559,
+        "llm": 0.95,
+        "score": 0.8163252637924145
+      },
+      {
+        "title": "Dementia prevention, intervention, and care: 2020 report of the Lancet Commission",
+        "year": 2020,
+        "cites": 9532,
+        "llm": 0.75,
+        "score": 0.7319759475045481
+      },
+      {
+        "title": "Gene Dose of Apolipoprotein E Type 4 Allele and the Risk of Alzheimer's Disease in Late Onset Families",
+        "year": 1993,
+        "cites": 9267,
+        "llm": 0.75,
+        "score": 0.49957740956979707
+      },
+      {
+        "title": "Alzheimer's Disease: The Amyloid Cascade Hypothesis",
+        "year": 1992,
+        "cites": 7217,
+        "llm": 0.75,
+        "score": 0.49457122265553954
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Tracking pathophysiological processes in Alzheimer's disease: an updated hypothetical model of dynamic biomarkers",
+        "year": 2013,
+        "cites": 4275,
+        "llm": 0.75,
+        "score": 0.6340560583277826
+      },
+      {
+        "title": "Phases of A\u03b2-deposition in the human brain and its relevance for the development of AD",
+        "year": 2002,
+        "cites": 3296,
+        "llm": 0.75,
+        "score": 0.4781522370310581
+      },
+      {
+        "title": "Cerebrospinal fluid biomarker signature in Alzheimer's disease neuroimaging initiative subjects",
+        "year": 2009,
+        "cites": 2050,
+        "llm": 0.75,
+        "score": 0.5524234821041947
+      },
+      {
+        "title": "Plasma p\u2010tau181, p\u2010tau217, and other blood\u2010based Alzheimer's disease biomarkers in a multi\u2010ethnic, community study",
+        "year": 2021,
+        "cites": 351,
+        "llm": 0.75,
+        "score": 0.5517382179703046
+      },
+      {
+        "title": "Alzheimer's disease biomarker discovery using SOMAscan multiplexed protein technology",
+        "year": 2014,
+        "cites": 234,
+        "llm": 0.75,
+        "score": 0.5185137230370305
+      },
+      {
+        "title": "The dynamics of Alzheimer's disease biomarkers in the Alzheimer's Disease Neuroimaging Initiative cohort",
+        "year": 2010,
+        "cites": 119,
+        "llm": 0.75,
+        "score": 0.47509301809837295
+      },
+      {
+        "title": "Diagnostic performance of Elecsys immunoassays for cerebrospinal fluid Alzheimer's disease biomarkers in a nonacademic, multicenter memory clinic cohort: The ABIDE project",
+        "year": 2018,
+        "cites": 112,
+        "llm": 0.75,
+        "score": 0.4564933869524562
+      },
+      {
+        "title": "Medical comorbidities and ethnicity impact plasma Alzheimer's disease biomarkers: Important considerations for clinical trials and practice",
+        "year": 2022,
+        "cites": 97,
+        "llm": 0.75,
+        "score": 0.48207179314205667
+      },
+      {
+        "title": "Artificial intelligence for biomarker discovery in Alzheimer's disease and dementia",
+        "year": 2023,
+        "cites": 91,
+        "llm": 0.75,
+        "score": 0.49734348645468357
+      },
+      {
+        "title": "Astrocyte biomarkers GFAP and YKL\u201040 mediate early Alzheimer's disease progression",
+        "year": 2023,
+        "cites": 90,
+        "llm": 0.75,
+        "score": 0.4973050525993486
+      },
+      {
+        "title": "MicroRNA expression in extracellular vesicles as a novel blood\u2010based biomarker for Alzheimer's disease",
+        "year": 2023,
+        "cites": 83,
+        "llm": 0.75,
+        "score": 0.49703601561200383
+      },
+      {
+        "title": "Biological variation estimates of Alzheimer's disease plasma biomarkers in healthy individuals",
+        "year": 2023,
+        "cites": 70,
+        "llm": 0.75,
+        "score": 0.49653637549264923
+      }
+    ],
+    "reviews": [
+      {
+        "title": "2023 Alzheimer's disease facts and figures",
+        "year": 2023,
+        "cites": 2817,
+        "llm": 0.75,
+        "score": 0.6153494702154548
+      },
+      {
+        "title": "CSF and blood biomarkers for the diagnosis of Alzheimer's disease: a systematic review and meta-analysis",
+        "year": 2016,
+        "cites": 2014,
+        "llm": 0.75,
+        "score": 0.5123557823370796
+      },
+      {
+        "title": "Hallmarks of neurodegenerative diseases",
+        "year": 2023,
+        "cites": 1380,
+        "llm": 0.75,
+        "score": 0.546884725981458
+      },
+      {
+        "title": "Microglia in neurodegenerative diseases: mechanism and potential therapeutic targets",
+        "year": 2023,
+        "cites": 1043,
+        "llm": 0.75,
+        "score": 0.5339325167335737
+      },
+      {
+        "title": "Biomarkers for Alzheimer's disease: current status and prospects for the future",
+        "year": 2018,
+        "cites": 927,
+        "llm": 0.95,
+        "score": 0.608578982642274
+      },
+      {
+        "title": "New insights into atypical Alzheimer's disease in the era of biomarkers",
+        "year": 2021,
+        "cites": 602,
+        "llm": 0.75,
+        "score": 0.504427936691658
+      },
+      {
+        "title": "Early Diagnosis of Complex Diseases by Molecular Biomarkers, Network Biomarkers, and Dynamical Network Biomarkers",
+        "year": 2013,
+        "cites": 345,
+        "llm": 0.75,
+        "score": 0.47741416402787273
+      },
+      {
+        "title": "Alzheimer Disease as a Clinical-Biological Construct\u2014An International Working Group Recommendation",
+        "year": 2024,
+        "cites": 255,
+        "llm": 0.75,
+        "score": 0.5238917947212847
+      }
+    ],
+    "applications": [
+      {
+        "title": "Clinical and Biomarker Changes in Dominantly Inherited Alzheimer's Disease",
+        "year": 2012,
+        "cites": 3699,
+        "llm": 0.75,
+        "score": 0.6205922774492041
+      },
+      {
+        "title": "Donanemab in Early Symptomatic Alzheimer Disease",
+        "year": 2023,
+        "cites": 2067,
+        "llm": 0.75,
+        "score": 0.5732887845965814
+      },
+      {
+        "title": "Ultrasensitive SERS nanoprobe-based multiplexed digital sensing platform for the simultaneous quantification of Alzheimer's disease biomarkers",
+        "year": 2025,
+        "cites": 13,
+        "llm": 0.75,
+        "score": 0.5128920253244167
+      },
+      {
+        "title": "Recommendations for clinical implementation of blood\u2010based biomarkers for Alzheimer's disease",
+        "year": 2024,
+        "cites": 67,
+        "llm": 0.75,
+        "score": 0.5152211169577158
+      },
+      {
+        "title": "Associations between Alzheimer's disease biomarkers and postoperative delirium or cognitive dysfunction",
+        "year": 2023,
+        "cites": 27,
+        "llm": 0.75,
+        "score": 0.4948837197132456
+      },
+      {
+        "title": "Longitudinal study of Alzheimer's disease biomarkers, allostatic load, and cognition among memory clinic patients",
+        "year": 2023,
+        "cites": 22,
+        "llm": 0.75,
+        "score": 0.49469155043657076
+      },
+      {
+        "title": "Proteomic Indicators of Health Predict Alzheimer's Disease Biomarker Levels and Dementia Risk",
+        "year": 2023,
+        "cites": 18,
+        "llm": 0.75,
+        "score": 0.49453781501523086
+      },
+      {
+        "title": "Mediterranean and Western diet effects on Alzheimer's disease biomarkers, cerebral perfusion, and cognition in mid\u2010life: A randomized trial",
+        "year": 2021,
+        "cites": 141,
+        "llm": 0.75,
+        "score": 0.48799257806273943
+      },
+      {
+        "title": "The Serum Exosome Derived MicroRNA-135a, -193b, and -384 Were Potential Alzheimer's Disease Biomarkers.",
+        "year": 2018,
+        "cites": 234,
+        "llm": 0.75,
+        "score": 0.48746007623474685
+      },
+      {
+        "title": "<i>APOE</i> effect on Alzheimer's disease biomarkers in older adults with significant memory concern",
+        "year": 2015,
+        "cites": 180,
+        "llm": 0.75,
+        "score": 0.46551891872594875
+      }
+    ]
+  },
+  "superconductivity high temperature": {
+    "elapsed": 47.467272996902466,
+    "foundational": [
+      {
+        "title": "Possible highT c superconductivity in the Ba?La?Cu?O system",
+        "year": 1986,
+        "cites": 14044,
+        "llm": 0.95,
+        "score": 0.7225432752006695
+      },
+      {
+        "title": "Theory of Superconductivity",
+        "year": 1957,
+        "cites": 12736,
+        "llm": 0.95,
+        "score": 0.6998095755361345
+      },
+      {
+        "title": "Unconventional superconductivity in magic-angle graphene superlattices",
+        "year": 2018,
+        "cites": 7850,
+        "llm": 0.75,
+        "score": 0.669887415220063
+      },
+      {
+        "title": "Iron-Based Layered Superconductor La[O<sub>1-</sub><i><sub>x</sub></i>F<i><sub>x</sub></i>]FeAs (<i>x</i> = 0.05\u22120.12) with <i>T</i><sub>c</sub> = 26 K",
+        "year": 2008,
+        "cites": 7725,
+        "llm": 0.95,
+        "score": 0.726569723161395
+      },
+      {
+        "title": "Superconductivity at 93 K in a new mixed-phase Y-Ba-Cu-O compound system at ambient pressure",
+        "year": 1987,
+        "cites": 7043,
+        "llm": 0.95,
+        "score": 0.6905815266618366
+      },
+      {
+        "title": "Superconductivity at 39\u2009K in magnesium diboride",
+        "year": 2001,
+        "cites": 6330,
+        "llm": 0.75,
+        "score": 0.6242127640407754
+      },
+      {
+        "title": "Vortices in high-temperature superconductors",
+        "year": 1994,
+        "cites": 6116,
+        "llm": 0.75,
+        "score": 0.5878975611064898
+      },
+      {
+        "title": "Correlated insulator behaviour at half-filling in magic-angle graphene superlattices",
+        "year": 2018,
+        "cites": 4596,
+        "llm": 0.75,
+        "score": 0.6426146879473357
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Superconductivity in a layered perovskite without copper",
+        "year": 1994,
+        "cites": 2446,
+        "llm": 0.75,
+        "score": 0.48196870400595443
+      },
+      {
+        "title": "Thermal fluctuations, quenched disorder, phase transitions, and transport in type-II superconductors",
+        "year": 1991,
+        "cites": 2360,
+        "llm": 0.75,
+        "score": 0.4739946064762869
+      },
+      {
+        "title": "Theory of high-<mml:math xmlns:mml=\"http://www.w3.org/1998/Math/MathML\" display=\"inline\"><mml:mrow><mml:msub><mml:mrow><mml:mi mathvariant=\"normal\">T</mml:mi></mml:mrow><mml:mrow><mml:mi mathvariant=\"normal\">c</mml:mi></mml:mrow></mml:msub></mml:mrow></mml:math>superconductivity in oxides",
+        "year": 1987,
+        "cites": 2228,
+        "llm": 0.95,
+        "score": 0.5747669383468779
+      },
+      {
+        "title": "Phenomenology of the normal state of Cu-O high-temperature superconductors",
+        "year": 1989,
+        "cites": 2119,
+        "llm": 0.75,
+        "score": 0.4647248446815789
+      },
+      {
+        "title": "Importance of phase fluctuations in superconductors with small superfluid density",
+        "year": 1995,
+        "cites": 2043,
+        "llm": 0.75,
+        "score": 0.4721268207410827
+      },
+      {
+        "title": "Magnetic order close to superconductivity in the iron-based layered LaO1-xF x FeAs systems",
+        "year": 2008,
+        "cites": 1821,
+        "llm": 0.75,
+        "score": 0.5028171221357975
+      },
+      {
+        "title": "Superconductivity in two-dimensional CoO2 layers",
+        "year": 2003,
+        "cites": 1797,
+        "llm": 0.75,
+        "score": 0.4824522594597781
+      },
+      {
+        "title": "Upper Limit for the Critical Field in Hard Superconductors",
+        "year": 1962,
+        "cites": 1787,
+        "llm": 0.75,
+        "score": 0.43805804889049055
+      },
+      {
+        "title": "A superconducting copper oxide compound with electrons as the charge carriers",
+        "year": 1989,
+        "cites": 1747,
+        "llm": 0.75,
+        "score": 0.45532979209677665
+      },
+      {
+        "title": "Superconductivity at 43\u2009K in SmFeAsO1-xF x",
+        "year": 2008,
+        "cites": 1676,
+        "llm": 0.75,
+        "score": 0.4958417886754989
+      },
+      {
+        "title": "Superconductivity above 130 K in the Hg\u2013Ba\u2013Ca\u2013Cu\u2013O system",
+        "year": 1993,
+        "cites": 1649,
+        "llm": 0.75,
+        "score": 0.45759669204387166
+      },
+      {
+        "title": "Superconductivity in narrow-band systems with local nonretarded attractive interactions",
+        "year": 1990,
+        "cites": 1611,
+        "llm": 0.75,
+        "score": 0.452959127106793
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Heavy-fermion systems",
+        "year": 1984,
+        "cites": 2498,
+        "llm": 0.75,
+        "score": 0.4672264246372435
+      },
+      {
+        "title": "Orbital Physics in Transition-Metal Oxides",
+        "year": 2000,
+        "cites": 2430,
+        "llm": 0.75,
+        "score": 0.49659934672145356
+      },
+      {
+        "title": "From quantum matter to high-temperature superconductivity in copper oxides",
+        "year": 2015,
+        "cites": 2367,
+        "llm": 0.75,
+        "score": 0.7484945781320409
+      },
+      {
+        "title": "Complexity in Strongly Correlated Electronic Systems",
+        "year": 2005,
+        "cites": 1976,
+        "llm": 0.75,
+        "score": 0.4965461123176047
+      },
+      {
+        "title": "Introduction to Solid State Physics",
+        "year": 2018,
+        "cites": 1934,
+        "llm": 0.75,
+        "score": 0.6189204204314122
+      },
+      {
+        "title": "Physical properties of high temperature superconductors",
+        "year": 1989,
+        "cites": 1652,
+        "llm": 0.75,
+        "score": 0.48626385124850724
+      },
+      {
+        "title": "The puzzle of high temperature superconductivity in layered iron pnictides and chalcogenides",
+        "year": 2010,
+        "cites": 1629,
+        "llm": 0.95,
+        "score": 0.6805063404461282
+      },
+      {
+        "title": "Superconductivity in iron compounds",
+        "year": 2011,
+        "cites": 1572,
+        "llm": 0.75,
+        "score": 0.506801878891765
+      }
+    ],
+    "applications": [
+      {
+        "title": "High-T<sub>c</sub> superconducting materials for electric power applications",
+        "year": 2010,
+        "cites": 924,
+        "llm": 0.75,
+        "score": 0.616355168559962
+      },
+      {
+        "title": "Bulk high-temperature superconductivity in pressurized tetragonal La2PrNi2O7",
+        "year": 2024,
+        "cites": 124,
+        "llm": 0.75,
+        "score": 0.536354243815731
+      },
+      {
+        "title": "Signature of Superconductivity in Pressurized La<sub>4</sub>Ni<sub>3</sub>O<sub>10</sub>",
+        "year": 2023,
+        "cites": 118,
+        "llm": 0.75,
+        "score": 0.5130066176684427
+      },
+      {
+        "title": "Interplay of magnetism and high-Tc superconductivity at individual Ni impurity atoms in Bi2Sr2CaCu2O8+\u03b4",
+        "year": 2001,
+        "cites": 326,
+        "llm": 0.75,
+        "score": 0.4988951391386446
+      },
+      {
+        "title": "Superconducting materials for large scale applications",
+        "year": 2004,
+        "cites": 214,
+        "llm": 0.75,
+        "score": 0.4882782054848737
+      }
+    ]
+  },
+  "supply chain optimization": {
+    "elapsed": 41.853960037231445,
+    "foundational": [
+      {
+        "title": "From a literature review to a conceptual framework for sustainable supply chain management",
+        "year": 2008,
+        "cites": 5933,
+        "llm": 0.75,
+        "score": 0.7665175508607802
+      },
+      {
+        "title": "DEFINING SUPPLY CHAIN MANAGEMENT",
+        "year": 2001,
+        "cites": 4921,
+        "llm": 0.95,
+        "score": 0.8734446357095361
+      },
+      {
+        "title": "Algorithms for the Vehicle Routing and Scheduling Problems with Time Window Constraints",
+        "year": 1987,
+        "cites": 4052,
+        "llm": 0.75,
+        "score": 0.5208326451399785
+      },
+      {
+        "title": "Green supply\u2010chain management: A state\u2010of\u2010the\u2010art literature review",
+        "year": 2007,
+        "cites": 3854,
+        "llm": 0.75,
+        "score": 0.6901325550392311
+      },
+      {
+        "title": "Blockchain technology and its relationships to sustainable supply chain management",
+        "year": 2018,
+        "cites": 3472,
+        "llm": 0.75,
+        "score": 0.6925766803690285
+      },
+      {
+        "title": "Supply Chain Management: More Than a New Name for Logistics",
+        "year": 1997,
+        "cites": 2830,
+        "llm": 0.75,
+        "score": 0.5547951108358312
+      },
+      {
+        "title": "Supply Chain Management: Strategy, Planning and Operations",
+        "year": 2000,
+        "cites": 2608,
+        "llm": 0.95,
+        "score": 0.6573733546820534
+      },
+      {
+        "title": "Supply Chain Management: Implementation Issues and Research Opportunities",
+        "year": 1998,
+        "cites": 2408,
+        "llm": 0.75,
+        "score": 0.5370987661016624
+      }
+    ],
+    "methodology": [
+      {
+        "title": "A multi-objective optimization for green supply chain network design",
+        "year": 2010,
+        "cites": 631,
+        "llm": 0.75,
+        "score": 0.5537439948594813
+      },
+      {
+        "title": "Two-echelon multiple-vehicle location\u2013routing problem with time windows for optimization of sustainable supply chain network of perishable food",
+        "year": 2014,
+        "cites": 622,
+        "llm": 0.75,
+        "score": 0.5040960944450842
+      },
+      {
+        "title": "A robust optimization approach to closed-loop supply chain network design under uncertainty",
+        "year": 2010,
+        "cites": 612,
+        "llm": 0.75,
+        "score": 0.5275878300234089
+      },
+      {
+        "title": "A genetic algorithm approach for multi-objective optimization of supply chain networks",
+        "year": 2006,
+        "cites": 580,
+        "llm": 0.75,
+        "score": 0.48399849121042454
+      },
+      {
+        "title": "Multi-objective optimization of multi-echelon supply chain networks with uncertain product demands and prices",
+        "year": 2004,
+        "cites": 379,
+        "llm": 0.75,
+        "score": 0.4536079654274415
+      },
+      {
+        "title": "Life Cycle Optimization of Biomass-to-Liquid Supply Chains with Distributed\u2013Centralized Processing Networks",
+        "year": 2011,
+        "cites": 341,
+        "llm": 0.75,
+        "score": 0.47610060827360323
+      },
+      {
+        "title": "A model predictive control strategy for supply chain optimization",
+        "year": 2003,
+        "cites": 322,
+        "llm": 0.75,
+        "score": 0.5250651753427656
+      },
+      {
+        "title": "A hybrid particle swarm optimization and genetic algorithm for closed-loop supply chain network design in large-scale networks",
+        "year": 2014,
+        "cites": 287,
+        "llm": 0.75,
+        "score": 0.47494174643946846
+      },
+      {
+        "title": "A Dynamic Model for Requirements Planning with Application to Supply Chain Optimization",
+        "year": 1998,
+        "cites": 214,
+        "llm": 0.75,
+        "score": 0.4606292750767821
+      },
+      {
+        "title": "Supply chain optimization of petroleum organization under uncertainty in market demands and prices",
+        "year": 2007,
+        "cites": 152,
+        "llm": 0.75,
+        "score": 0.44558154489651236
+      },
+      {
+        "title": "Enhancing Supply Chain Agility and Sustainability through Machine Learning: Optimization Techniques for Logistics and Inventory Management",
+        "year": 2024,
+        "cites": 135,
+        "llm": 0.75,
+        "score": 0.5407104220001652
+      },
+      {
+        "title": "Supply Chain Optimization in Continuous Flexible Process Networks",
+        "year": 2000,
+        "cites": 101,
+        "llm": 0.75,
+        "score": 0.4440915646579145
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Biomass-to-bioenergy and biofuel supply chain optimization: Overview, key issues and challenges",
+        "year": 2013,
+        "cites": 688,
+        "llm": 0.75,
+        "score": 0.620076016902756
+      },
+      {
+        "title": "A review of hydrogen production and supply chain modeling and optimization",
+        "year": 2023,
+        "cites": 216,
+        "llm": 0.75,
+        "score": 0.5329393550950723
+      },
+      {
+        "title": "Artificial Intelligence in Logistics Optimization with Sustainable Criteria: A Review",
+        "year": 2024,
+        "cites": 118,
+        "llm": 0.75,
+        "score": 0.6867794615575192
+      },
+      {
+        "title": "Theoretical approaches to AI in supply chain optimization: Pathways to efficiency and resilience",
+        "year": 2024,
+        "cites": 110,
+        "llm": 0.75,
+        "score": 0.5622023250925308
+      },
+      {
+        "title": "Leveraging artificial intelligence for enhanced supply chain optimization",
+        "year": 2024,
+        "cites": 68,
+        "llm": 0.75,
+        "score": 0.5395035274825101
+      },
+      {
+        "title": "MACHINE LEARNING'S INFLUENCE ON SUPPLY CHAIN AND LOGISTICS OPTIMIZATION IN THE OIL AND GAS SECTOR: A COMPREHENSIVE ANALYSIS",
+        "year": 2024,
+        "cites": 66,
+        "llm": 0.75,
+        "score": 0.5676124901195098
+      },
+      {
+        "title": "Supply Chain Disruption versus Optimization: A Review on Artificial Intelligence and Blockchain",
+        "year": 2023,
+        "cites": 65,
+        "llm": 0.75,
+        "score": 0.5038425400539184
+      },
+      {
+        "title": "The role of AI-Driven predictive analytics in optimizing IT industry supply chains",
+        "year": 2024,
+        "cites": 55,
+        "llm": 0.75,
+        "score": 0.5222117846230078
+      }
+    ],
+    "applications": [
+      {
+        "title": "Implementing Blockchain Technology for Optimized Supply Chain and Enhanced Sustainability",
+        "year": 2024,
+        "cites": 447,
+        "llm": 0.75,
+        "score": 0.6128551077710794
+      },
+      {
+        "title": "Lithium Supply Chain Optimization: A Global Analysis of Critical Minerals for Batteries",
+        "year": 2024,
+        "cites": 25,
+        "llm": 0.75,
+        "score": 0.5152747956065736
+      },
+      {
+        "title": "Data-driven digital marketing and battery supply chain optimization in the battery-powered aircraft industry through case studies of Rolls-Royce\u2019s ACCEL and Airbus's E-Fan X Projects",
+        "year": 2024,
+        "cites": 23,
+        "llm": 0.75,
+        "score": 0.5148123296721447
+      },
+      {
+        "title": "AI-Driven Optimization of Supply Chain and Logistics in Mechanical Engineering",
+        "year": 2023,
+        "cites": 42,
+        "llm": 0.75,
+        "score": 0.4994105748489744
+      },
+      {
+        "title": "A web-based decision support system (DSS) for hydrogen refueling station location and supply chain optimization",
+        "year": 2023,
+        "cites": 35,
+        "llm": 0.75,
+        "score": 0.4980617158735567
+      },
+      {
+        "title": "A data-driven digital transformation approach for reverse logistics optimization in a medical waste management system",
+        "year": 2023,
+        "cites": 27,
+        "llm": 0.75,
+        "score": 0.5056110718497027
+      },
+      {
+        "title": "Agri-biomass supply chain optimization in north China: Model development and application",
+        "year": 2021,
+        "cites": 55,
+        "llm": 0.75,
+        "score": 0.47220946003952513
+      },
+      {
+        "title": "Autonomous Unmanned Ground Vehicles for Urban Logistics: Optimization of Last Mile Delivery Operations",
+        "year": 2019,
+        "cites": 63,
+        "llm": 0.75,
+        "score": 0.48341147535094775
+      },
+      {
+        "title": "Exploring the Benefits of Modular Renewable-Powered Ammonia Production: A Supply Chain Optimization Study",
+        "year": 2018,
+        "cites": 64,
+        "llm": 0.75,
+        "score": 0.4461713019502716
+      },
+      {
+        "title": "A Strategic Empty Container Logistics Optimization in a Major Shipping Company",
+        "year": 2012,
+        "cites": 60,
+        "llm": 0.75,
+        "score": 0.47242751114810294
+      }
+    ]
+  }
+}

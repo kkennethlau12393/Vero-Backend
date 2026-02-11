@@ -1,0 +1,2028 @@
+{
+  "cancer immunotherapy": {
+    "elapsed": 29.275843858718872,
+    "foundational": [
+      {
+        "title": "PD-1 and PD-L1 Immune Checkpoint Blockade to Treat Breast Cancer",
+        "year": 2016,
+        "cites": 30893,
+        "llm": 0.75,
+        "score": 0.7818792654178338
+      },
+      {
+        "title": "Improved Survival with Ipilimumab in Patients with Metastatic Melanoma",
+        "year": 2010,
+        "cites": 14880,
+        "llm": 0.95,
+        "score": 0.7276273620895861
+      },
+      {
+        "title": "Safety, Activity, and Immune Correlates of Anti\u2013PD-1 Antibody in Cancer",
+        "year": 2012,
+        "cites": 12421,
+        "llm": 0.75,
+        "score": 0.6206485193323689
+      },
+      {
+        "title": "Nivolumab versus Docetaxel in Advanced Nonsquamous Non\u2013Small-Cell Lung Cancer",
+        "year": 2015,
+        "cites": 9275,
+        "llm": 0.75,
+        "score": 0.6281823415692406
+      },
+      {
+        "title": "PD-1 Blockade in Tumors with Mismatch-Repair Deficiency",
+        "year": 2015,
+        "cites": 9176,
+        "llm": 0.95,
+        "score": 0.7381823415692405
+      },
+      {
+        "title": "Combined Nivolumab and Ipilimumab or Monotherapy in Untreated Melanoma",
+        "year": 2015,
+        "cites": 7958,
+        "llm": 0.75,
+        "score": 0.6156626295147487
+      },
+      {
+        "title": "Mutational landscape determines sensitivity to PD-1 blockade in non\u2013small cell lung cancer",
+        "year": 2015,
+        "cites": 7785,
+        "llm": 0.75,
+        "score": 0.6115785751110522
+      },
+      {
+        "title": "Engineering precision nanoparticles for drug delivery",
+        "year": 2020,
+        "cites": 6710,
+        "llm": 0.75,
+        "score": 0.656873750488543
+      }
+    ],
+    "methodology": [
+      {
+        "title": "TIMER2.0 for analysis of tumor-infiltrating immune cells",
+        "year": 2020,
+        "cites": 5398,
+        "llm": 0.75,
+        "score": 0.6547281136855733
+      },
+      {
+        "title": "Signatures of T cell dysfunction and exclusion predict cancer immunotherapy response",
+        "year": 2018,
+        "cites": 5309,
+        "llm": 0.75,
+        "score": 0.6565976881173506
+      },
+      {
+        "title": "Pan-cancer Immunogenomic Analyses Reveal Genotype-Immunophenotype Relationships and Predictors of Response to Checkpoint Blockade",
+        "year": 2017,
+        "cites": 5119,
+        "llm": 0.75,
+        "score": 0.5769988551679504
+      },
+      {
+        "title": "Gut microbiome influences efficacy of PD-1\u2013based immunotherapy against epithelial tumors",
+        "year": 2017,
+        "cites": 5089,
+        "llm": 0.75,
+        "score": 0.5937164610359786
+      },
+      {
+        "title": "Elements of cancer immunity and the cancer\u2013immune set point",
+        "year": 2017,
+        "cites": 5038,
+        "llm": 0.75,
+        "score": 0.5747679699589947
+      },
+      {
+        "title": "Tumor-associated B7-H1 promotes T-cell apoptosis: A potential mechanism of immune evasion",
+        "year": 2002,
+        "cites": 4924,
+        "llm": 0.75,
+        "score": 0.4726009123233502
+      },
+      {
+        "title": "Genetic Basis for Clinical Response to CTLA-4 Blockade in Melanoma",
+        "year": 2014,
+        "cites": 4304,
+        "llm": 0.75,
+        "score": 0.5195996685168566
+      },
+      {
+        "title": "Tumor mutational load predicts survival after immunotherapy across multiple cancer types",
+        "year": 2019,
+        "cites": 4215,
+        "llm": 0.75,
+        "score": 0.5990699637959264
+      },
+      {
+        "title": "IFN-\u03b3\u2013related mRNA profile predicts clinical response to PD-1 blockade",
+        "year": 2017,
+        "cites": 3643,
+        "llm": 0.75,
+        "score": 0.5363471691380919
+      },
+      {
+        "title": "A Gene Encoding an Antigen Recognized by Cytolytic T Lymphocytes on a Human Melanoma",
+        "year": 1991,
+        "cites": 3502,
+        "llm": 0.75,
+        "score": 0.4425571991264158
+      },
+      {
+        "title": "Genomic and Transcriptomic Features of Response to Anti-PD-1 Therapy in Metastatic Melanoma",
+        "year": 2016,
+        "cites": 3409,
+        "llm": 0.75,
+        "score": 0.5181625325741916
+      },
+      {
+        "title": "The Tumor Microenvironment Innately Modulates Cancer Progression",
+        "year": 2019,
+        "cites": 3301,
+        "llm": 0.75,
+        "score": 0.5573678726855416
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Understanding the tumor immune microenvironment (TIME) for effective therapy",
+        "year": 2018,
+        "cites": 5560,
+        "llm": 0.75,
+        "score": 0.6085835761637866
+      },
+      {
+        "title": "Primary, Adaptive, and Acquired Resistance to Cancer Immunotherapy",
+        "year": 2017,
+        "cites": 5133,
+        "llm": 0.75,
+        "score": 0.6884955513769058
+      },
+      {
+        "title": "Neoantigens in cancer immunotherapy",
+        "year": 2015,
+        "cites": 4607,
+        "llm": 0.95,
+        "score": 0.7965547317876548
+      },
+      {
+        "title": "Immune Checkpoint Blockade: A Common Denominator Approach to Cancer Therapy",
+        "year": 2015,
+        "cites": 4119,
+        "llm": 0.75,
+        "score": 0.6000343933541061
+      },
+      {
+        "title": "A guide to cancer immunotherapy: from T cell basic science to clinical practice",
+        "year": 2020,
+        "cites": 3922,
+        "llm": 0.75,
+        "score": 0.6421925323124288
+      },
+      {
+        "title": "Tumour-associated macrophages as treatment targets in oncology",
+        "year": 2017,
+        "cites": 3808,
+        "llm": 0.75,
+        "score": 0.5408915649341128
+      },
+      {
+        "title": "Management of Immune-Related Adverse Events in Patients Treated With Immune Checkpoint Inhibitor Therapy: American Society of Clinical Oncology Clinical Practice Guideline",
+        "year": 2018,
+        "cites": 3523,
+        "llm": 0.75,
+        "score": 0.5473807051787004
+      },
+      {
+        "title": "The evolving tumor microenvironment: From cancer initiation to metastatic outgrowth",
+        "year": 2023,
+        "cites": 3035,
+        "llm": 0.75,
+        "score": 0.6610129597255385
+      }
+    ],
+    "applications": [
+      {
+        "title": "Chimeric Antigen Receptor T Cells for Sustained Remissions in Leukemia",
+        "year": 2014,
+        "cites": 5249,
+        "llm": 0.75,
+        "score": 0.5404212638004425
+      },
+      {
+        "title": "Nivolumab for Recurrent Squamous-Cell Carcinoma of the Head and Neck",
+        "year": 2016,
+        "cites": 4882,
+        "llm": 0.75,
+        "score": 0.5556108962527292
+      },
+      {
+        "title": "Sipuleucel-T Immunotherapy for Castration-Resistant Prostate Cancer",
+        "year": 2010,
+        "cites": 5396,
+        "llm": 0.75,
+        "score": 0.5110973645629635
+      },
+      {
+        "title": "Durvalumab after Chemoradiotherapy in Stage III Non\u2013Small-Cell Lung Cancer",
+        "year": 2017,
+        "cites": 4335,
+        "llm": 0.75,
+        "score": 0.5554060896886761
+      },
+      {
+        "title": "Atezolizumab and Nab-Paclitaxel in Advanced Triple-Negative Breast Cancer",
+        "year": 2018,
+        "cites": 4169,
+        "llm": 0.75,
+        "score": 0.5667901576364155
+      },
+      {
+        "title": "Atezolizumab for First-Line Treatment of Metastatic Nonsquamous NSCLC",
+        "year": 2018,
+        "cites": 3631,
+        "llm": 0.75,
+        "score": 0.5506256291189995
+      },
+      {
+        "title": "First-Line Atezolizumab plus Chemotherapy in Extensive-Stage Small-Cell Lung Cancer",
+        "year": 2018,
+        "cites": 3313,
+        "llm": 0.75,
+        "score": 0.541071130850341
+      },
+      {
+        "title": "Commensal <i>Bifidobacterium</i> promotes antitumor immunity and facilitates anti\u2013PD-L1 efficacy",
+        "year": 2015,
+        "cites": 3602,
+        "llm": 0.95,
+        "score": 0.6228294446447932
+      },
+      {
+        "title": "PD-1 Blockade with Nivolumab in Relapsed or Refractory Hodgkin's Lymphoma",
+        "year": 2014,
+        "cites": 3502,
+        "llm": 0.75,
+        "score": 0.5019288543185115
+      },
+      {
+        "title": "Immunotherapy of Diffuse Gliomas: Biological Background, Current Status and Future Developments",
+        "year": 2009,
+        "cites": 4016,
+        "llm": 0.75,
+        "score": 0.4824852769222337
+      }
+    ]
+  },
+  "quantum error correction topological codes": {
+    "elapsed": 24.44101095199585,
+    "foundational": [
+      {
+        "title": "Non-Abelian anyons and topological quantum computation",
+        "year": 2007,
+        "cites": 6644,
+        "llm": 0.75,
+        "score": 0.5521130616070551
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Quantum error correction below the surface code threshold",
+        "year": 2024,
+        "cites": 846,
+        "llm": 0.75,
+        "score": 0.6096861452447155
+      },
+      {
+        "title": "Error mitigation extends the computational reach of a noisy quantum processor",
+        "year": 2018,
+        "cites": 845,
+        "llm": 0.75,
+        "score": 0.5547586809240029
+      },
+      {
+        "title": "High-threshold and low-overhead fault-tolerant quantum memory",
+        "year": 2023,
+        "cites": 538,
+        "llm": 0.75,
+        "score": 0.5992190380801468
+      },
+      {
+        "title": "Fast Decoders for Topological Quantum Codes",
+        "year": 2009,
+        "cites": 241,
+        "llm": 0.75,
+        "score": 0.6441204705896012
+      },
+      {
+        "title": "Experimental demonstration of topological error correction",
+        "year": 2009,
+        "cites": 211,
+        "llm": 0.75,
+        "score": 0.6439231434750617
+      },
+      {
+        "title": "Ultrahigh Error Threshold for Surface Codes with Biased Noise",
+        "year": 2017,
+        "cites": 204,
+        "llm": 0.95,
+        "score": 0.6579871051594006
+      },
+      {
+        "title": "High-Threshold Fault-Tolerant Quantum Computation with Analog Quantum Error Correction",
+        "year": 2017,
+        "cites": 178,
+        "llm": 0.75,
+        "score": 0.5298029174412007
+      },
+      {
+        "title": "Digital zero noise extrapolation for quantum error mitigation",
+        "year": 2020,
+        "cites": 159,
+        "llm": 0.75,
+        "score": 0.568270202435119
+      },
+      {
+        "title": "Relaxing Hardware Requirements for Surface Code Circuits using Time-dynamics",
+        "year": 2023,
+        "cites": 112,
+        "llm": 0.75,
+        "score": 0.5898788879919475
+      },
+      {
+        "title": "Decoding algorithms for surface codes",
+        "year": 2023,
+        "cites": 77,
+        "llm": 0.75,
+        "score": 0.5891115047687386
+      },
+      {
+        "title": "Demonstration of fault-tolerant Steane quantum error correction",
+        "year": 2023,
+        "cites": 71,
+        "llm": 0.95,
+        "score": 0.7189799533590455
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Quantum error correction for quantum memories",
+        "year": 2013,
+        "cites": 1230,
+        "llm": 0.95,
+        "score": 0.7339281293485911
+      },
+      {
+        "title": "Quantum error mitigation",
+        "year": 2023,
+        "cites": 461,
+        "llm": 0.75,
+        "score": 0.7475307949890873
+      }
+    ],
+    "applications": []
+  },
+  "machine learning drug discovery": {
+    "elapsed": 22.038952112197876,
+    "foundational": [
+      {
+        "title": "AutoDock Vina: Improving the speed and accuracy of docking with a new scoring function, efficient optimization, and multithreading",
+        "year": 2009,
+        "cites": 34661,
+        "llm": 0.75,
+        "score": 0.6148094370078697
+      },
+      {
+        "title": "Greedy function approximation: A gradient boosting machine.",
+        "year": 2001,
+        "cites": 27322,
+        "llm": 0.75,
+        "score": 0.5653512712245081
+      }
+    ],
+    "methodology": [
+      {
+        "title": "DrugBank 6.0: the DrugBank Knowledgebase for 2024",
+        "year": 2023,
+        "cites": 1161,
+        "llm": 0.75,
+        "score": 0.5237458779760497
+      },
+      {
+        "title": "DecompDiff: Diffusion Models with Decomposed Priors for Structure-Based Drug Design",
+        "year": 2024,
+        "cites": 109,
+        "llm": 0.75,
+        "score": 0.5153928218488906
+      },
+      {
+        "title": "Comprehensive evaluation of deep and graph learning on drug-drug interactions prediction",
+        "year": 2023,
+        "cites": 83,
+        "llm": 0.75,
+        "score": 0.4954989399950356
+      },
+      {
+        "title": "Navigating the Design Space of Equivariant Diffusion-Based Generative Models for De Novo 3D Molecule Generation",
+        "year": 2023,
+        "cites": 48,
+        "llm": 0.75,
+        "score": 0.4945818316190287
+      },
+      {
+        "title": "Do Deep Learning Models Really Outperform Traditional Approaches in Molecular Docking?",
+        "year": 2023,
+        "cites": 47,
+        "llm": 0.75,
+        "score": 0.4945556285225713
+      },
+      {
+        "title": "Learning Subpocket Prototypes for Generalizable Structure-based Drug Design",
+        "year": 2023,
+        "cites": 43,
+        "llm": 0.75,
+        "score": 0.494450816136742
+      },
+      {
+        "title": "Exploring QSAR Models for Activity-Cliff Prediction",
+        "year": 2023,
+        "cites": 40,
+        "llm": 0.75,
+        "score": 0.49437220684736993
+      },
+      {
+        "title": "Deep Lead Optimization: Leveraging Generative AI for Structural Modification",
+        "year": 2024,
+        "cites": 36,
+        "llm": 0.75,
+        "score": 0.5130974305992274
+      },
+      {
+        "title": "GraphCL-DTA: a graph contrastive learning with molecular semantics for drug-target binding affinity prediction",
+        "year": 2023,
+        "cites": 33,
+        "llm": 0.75,
+        "score": 0.4941887851721686
+      },
+      {
+        "title": "PepMLM: Target Sequence-Conditioned Generation of Therapeutic Peptide Binders via Span Masked Language Modeling",
+        "year": 2023,
+        "cites": 31,
+        "llm": 0.75,
+        "score": 0.4941363789792539
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Artificial intelligence to deep learning: machine intelligence approach for drug discovery",
+        "year": 2021,
+        "cites": 1292,
+        "llm": 0.75,
+        "score": 0.5909581836126858
+      },
+      {
+        "title": "Computational approaches streamlining drug discovery",
+        "year": 2023,
+        "cites": 983,
+        "llm": 0.75,
+        "score": 0.5190817268066429
+      },
+      {
+        "title": "Artificial Intelligence in Pharmaceutical Technology and Drug Delivery Design",
+        "year": 2023,
+        "cites": 806,
+        "llm": 0.75,
+        "score": 0.5144437787336934
+      },
+      {
+        "title": "Machine-learning approaches in drug discovery: methods and applications",
+        "year": 2015,
+        "cites": 673,
+        "llm": 0.75,
+        "score": 0.47118807118324796
+      },
+      {
+        "title": "Molecular Dynamics Simulations in Drug Discovery and Pharmaceutical Development",
+        "year": 2020,
+        "cites": 567,
+        "llm": 0.75,
+        "score": 0.5027422432499494
+      },
+      {
+        "title": "Image-based profiling for drug discovery: due for a machine-learning upgrade?",
+        "year": 2020,
+        "cites": 393,
+        "llm": 0.75,
+        "score": 0.48720268406089795
+      },
+      {
+        "title": "Artificial intelligence and machine learning\u2010aided drug discovery in central nervous system diseases: State\u2010of\u2010the\u2010arts and future directions",
+        "year": 2020,
+        "cites": 371,
+        "llm": 0.75,
+        "score": 0.4784850386461902
+      },
+      {
+        "title": "Revolutionizing Medicinal Chemistry: The Application of Artificial Intelligence (AI) in Early Drug Discovery",
+        "year": 2023,
+        "cites": 138,
+        "llm": 0.75,
+        "score": 0.49694011030018936
+      }
+    ],
+    "applications": [
+      {
+        "title": "MISATO: machine learning dataset of protein\u2013ligand complexes for structure-based drug discovery",
+        "year": 2024,
+        "cites": 45,
+        "llm": 0.75,
+        "score": 0.5133804240409667
+      }
+    ]
+  },
+  "natural language processing sentiment analysis": {
+    "elapsed": 29.072214126586914,
+    "foundational": [
+      {
+        "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+        "year": 2018,
+        "cites": 109582,
+        "llm": 0.95,
+        "score": 0.7519098607058444
+      },
+      {
+        "title": "Convolutional Neural Networks for Sentence Classification",
+        "year": 2014,
+        "cites": 13455,
+        "llm": 0.75,
+        "score": 0.6251555563226098
+      },
+      {
+        "title": "Foundations of statistical natural language processing",
+        "year": 1999,
+        "cites": 9970,
+        "llm": 0.95,
+        "score": 0.7511642526654596
+      },
+      {
+        "title": "Natural Language Processing (almost) from Scratch",
+        "year": 2011,
+        "cites": 7858,
+        "llm": 0.75,
+        "score": 0.5678162585057195
+      },
+      {
+        "title": "Mining and summarizing customer reviews",
+        "year": 2004,
+        "cites": 7628,
+        "llm": 0.75,
+        "score": 0.48543133134666583
+      },
+      {
+        "title": "Transformers: State-of-the-Art Natural Language Processing",
+        "year": 2020,
+        "cites": 7514,
+        "llm": 0.75,
+        "score": 0.791873750488543
+      },
+      {
+        "title": "Thumbs up?",
+        "year": 2002,
+        "cites": 6975,
+        "llm": 0.75,
+        "score": 0.47352634797892995
+      },
+      {
+        "title": "Opinion Mining and Sentiment Analysis",
+        "year": 2008,
+        "cites": 6730,
+        "llm": 0.95,
+        "score": 0.7514076053492635
+      }
+    ],
+    "methodology": [
+      {
+        "title": "VADER: A Parsimonious Rule-Based Model for Sentiment Analysis of Social Media Text",
+        "year": 2014,
+        "cites": 5383,
+        "llm": 0.95,
+        "score": 0.631483005528001
+      },
+      {
+        "title": "Hierarchical Attention Networks for Document Classification",
+        "year": 2016,
+        "cites": 4706,
+        "llm": 0.75,
+        "score": 0.5177155775667592
+      },
+      {
+        "title": "\u201cWhy Should I Trust You?\u201d: Explaining the Predictions of Any Classifier",
+        "year": 2016,
+        "cites": 4586,
+        "llm": 0.75,
+        "score": 0.5154872687602972
+      },
+      {
+        "title": "ALBERT: A Lite BERT for Self-supervised Learning of Language\\n Representations",
+        "year": 2019,
+        "cites": 4054,
+        "llm": 0.75,
+        "score": 0.5449647433133027
+      },
+      {
+        "title": "A maximum entropy approach to natural language processing",
+        "year": 1996,
+        "cites": 3651,
+        "llm": 0.75,
+        "score": 0.46464584590625635
+      },
+      {
+        "title": "Recognizing contextual polarity in phrase-level sentiment analysis",
+        "year": 2005,
+        "cites": 3369,
+        "llm": 0.95,
+        "score": 0.5560719016341179
+      },
+      {
+        "title": "A sentimental education",
+        "year": 2004,
+        "cites": 3323,
+        "llm": 0.75,
+        "score": 0.44386223056211543
+      },
+      {
+        "title": "Lexicon-Based Methods for Sentiment Analysis",
+        "year": 2011,
+        "cites": 3185,
+        "llm": 0.75,
+        "score": 0.4601461049484204
+      },
+      {
+        "title": "SENTIWORDNET: A Publicly Available Lexical Resource for Opinion Mining",
+        "year": 2006,
+        "cites": 2480,
+        "llm": 0.95,
+        "score": 0.5915724945091222
+      },
+      {
+        "title": "BERT Rediscovers the Classical NLP Pipeline",
+        "year": 2019,
+        "cites": 1689,
+        "llm": 0.75,
+        "score": 0.6378736147677384
+      },
+      {
+        "title": "A holistic lexicon-based approach to opinion mining",
+        "year": 2008,
+        "cites": 1380,
+        "llm": 0.75,
+        "score": 0.46324138412329596
+      },
+      {
+        "title": "Aspect extraction for opinion mining with a deep convolutional neural network",
+        "year": 2016,
+        "cites": 854,
+        "llm": 0.75,
+        "score": 0.469263787956249
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Pre-train, Prompt, and Predict: A Systematic Survey of Prompting Methods in Natural Language Processing",
+        "year": 2021,
+        "cites": 4934,
+        "llm": 0.75,
+        "score": 0.6350368608489014
+      },
+      {
+        "title": "Speech and Language Processing: An Introduction to Natural Language Processing, Computational Linguistics, and Speech Recognition",
+        "year": 2000,
+        "cites": 4165,
+        "llm": 0.95,
+        "score": 0.6096092751753273
+      },
+      {
+        "title": "Recent Trends in Deep Learning Based Natural Language Processing [Review Article]",
+        "year": 2018,
+        "cites": 2771,
+        "llm": 0.75,
+        "score": 0.5180485903377094
+      },
+      {
+        "title": "A survey on sentiment analysis methods, applications, and challenges",
+        "year": 2022,
+        "cites": 1251,
+        "llm": 0.75,
+        "score": 0.5395542859283862
+      },
+      {
+        "title": "Jumping NLP Curves: A Review of Natural Language Processing Research [Review Article]",
+        "year": 2014,
+        "cites": 1005,
+        "llm": 0.75,
+        "score": 0.5072763569663434
+      },
+      {
+        "title": "A review on sentiment analysis and emotion detection from text",
+        "year": 2021,
+        "cites": 720,
+        "llm": 0.75,
+        "score": 0.6371101165009138
+      },
+      {
+        "title": "Transformer models for text-based emotion detection: a review of BERT-based approaches",
+        "year": 2021,
+        "cites": 574,
+        "llm": 0.75,
+        "score": 0.5827045642981378
+      },
+      {
+        "title": "A Review on Large Language Models: Architectures, Applications, Taxonomies, Open Issues and Challenges",
+        "year": 2024,
+        "cites": 527,
+        "llm": 0.75,
+        "score": 0.536422751961376
+      }
+    ],
+    "applications": [
+      {
+        "title": "Predicting Elections with Twitter: What 140 Characters Reveal about Political Sentiment",
+        "year": 2010,
+        "cites": 2652,
+        "llm": 0.75,
+        "score": 0.44976534131647056
+      },
+      {
+        "title": "ChatGPT: Jack of all trades, master of none",
+        "year": 2023,
+        "cites": 640,
+        "llm": 0.75,
+        "score": 0.5184094950843036
+      },
+      {
+        "title": "Sentiment Analysis in Twitter",
+        "year": 2023,
+        "cites": 131,
+        "llm": 0.75,
+        "score": 0.4979307181782484
+      },
+      {
+        "title": "Unmasking the conversation on masks: Natural language processing for topical sentiment analysis of COVID-19 Twitter discourse",
+        "year": 2020,
+        "cites": 81,
+        "llm": 0.75,
+        "score": 0.4908374063592598
+      }
+    ]
+  },
+  "federated learning privacy": {
+    "elapsed": 23.80699396133423,
+    "foundational": [
+      {
+        "title": "Communication-Efficient Learning of Deep Networks from Decentralized Data",
+        "year": 2016,
+        "cites": 22302,
+        "llm": 0.95,
+        "score": 0.7408633775433805
+      },
+      {
+        "title": "The Algorithmic Foundations of Differential Privacy",
+        "year": 2013,
+        "cites": 8728,
+        "llm": 0.75,
+        "score": 0.6215455956062269
+      },
+      {
+        "title": "Advances and Open Problems in Federated Learning",
+        "year": 2019,
+        "cites": 7732,
+        "llm": 0.95,
+        "score": 0.7578414831890073
+      },
+      {
+        "title": "Deep Learning with Differential Privacy",
+        "year": 2016,
+        "cites": 7129,
+        "llm": 0.75,
+        "score": 0.6308633775433806
+      },
+      {
+        "title": "Federated Learning: Challenges, Methods, and Future Directions",
+        "year": 2019,
+        "cites": 5520,
+        "llm": 0.95,
+        "score": 0.7578414831890073
+      },
+      {
+        "title": "Federated Machine Learning",
+        "year": 2019,
+        "cites": 5305,
+        "llm": 0.95,
+        "score": 0.9023187188407945
+      },
+      {
+        "title": "Federated Learning: Strategies for Improving Communication Efficiency",
+        "year": 2016,
+        "cites": 5199,
+        "llm": 0.75,
+        "score": 0.5771352314824449
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Federated Learning with Non-IID Data",
+        "year": 2018,
+        "cites": 3050,
+        "llm": 0.75,
+        "score": 0.5420262732322456
+      },
+      {
+        "title": "Towards Federated Learning at Scale: System Design",
+        "year": 2019,
+        "cites": 3008,
+        "llm": 0.75,
+        "score": 0.5575348277273765
+      },
+      {
+        "title": "Federated Learning With Differential Privacy: Algorithms and Performance Analysis",
+        "year": 2019,
+        "cites": 2019,
+        "llm": 0.75,
+        "score": 0.671030139738186
+      },
+      {
+        "title": "Comprehensive Privacy Analysis of Deep Learning: Passive and Active White-box Inference Attacks against Centralized and Federated Learning",
+        "year": 2018,
+        "cites": 1702,
+        "llm": 0.75,
+        "score": 0.5523494366475046
+      },
+      {
+        "title": "Federated Optimization: Distributed Machine Learning for On-Device Intelligence",
+        "year": 2016,
+        "cites": 1649,
+        "llm": 0.75,
+        "score": 0.509673945260963
+      },
+      {
+        "title": "Blockchain and Federated Learning for Privacy-Preserved Data Sharing in Industrial IoT",
+        "year": 2019,
+        "cites": 1154,
+        "llm": 0.75,
+        "score": 0.5724357125956349
+      },
+      {
+        "title": "A Hybrid Approach to Privacy-Preserving Federated Learning",
+        "year": 2018,
+        "cites": 1027,
+        "llm": 0.75,
+        "score": 0.5408107965014197
+      },
+      {
+        "title": "Beyond Inferring Class Representatives: User-Level Privacy Leakage From Federated Learning",
+        "year": 2018,
+        "cites": 881,
+        "llm": 0.75,
+        "score": 0.5062821095628262
+      },
+      {
+        "title": "No free lunch in data privacy",
+        "year": 2011,
+        "cites": 614,
+        "llm": 0.75,
+        "score": 0.5179381257573851
+      },
+      {
+        "title": "Privacy-Preserving Blockchain-Based Federated Learning for IoT Devices",
+        "year": 2019,
+        "cites": 537,
+        "llm": 0.75,
+        "score": 0.4966315041160594
+      },
+      {
+        "title": "Distributed Learning in Wireless Networks: Recent Progress and Future Challenges",
+        "year": 2021,
+        "cites": 485,
+        "llm": 0.75,
+        "score": 0.5302581514727955
+      },
+      {
+        "title": "Decentralized Privacy Using Blockchain-Enabled Federated Learning in Fog Computing",
+        "year": 2020,
+        "cites": 431,
+        "llm": 0.75,
+        "score": 0.4933523168031951
+      }
+    ],
+    "reviews": [
+      {
+        "title": "A survey on security and privacy of federated learning",
+        "year": 2020,
+        "cites": 1245,
+        "llm": 0.75,
+        "score": 0.6559026662282046
+      },
+      {
+        "title": "Secure, privacy-preserving and federated machine learning in medical imaging",
+        "year": 2020,
+        "cites": 1138,
+        "llm": 0.75,
+        "score": 0.6515143934331891
+      },
+      {
+        "title": "A Comprehensive Survey of Privacy-preserving Federated Learning",
+        "year": 2021,
+        "cites": 588,
+        "llm": 0.75,
+        "score": 0.5397723096003305
+      },
+      {
+        "title": "Federated Machine Learning: Survey, Multi-Level Classification, Desirable Criteria and Future Directions in Communication and Networking Systems",
+        "year": 2021,
+        "cites": 468,
+        "llm": 0.75,
+        "score": 0.5366166561184127
+      }
+    ],
+    "applications": [
+      {
+        "title": "Efficient and Privacy-Enhanced Federated Learning for Industrial Artificial Intelligence",
+        "year": 2019,
+        "cites": 536,
+        "llm": 0.75,
+        "score": 0.49962489644061
+      },
+      {
+        "title": "Patient clustering improves efficiency of federated machine learning to predict mortality and hospital stay time using distributed electronic medical records",
+        "year": 2019,
+        "cites": 431,
+        "llm": 0.75,
+        "score": 0.5052730818604104
+      },
+      {
+        "title": "Revolutionizing Maize Disease Management with Federated Learning CNNs: A Decentralized and Privacy-Sensitive Approach",
+        "year": 2023,
+        "cites": 131,
+        "llm": 0.75,
+        "score": 0.5007076689768318
+      },
+      {
+        "title": "Privacy preserving Federated Learning framework for IoMT based big data analysis using edge computing",
+        "year": 2023,
+        "cites": 103,
+        "llm": 0.75,
+        "score": 0.49898516937505
+      },
+      {
+        "title": "Federated machine learning for privacy preserving, collective supply chain risk prediction",
+        "year": 2023,
+        "cites": 99,
+        "llm": 0.75,
+        "score": 0.5107390980033669
+      },
+      {
+        "title": "Collaborative and privacy-preserving retired battery sorting for profitable direct recycling via federated machine learning",
+        "year": 2023,
+        "cites": 97,
+        "llm": 0.75,
+        "score": 0.5136160623175254
+      }
+    ]
+  },
+  "generative adversarial networks image synthesis": {
+    "elapsed": 36.22689509391785,
+    "foundational": [
+      {
+        "title": "Generative adversarial networks",
+        "year": 2014,
+        "cites": 30463,
+        "llm": 0.95,
+        "score": 0.8429872188480277
+      },
+      {
+        "title": "GAN\uff08Generative Adversarial Nets\uff09",
+        "year": 2017,
+        "cites": 21721,
+        "llm": 0.95,
+        "score": 0.8509797923657848
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Unpaired Image-to-Image Translation Using Cycle-Consistent Adversarial Networks",
+        "year": 2017,
+        "cites": 21059,
+        "llm": 0.75,
+        "score": 0.6480753617889088
+      },
+      {
+        "title": "Photo-Realistic Single Image Super-Resolution Using a Generative Adversarial Network",
+        "year": 2016,
+        "cites": 11917,
+        "llm": 0.75,
+        "score": 0.5836762199271867
+      },
+      {
+        "title": "High-Resolution Image Synthesis with Latent Diffusion Models",
+        "year": 2022,
+        "cites": 11349,
+        "llm": 0.75,
+        "score": 0.6258967012507962
+      },
+      {
+        "title": "Improved Techniques for Training GANs",
+        "year": 2016,
+        "cites": 9931,
+        "llm": 0.95,
+        "score": 0.6657186514920768
+      },
+      {
+        "title": "Unsupervised Representation Learning with Deep Convolutional Generative\\n Adversarial Networks",
+        "year": 2015,
+        "cites": 7626,
+        "llm": 0.95,
+        "score": 0.674911302641158
+      },
+      {
+        "title": "GANs Trained by a Two Time-Scale Update Rule Converge to a Local Nash Equilibrium",
+        "year": 2017,
+        "cites": 4488,
+        "llm": 0.75,
+        "score": 0.5566488979076212
+      },
+      {
+        "title": "High-Resolution Image Synthesis and Semantic Manipulation with Conditional GANs",
+        "year": 2017,
+        "cites": 4312,
+        "llm": 0.75,
+        "score": 0.5956816072003751
+      },
+      {
+        "title": "StackGAN: Text to Photo-Realistic Image Synthesis with Stacked Generative Adversarial Networks",
+        "year": 2016,
+        "cites": 2895,
+        "llm": 0.75,
+        "score": 0.5465105803504811
+      },
+      {
+        "title": "Hierarchical Text-Conditional Image Generation with CLIP Latents",
+        "year": 2022,
+        "cites": 2258,
+        "llm": 0.75,
+        "score": 0.7271396575536537
+      },
+      {
+        "title": "AttnGAN: Fine-Grained Text to Image Generation with Attentional Generative Adversarial Networks",
+        "year": 2017,
+        "cites": 1893,
+        "llm": 0.75,
+        "score": 0.558946988521428
+      },
+      {
+        "title": "Conditional Image Generation with PixelCNN Decoders",
+        "year": 2016,
+        "cites": 1584,
+        "llm": 0.75,
+        "score": 0.5760578920901108
+      },
+      {
+        "title": "Zero-Shot Text-to-Image Generation",
+        "year": 2021,
+        "cites": 1128,
+        "llm": 0.75,
+        "score": 0.5900422312810911
+      }
+    ],
+    "reviews": [],
+    "applications": [
+      {
+        "title": "Building Face Ageing Model Using Face Synthesis",
+        "year": 2024,
+        "cites": 737,
+        "llm": 0.75,
+        "score": 0.5922820863645465
+      },
+      {
+        "title": "Medical Image Synthesis with Context-Aware Generative Adversarial Networks",
+        "year": 2016,
+        "cites": 673,
+        "llm": 0.75,
+        "score": 0.648427025826294
+      }
+    ]
+  },
+  "antibiotic resistance mechanisms": {
+    "elapsed": 30.696128845214844,
+    "foundational": [
+      {
+        "title": "One-step inactivation of chromosomal genes in <i>Escherichia coli</i> K-12 using PCR products",
+        "year": 2000,
+        "cites": 14906,
+        "llm": 0.75,
+        "score": 0.6125
+      },
+      {
+        "title": "Global burden of bacterial antimicrobial resistance in 2019: a systematic analysis",
+        "year": 2022,
+        "cites": 13787,
+        "llm": 0.75,
+        "score": 0.8170750929935547
+      },
+      {
+        "title": "Bacterial Biofilms: A Common Cause of Persistent Infections",
+        "year": 1999,
+        "cites": 11809,
+        "llm": 0.75,
+        "score": 0.5855131450601515
+      },
+      {
+        "title": "Identification of acquired antimicrobial resistance genes",
+        "year": 2012,
+        "cites": 4963,
+        "llm": 0.75,
+        "score": 0.696978321642399
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Inactivation of Antibiotics and the Dissemination of Resistance Genes",
+        "year": 1994,
+        "cites": 1735,
+        "llm": 0.75,
+        "score": 0.5120903200334433
+      },
+      {
+        "title": "Expression of a multidrug-resistance gene in human tumors and tissues.",
+        "year": 1987,
+        "cites": 1549,
+        "llm": 0.75,
+        "score": 0.450429384285648
+      },
+      {
+        "title": "ARDB--Antibiotic Resistance Genes Database",
+        "year": 2008,
+        "cites": 1272,
+        "llm": 0.75,
+        "score": 0.47968542618498833
+      },
+      {
+        "title": "A novel antibiotic class targeting the lipopolysaccharide transporter",
+        "year": 2024,
+        "cites": 252,
+        "llm": 0.75,
+        "score": 0.5142863387072978
+      },
+      {
+        "title": "Target protection as a key antibiotic resistance mechanism",
+        "year": 2020,
+        "cites": 187,
+        "llm": 0.75,
+        "score": 0.47872380208462556
+      },
+      {
+        "title": "Antibiotic resistance: A key microbial survival mechanism that threatens public health",
+        "year": 2024,
+        "cites": 126,
+        "llm": 0.75,
+        "score": 0.5030494024817416
+      },
+      {
+        "title": "CRISPR-Cas-Based Antimicrobials: Design, Challenges, and Bacterial Mechanisms of Resistance",
+        "year": 2023,
+        "cites": 126,
+        "llm": 0.75,
+        "score": 0.4862199686988944
+      },
+      {
+        "title": "Unravelling the mechanisms of antibiotic and heavy metal resistance co-selection in environmental bacteria",
+        "year": 2024,
+        "cites": 109,
+        "llm": 0.75,
+        "score": 0.5015333079116269
+      },
+      {
+        "title": "Molecular mechanism of plasmid-borne resistance to sulfonamide antibiotics",
+        "year": 2023,
+        "cites": 98,
+        "llm": 0.75,
+        "score": 0.4841390545830506
+      },
+      {
+        "title": "Pseudomonas aeruginosa antibiotic susceptibility profiles, genomic epidemiology and resistance mechanisms: a nation-wide five-year time lapse analysis",
+        "year": 2023,
+        "cites": 72,
+        "llm": 0.75,
+        "score": 0.4822067771897671
+      },
+      {
+        "title": "Antibiotic Resistance in the Elderly: Mechanisms, Risk Factors, and Solutions",
+        "year": 2024,
+        "cites": 48,
+        "llm": 0.75,
+        "score": 0.4960932038659211
+      },
+      {
+        "title": "Antibiotic resistance genes and virulence factors in the plastisphere in wastewater treatment plant effluent: Health risk quantification and driving mechanism interpretation",
+        "year": 2024,
+        "cites": 47,
+        "llm": 0.75,
+        "score": 0.49600402183238496
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Understanding the mechanisms and drivers of antimicrobial resistance",
+        "year": 2015,
+        "cites": 2441,
+        "llm": 0.75,
+        "score": 0.5756996188693558
+      },
+      {
+        "title": "Antibiotic resistance in Pseudomonas aeruginosa: mechanisms and alternative therapeutic strategies",
+        "year": 2018,
+        "cites": 2091,
+        "llm": 0.95,
+        "score": 0.6964257959257324
+      },
+      {
+        "title": "Drug Resistance and the Solid Tumor Microenvironment",
+        "year": 2007,
+        "cites": 2071,
+        "llm": 0.75,
+        "score": 0.5040423482788955
+      },
+      {
+        "title": "Antimicrobial resistance: risk associated with antibiotic overuse and initiatives to reduce the problem",
+        "year": 2014,
+        "cites": 1964,
+        "llm": 0.75,
+        "score": 0.5038645230671495
+      },
+      {
+        "title": "Antimicrobial Resistance in ESKAPE Pathogens",
+        "year": 2020,
+        "cites": 1891,
+        "llm": 0.75,
+        "score": 0.6000725374219346
+      },
+      {
+        "title": "Antibiotics and Antibiotic Resistance Genes in Natural Environments",
+        "year": 2008,
+        "cites": 1750,
+        "llm": 0.75,
+        "score": 0.5098351909541037
+      },
+      {
+        "title": "An overview of the antimicrobial resistance mechanisms of bacteria",
+        "year": 2018,
+        "cites": 1736,
+        "llm": 0.75,
+        "score": 0.5318077859687611
+      },
+      {
+        "title": "Drug Resistance in Leishmaniasis",
+        "year": 2006,
+        "cites": 1644,
+        "llm": 0.75,
+        "score": 0.4767726669928957
+      }
+    ],
+    "applications": [
+      {
+        "title": "Emergence of a new antibiotic resistance mechanism in India, Pakistan, and the UK: a molecular, biological, and epidemiological study",
+        "year": 2010,
+        "cites": 2887,
+        "llm": 0.75,
+        "score": 0.6320856363791739
+      },
+      {
+        "title": "Antibiotic Resistance Genes as Emerging Contaminants:\u2009 Studies in Northern Colorado",
+        "year": 2006,
+        "cites": 1872,
+        "llm": 0.75,
+        "score": 0.4778596605391808
+      },
+      {
+        "title": "Interaction between microplastic biofilm formation and antibiotics: Effect of microplastic biofilm and its driving mechanisms on antibiotic resistance gene",
+        "year": 2023,
+        "cites": 112,
+        "llm": 0.75,
+        "score": 0.4851795116409725
+      },
+      {
+        "title": "Risk assessment and dissemination mechanism of antibiotic resistance genes in compost",
+        "year": 2023,
+        "cites": 35,
+        "llm": 0.75,
+        "score": 0.4794569978224022
+      }
+    ]
+  },
+  "autonomous vehicles self-driving": {
+    "elapsed": 31.41372799873352,
+    "foundational": [
+      {
+        "title": "Are we ready for autonomous driving? The KITTI vision benchmark suite",
+        "year": 2012,
+        "cites": 14423,
+        "llm": 0.75,
+        "score": 0.7625
+      },
+      {
+        "title": "Vision meets robotics: The KITTI dataset",
+        "year": 2013,
+        "cites": 9252,
+        "llm": 0.75,
+        "score": 0.6152589082333105
+      },
+      {
+        "title": "Scalability in Perception for Autonomous Driving: Waymo Open Dataset",
+        "year": 2019,
+        "cites": 3658,
+        "llm": 0.75,
+        "score": 0.7405709635823058
+      },
+      {
+        "title": "Multi-view 3D Object Detection Network for Autonomous Driving",
+        "year": 2016,
+        "cites": 3301,
+        "llm": 0.75,
+        "score": 0.7627715123604326
+      },
+      {
+        "title": "End to End Learning for Self-Driving Cars",
+        "year": 2016,
+        "cites": 3098,
+        "llm": 0.95,
+        "score": 0.8754482099582126
+      },
+      {
+        "title": "SECOND: Sparsely Embedded Convolutional Detection",
+        "year": 2018,
+        "cites": 3007,
+        "llm": 0.75,
+        "score": 0.6414110656686142
+      },
+      {
+        "title": "Stanley: The robot that won the DARPA Grand Challenge",
+        "year": 2006,
+        "cites": 2589,
+        "llm": 0.75,
+        "score": 0.5009172344492917
+      },
+      {
+        "title": "Autonomous driving in urban environments: Boss and the Urban Challenge",
+        "year": 2008,
+        "cites": 1900,
+        "llm": 0.95,
+        "score": 0.6384883502442691
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Internet of vehicles: From intelligent grid to autonomous cars and vehicular clouds",
+        "year": 2014,
+        "cites": 786,
+        "llm": 0.75,
+        "score": 0.5595831747317791
+      },
+      {
+        "title": "Planning-oriented Autonomous Driving",
+        "year": 2023,
+        "cites": 571,
+        "llm": 0.75,
+        "score": 0.6080531465903507
+      },
+      {
+        "title": "Event-Based Vision Meets Deep Learning on Steering Prediction for Self-Driving Cars",
+        "year": 2018,
+        "cites": 512,
+        "llm": 0.75,
+        "score": 0.5077644529802878
+      },
+      {
+        "title": "Human-like autonomous car-following model with deep reinforcement learning",
+        "year": 2018,
+        "cites": 484,
+        "llm": 0.75,
+        "score": 0.5357556387956
+      },
+      {
+        "title": "On a Formal Model of Safe and Scalable Self-driving Cars",
+        "year": 2017,
+        "cites": 420,
+        "llm": 0.75,
+        "score": 0.6111475770548144
+      },
+      {
+        "title": "Planning for Autonomous Cars that Leverage Effects on Human Actions",
+        "year": 2016,
+        "cites": 414,
+        "llm": 0.75,
+        "score": 0.5275135121869872
+      },
+      {
+        "title": "Visual localization within LIDAR maps for automated urban driving",
+        "year": 2014,
+        "cites": 376,
+        "llm": 0.75,
+        "score": 0.46108925977788656
+      },
+      {
+        "title": "Occ3D: A Large-Scale 3D Occupancy Prediction Benchmark for Autonomous Driving",
+        "year": 2023,
+        "cites": 354,
+        "llm": 0.75,
+        "score": 0.5587420142803458
+      },
+      {
+        "title": "Machine learning, social learning and the governance of self-driving cars",
+        "year": 2017,
+        "cites": 338,
+        "llm": 0.75,
+        "score": 0.49861201040425335
+      },
+      {
+        "title": "Interpretable Learning for Self-Driving Cars by Visualizing Causal Attention",
+        "year": 2017,
+        "cites": 337,
+        "llm": 0.75,
+        "score": 0.4787660258739396
+      },
+      {
+        "title": "The Ethics of Accident-Algorithms for Self-Driving Cars: an Applied Trolley Problem?",
+        "year": 2016,
+        "cites": 317,
+        "llm": 0.75,
+        "score": 0.4841250376401135
+      },
+      {
+        "title": "Reachability Analysis and its Application to the Safety Assessment of Autonomous Cars",
+        "year": 2010,
+        "cites": 273,
+        "llm": 0.75,
+        "score": 0.4609298047825313
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Edge Computing for Autonomous Driving: Opportunities and Challenges",
+        "year": 2019,
+        "cites": 688,
+        "llm": 0.75,
+        "score": 0.5269943006736247
+      },
+      {
+        "title": "Autonomous Cars: Research Results, Issues, and Future Challenges",
+        "year": 2018,
+        "cites": 583,
+        "llm": 0.75,
+        "score": 0.6328582318057464
+      },
+      {
+        "title": "Deep learning for object detection and scene perception in self-driving cars: Survey, challenges, and open issues",
+        "year": 2021,
+        "cites": 525,
+        "llm": 0.75,
+        "score": 0.6018612796318396
+      },
+      {
+        "title": "Towards Autonomous Cars",
+        "year": 2014,
+        "cites": 325,
+        "llm": 0.75,
+        "score": 0.5853291348971303
+      },
+      {
+        "title": "In the Passenger Seat: Investigating Ride Comfort Measures in Autonomous Cars",
+        "year": 2015,
+        "cites": 314,
+        "llm": 0.75,
+        "score": 0.4900499780389732
+      },
+      {
+        "title": "Capturing the behavioural determinants behind the adoption of autonomous vehicles: Conceptual frameworks and measurement models to predict public transport, sharing and ownership trends of self-driving cars",
+        "year": 2019,
+        "cites": 310,
+        "llm": 0.75,
+        "score": 0.5746634100310092
+      },
+      {
+        "title": "Why Ethics Matters for Autonomous Cars",
+        "year": 2016,
+        "cites": 219,
+        "llm": 0.75,
+        "score": 0.46567585717007626
+      },
+      {
+        "title": "Driverless vehicle security: Challenges and future research opportunities",
+        "year": 2018,
+        "cites": 162,
+        "llm": 0.75,
+        "score": 0.5526542756716889
+      }
+    ],
+    "applications": [
+      {
+        "title": "Ghost driver: A field study investigating the interaction between pedestrians and driverless vehicles",
+        "year": 2016,
+        "cites": 295,
+        "llm": 0.75,
+        "score": 0.5952895073305133
+      },
+      {
+        "title": "ScenarioNet: Open-Source Platform for Large-Scale Traffic Scenario Simulation and Modeling",
+        "year": 2023,
+        "cites": 73,
+        "llm": 0.75,
+        "score": 0.5217822247275461
+      },
+      {
+        "title": "Velocity-Free Localization of Autonomous Driverless Vehicles in Underground Intelligent Mines",
+        "year": 2020,
+        "cites": 102,
+        "llm": 0.75,
+        "score": 0.5131967650755742
+      },
+      {
+        "title": "Driverless shuttle pilots: Lessons for automated transit technology deployment",
+        "year": 2021,
+        "cites": 51,
+        "llm": 0.75,
+        "score": 0.5046479968604959
+      },
+      {
+        "title": "Do gender and age affect willingness to ride in driverless vehicles: If so, then why?",
+        "year": 2019,
+        "cites": 69,
+        "llm": 0.75,
+        "score": 0.4856442443038389
+      }
+    ]
+  },
+  "gut microbiome human health": {
+    "elapsed": 23.035079956054688,
+    "foundational": [
+      {
+        "title": "An obesity-associated gut microbiome with increased capacity for energy harvest",
+        "year": 2006,
+        "cites": 12051,
+        "llm": 0.75,
+        "score": 0.5318321616871705
+      },
+      {
+        "title": "Structure, function and diversity of the healthy human microbiome",
+        "year": 2012,
+        "cites": 11514,
+        "llm": 0.95,
+        "score": 0.6820326268621869
+      },
+      {
+        "title": "A human gut microbial gene catalogue established by metagenomic sequencing",
+        "year": 2010,
+        "cites": 11352,
+        "llm": 0.75,
+        "score": 0.5511017550173045
+      },
+      {
+        "title": "Diet rapidly and reproducibly alters the human gut microbiome",
+        "year": 2013,
+        "cites": 9685,
+        "llm": 0.75,
+        "score": 0.5571202626281037
+      },
+      {
+        "title": "Predictive functional profiling of microbial communities using 16S rRNA marker gene sequences",
+        "year": 2013,
+        "cites": 8980,
+        "llm": 0.75,
+        "score": 0.5469564610024445
+      }
+    ],
+    "methodology": [
+      {
+        "title": "The gut microbiota as an environmental factor that regulates fat storage",
+        "year": 2004,
+        "cites": 6068,
+        "llm": 0.75,
+        "score": 0.5669591388400703
+      },
+      {
+        "title": "Impact of diet in shaping gut microbiota revealed by a comparative study in children from Europe and rural Africa",
+        "year": 2010,
+        "cites": 5467,
+        "llm": 0.75,
+        "score": 0.5027323502799643
+      },
+      {
+        "title": "The gut microbiota shapes intestinal immune responses during health and disease",
+        "year": 2009,
+        "cites": 4875,
+        "llm": 0.75,
+        "score": 0.48858063196085433
+      },
+      {
+        "title": "Normal gut microbiota modulates brain development and behavior",
+        "year": 2011,
+        "cites": 3156,
+        "llm": 0.75,
+        "score": 0.4762900631402154
+      },
+      {
+        "title": "Dysfunction of the intestinal microbiome in inflammatory bowel disease and treatment",
+        "year": 2012,
+        "cites": 2684,
+        "llm": 0.75,
+        "score": 0.6022210379032289
+      },
+      {
+        "title": "Macronutrient metabolism by the human gut microbiome: major fermentation by-products and their impact on host health",
+        "year": 2019,
+        "cites": 1087,
+        "llm": 0.75,
+        "score": 0.5753263725597239
+      },
+      {
+        "title": "The Effect of Probiotics on the Production of Short-Chain Fatty Acids by Human Intestinal Microbiome",
+        "year": 2020,
+        "cites": 1063,
+        "llm": 0.75,
+        "score": 0.5482445153567216
+      },
+      {
+        "title": "Bacterial census of poultry intestinal microbiome",
+        "year": 2013,
+        "cites": 521,
+        "llm": 0.75,
+        "score": 0.45833859156776385
+      },
+      {
+        "title": "The person-to-person transmission landscape of the gut and oral microbiomes",
+        "year": 2023,
+        "cites": 403,
+        "llm": 0.75,
+        "score": 0.49259974024487524
+      },
+      {
+        "title": "Gut microbiome and human health: Exploring how the probiotic genus Lactobacillus modulate immune responses",
+        "year": 2022,
+        "cites": 255,
+        "llm": 0.75,
+        "score": 0.5063451178238222
+      },
+      {
+        "title": "The interplay between gut microbiota, short-chain fatty acids, and implications for host health and disease",
+        "year": 2024,
+        "cites": 204,
+        "llm": 0.75,
+        "score": 0.5017834625581714
+      },
+      {
+        "title": "Microbiome and tryptophan metabolomics analysis in adolescent depression: roles of the gut microbiota in the regulation of tryptophan-derived neurotransmitters and behaviors in human and mice",
+        "year": 2023,
+        "cites": 170,
+        "llm": 0.75,
+        "score": 0.48364213919039367
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Diversity, stability and resilience of the human gut microbiota",
+        "year": 2012,
+        "cites": 5293,
+        "llm": 0.75,
+        "score": 0.6376217667360626
+      },
+      {
+        "title": "Host-Gut Microbiota Metabolic Interactions",
+        "year": 2012,
+        "cites": 4563,
+        "llm": 0.75,
+        "score": 0.6277166183849823
+      },
+      {
+        "title": "The Microbiota-Gut-Brain Axis",
+        "year": 2019,
+        "cites": 4261,
+        "llm": 0.75,
+        "score": 0.5957625666624381
+      },
+      {
+        "title": "Gut microbiota in human metabolic health and disease",
+        "year": 2020,
+        "cites": 4139,
+        "llm": 0.75,
+        "score": 0.594938799397227
+      },
+      {
+        "title": "The gut microbiota \u2014 masters of host development and physiology",
+        "year": 2013,
+        "cites": 3559,
+        "llm": 0.75,
+        "score": 0.49380331403407907
+      },
+      {
+        "title": "The Human Intestinal Microbiome in Health and Disease",
+        "year": 2016,
+        "cites": 3388,
+        "llm": 0.75,
+        "score": 0.6352806519814642
+      },
+      {
+        "title": "Introduction to the human gut microbiota",
+        "year": 2017,
+        "cites": 3268,
+        "llm": 0.75,
+        "score": 0.5417476549284737
+      },
+      {
+        "title": "Role of the normal gut microbiota",
+        "year": 2015,
+        "cites": 2889,
+        "llm": 0.75,
+        "score": 0.5030165544694036
+      }
+    ],
+    "applications": [
+      {
+        "title": "A metagenome-wide association study of gut microbiota in type 2 diabetes",
+        "year": 2012,
+        "cites": 6701,
+        "llm": 0.75,
+        "score": 0.5667264912269134
+      },
+      {
+        "title": "Gut microbiome signatures of vegan, vegetarian and omnivore diets and associated health outcomes across 21,561 individuals",
+        "year": 2025,
+        "cites": 57,
+        "llm": 0.75,
+        "score": 0.5143068980667839
+      },
+      {
+        "title": "Microplastics and human health: unveiling the gut microbiome disruption and chronic disease risks",
+        "year": 2024,
+        "cites": 69,
+        "llm": 0.75,
+        "score": 0.5066665420348361
+      },
+      {
+        "title": "Modulation of gut-microbiota through probiotics and dietary interventions to improve the host health.",
+        "year": 2024,
+        "cites": 50,
+        "llm": 0.75,
+        "score": 0.49467889313813623
+      },
+      {
+        "title": "Intestinal microbiome analyses identify melanoma patients at risk for checkpoint-blockade-induced colitis",
+        "year": 2016,
+        "cites": 938,
+        "llm": 0.75,
+        "score": 0.4690813635721583
+      },
+      {
+        "title": "Intestinal microbiome is related to lifetime antibiotic use in Finnish pre-school children",
+        "year": 2016,
+        "cites": 663,
+        "llm": 0.75,
+        "score": 0.45835769576369256
+      }
+    ]
+  },
+  "battery energy storage lithium ion": {
+    "elapsed": 37.62459993362427,
+    "foundational": [
+      {
+        "title": "Issues and challenges facing rechargeable lithium batteries",
+        "year": 2001,
+        "cites": 20218,
+        "llm": 0.95,
+        "score": 0.7549999999999999
+      },
+      {
+        "title": "Electrical Energy Storage for the Grid: A Battery of Choices",
+        "year": 2011,
+        "cites": 14273,
+        "llm": 0.75,
+        "score": 0.6285233338548281
+      },
+      {
+        "title": "The Li-Ion Rechargeable Battery: A Perspective",
+        "year": 2013,
+        "cites": 9320,
+        "llm": 0.95,
+        "score": 0.8765455956062268
+      },
+      {
+        "title": "Li\u2013O2 and Li\u2013S batteries with high energy storage",
+        "year": 2011,
+        "cites": 9219,
+        "llm": 0.75,
+        "score": 0.5900766292422188
+      },
+      {
+        "title": "Nano-sized transition-metal oxides as negative-electrode materials for lithium-ion batteries",
+        "year": 2000,
+        "cites": 7920,
+        "llm": 0.75,
+        "score": 0.6343474997828137
+      },
+      {
+        "title": "Phospho\u2010olivines as Positive\u2010Electrode Materials for Rechargeable Lithium Batteries",
+        "year": 1997,
+        "cites": 7642,
+        "llm": 0.95,
+        "score": 0.6669682020298446
+      },
+      {
+        "title": "Towards greener and more sustainable batteries for electrical energy storage",
+        "year": 2014,
+        "cites": 7413,
+        "llm": 0.75,
+        "score": 0.6070898419834894
+      },
+      {
+        "title": "Nonaqueous Liquid Electrolytes for Lithium-Based Rechargeable Batteries",
+        "year": 2004,
+        "cites": 7071,
+        "llm": 0.75,
+        "score": 0.5898278902677989
+      }
+    ],
+    "methodology": [
+      {
+        "title": "A highly ordered nanostructured carbon\u2013sulphur cathode for lithium\u2013sulphur batteries",
+        "year": 2009,
+        "cites": 5834,
+        "llm": 0.75,
+        "score": 0.5443703354256085
+      },
+      {
+        "title": "Promise and reality of post-lithium-ion batteries with high energy densities",
+        "year": 2016,
+        "cites": 4782,
+        "llm": 0.75,
+        "score": 0.6134269178567576
+      },
+      {
+        "title": "Lithium metal anodes for rechargeable batteries",
+        "year": 2013,
+        "cites": 4502,
+        "llm": 0.75,
+        "score": 0.6235908274808186
+      },
+      {
+        "title": "Lithium battery chemistries enabled by solid-state electrolytes",
+        "year": 2017,
+        "cites": 4330,
+        "llm": 0.75,
+        "score": 0.5873716820371211
+      },
+      {
+        "title": "Metal Oxides and Oxysalts as Anode Materials for Li Ion Batteries",
+        "year": 2013,
+        "cites": 2885,
+        "llm": 0.75,
+        "score": 0.5609304514427483
+      },
+      {
+        "title": "A reflection on lithium-ion battery cathode chemistry",
+        "year": 2020,
+        "cites": 2498,
+        "llm": 0.75,
+        "score": 0.6100301699159287
+      },
+      {
+        "title": "Before Li Ion Batteries",
+        "year": 2018,
+        "cites": 2038,
+        "llm": 0.95,
+        "score": 0.7274541761160594
+      },
+      {
+        "title": "A comparative study of equivalent circuit models for Li-ion batteries",
+        "year": 2011,
+        "cites": 1919,
+        "llm": 0.75,
+        "score": 0.5347150152955298
+      },
+      {
+        "title": "High\u2010Energy Lithium\u2010Ion Batteries: Recent Progress and a Promising Future in Applications",
+        "year": 2023,
+        "cites": 836,
+        "llm": 0.75,
+        "score": 0.5931908105417292
+      },
+      {
+        "title": "Direct regeneration of degraded lithium-ion battery cathodes with a multifunctional organic lithium salt",
+        "year": 2023,
+        "cites": 414,
+        "llm": 0.75,
+        "score": 0.5794089686083523
+      },
+      {
+        "title": "A monofluoride ether-based electrolyte solution for fast-charging and low-temperature non-aqueous lithium metal batteries",
+        "year": 2023,
+        "cites": 295,
+        "llm": 0.75,
+        "score": 0.5755226198167128
+      },
+      {
+        "title": "Electron and Ion Transport in Lithium and Lithium-Ion Battery Negative and Positive Composite Electrodes.",
+        "year": 2023,
+        "cites": 256,
+        "llm": 0.75,
+        "score": 0.5742489424816377
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Toward Safe Lithium Metal Anode in Rechargeable Batteries: A Review",
+        "year": 2017,
+        "cites": 5814,
+        "llm": 0.75,
+        "score": 0.6322874396104199
+      },
+      {
+        "title": "30 Years of Lithium\u2010Ion Batteries",
+        "year": 2018,
+        "cites": 5654,
+        "llm": 0.95,
+        "score": 0.8936541175854327
+      },
+      {
+        "title": "Electrolytes and Interphases in Li-Ion Batteries and Beyond",
+        "year": 2014,
+        "cites": 5018,
+        "llm": 0.95,
+        "score": 0.7558031012911314
+      },
+      {
+        "title": "Lithium batteries: Status, prospects and future",
+        "year": 2009,
+        "cites": 4997,
+        "llm": 0.75,
+        "score": 0.5361698128913172
+      },
+      {
+        "title": "Advanced Materials for Energy Storage",
+        "year": 2010,
+        "cites": 4642,
+        "llm": 0.75,
+        "score": 0.5417079264891085
+      },
+      {
+        "title": "A review on the key issues for lithium-ion battery management in electric vehicles",
+        "year": 2012,
+        "cites": 4599,
+        "llm": 0.75,
+        "score": 0.5926247150492666
+      },
+      {
+        "title": "Rechargeable Lithium\u2013Sulfur Batteries",
+        "year": 2014,
+        "cites": 4473,
+        "llm": 0.75,
+        "score": 0.5543978572862794
+      },
+      {
+        "title": "Ageing mechanisms in lithium-ion batteries",
+        "year": 2005,
+        "cites": 3656,
+        "llm": 0.75,
+        "score": 0.5785411029205935
+      }
+    ],
+    "applications": [
+      {
+        "title": "Recycling lithium-ion batteries from electric vehicles",
+        "year": 2019,
+        "cites": 3244,
+        "llm": 0.75,
+        "score": 0.615467684551329
+      },
+      {
+        "title": "Techno-economic analysis of lithium-ion and lead-acid batteries in stationary energy storage application",
+        "year": 2021,
+        "cites": 283,
+        "llm": 0.75,
+        "score": 0.5571071762450288
+      },
+      {
+        "title": "Lithium-ion energy storage battery explosion incidents",
+        "year": 2021,
+        "cites": 196,
+        "llm": 0.75,
+        "score": 0.5543496496722284
+      },
+      {
+        "title": "Applications of Lithium-Ion Batteries in Grid-Scale Energy Storage Systems",
+        "year": 2020,
+        "cites": 600,
+        "llm": 0.75,
+        "score": 0.5947268245412014
+      }
+    ]
+  }
+}
