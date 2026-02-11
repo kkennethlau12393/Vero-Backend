@@ -1,0 +1,489 @@
+{
+  "machine learning drug discovery": {
+    "elapsed": 87.90403819084167,
+    "foundational": [],
+    "methodology": [
+      {
+        "title": "DecompDiff: Diffusion Models with Decomposed Priors for Structure-Based Drug Design",
+        "year": 2024,
+        "cites": 109,
+        "llm": 0.75,
+        "score": 0.5158913736201207
+      },
+      {
+        "title": "Comprehensive evaluation of deep and graph learning on drug-drug interactions prediction",
+        "year": 2023,
+        "cites": 83,
+        "llm": 0.75,
+        "score": 0.49612369253364086
+      },
+      {
+        "title": "Navigating the Design Space of Equivariant Diffusion-Based Generative Models for De Novo 3D Molecule Generation",
+        "year": 2023,
+        "cites": 48,
+        "llm": 0.75,
+        "score": 0.49506151735060533
+      },
+      {
+        "title": "Do Deep Learning Models Really Outperform Traditional Approaches in Molecular Docking?",
+        "year": 2023,
+        "cites": 47,
+        "llm": 0.75,
+        "score": 0.4950311694882328
+      },
+      {
+        "title": "Learning Subpocket Prototypes for Generalizable Structure-based Drug Design",
+        "year": 2023,
+        "cites": 43,
+        "llm": 0.75,
+        "score": 0.49490977803874303
+      },
+      {
+        "title": "GraphCL-DTA: a graph contrastive learning with molecular semantics for drug-target binding affinity prediction",
+        "year": 2023,
+        "cites": 33,
+        "llm": 0.75,
+        "score": 0.49460629941501866
+      },
+      {
+        "title": "PepMLM: Target Sequence-Conditioned Generation of Therapeutic Peptide Binders via Span Masked Language Modeling",
+        "year": 2023,
+        "cites": 31,
+        "llm": 0.75,
+        "score": 0.49454560369027367
+      },
+      {
+        "title": "Modern semiempirical electronic structure methods and machine learning potentials for drug discovery: Conformers, tautomers, and protonation states",
+        "year": 2023,
+        "cites": 24,
+        "llm": 0.75,
+        "score": 0.4943331686536666
+      },
+      {
+        "title": "Discovery of a Novel DCAF1 Ligand Using a Drug\u2013Target Interaction Prediction Model: Generalizing Machine Learning to New Drug Targets",
+        "year": 2023,
+        "cites": 24,
+        "llm": 0.75,
+        "score": 0.4943331686536666
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Applications of machine learning in drug discovery and development",
+        "year": 2019,
+        "cites": 2645,
+        "llm": 0.75,
+        "score": 0.6462118172434289
+      },
+      {
+        "title": "Artificial intelligence to deep learning: machine intelligence approach for drug discovery",
+        "year": 2021,
+        "cites": 1292,
+        "llm": 0.75,
+        "score": 0.645738326730007
+      },
+      {
+        "title": "Computational approaches streamlining drug discovery",
+        "year": 2023,
+        "cites": 983,
+        "llm": 0.75,
+        "score": 0.5234367686688406
+      },
+      {
+        "title": "Artificial Intelligence in Pharmaceutical Technology and Drug Delivery Design",
+        "year": 2023,
+        "cites": 806,
+        "llm": 0.75,
+        "score": 0.518065197028918
+      },
+      {
+        "title": "Machine-learning approaches in drug discovery: methods and applications",
+        "year": 2015,
+        "cites": 673,
+        "llm": 0.75,
+        "score": 0.49883399417292457
+      },
+      {
+        "title": "Molecular Dynamics Simulations in Drug Discovery and Pharmaceutical Development",
+        "year": 2020,
+        "cites": 567,
+        "llm": 0.75,
+        "score": 0.5302509301605333
+      },
+      {
+        "title": "A review on machine learning approaches and trends in drug discovery",
+        "year": 2021,
+        "cites": 433,
+        "llm": 0.75,
+        "score": 0.5261867163965598
+      },
+      {
+        "title": "Image-based profiling for drug discovery: due for a machine-learning upgrade?",
+        "year": 2020,
+        "cites": 393,
+        "llm": 0.75,
+        "score": 0.5058972447919964
+      }
+    ],
+    "applications": [
+      {
+        "title": "MISATO: machine learning dataset of protein\u2013ligand complexes for structure-based drug discovery",
+        "year": 2024,
+        "cites": 45,
+        "llm": 0.75,
+        "score": 0.513560657789917
+      }
+    ]
+  },
+  "generative adversarial networks image synthesis": {
+    "elapsed": 51.70762777328491,
+    "foundational": [
+      {
+        "title": "GAN\uff08Generative Adversarial Nets\uff09",
+        "year": 2017,
+        "cites": 21721,
+        "llm": 0.95,
+        "score": 0.8689767943596511
+      },
+      {
+        "title": "Unpaired Image-to-Image Translation Using Cycle-Consistent Adversarial Networks",
+        "year": 2017,
+        "cites": 21059,
+        "llm": 0.75,
+        "score": 0.6612376351408494
+      },
+      {
+        "title": "Unsupervised Representation Learning with Deep Convolutional Generative Adversarial Networks",
+        "year": 2015,
+        "cites": 14859,
+        "llm": 0.95,
+        "score": 0.7114636827918853
+      },
+      {
+        "title": "A Style-Based Generator Architecture for Generative Adversarial Networks",
+        "year": 2018,
+        "cites": 12265,
+        "llm": 0.95,
+        "score": 0.6928200534093865
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Photo-Realistic Single Image Super-Resolution Using a Generative Adversarial Network",
+        "year": 2016,
+        "cites": 11917,
+        "llm": 0.75,
+        "score": 0.5877765647634303
+      },
+      {
+        "title": "Improved Training of Wasserstein GANs",
+        "year": 2017,
+        "cites": 10487,
+        "llm": 0.75,
+        "score": 0.5561302053313343
+      },
+      {
+        "title": "Wasserstein Generative Adversarial Networks",
+        "year": 2017,
+        "cites": 9117,
+        "llm": 0.75,
+        "score": 0.5534918555976519
+      },
+      {
+        "title": "GANs Trained by a Two Time-Scale Update Rule Converge to a Local Nash Equilibrium",
+        "year": 2017,
+        "cites": 4488,
+        "llm": 0.75,
+        "score": 0.5551717629131103
+      },
+      {
+        "title": "High-Resolution Image Synthesis and Semantic Manipulation with Conditional GANs",
+        "year": 2017,
+        "cites": 4312,
+        "llm": 0.95,
+        "score": 0.7219435272295617
+      },
+      {
+        "title": "StackGAN: Text to Photo-Realistic Image Synthesis with Stacked Generative Adversarial Networks",
+        "year": 2016,
+        "cites": 2895,
+        "llm": 0.75,
+        "score": 0.542791460493321
+      },
+      {
+        "title": "Hierarchical Text-Conditional Image Generation with CLIP Latents",
+        "year": 2022,
+        "cites": 2258,
+        "llm": 0.75,
+        "score": 0.7220722220425202
+      },
+      {
+        "title": "AttnGAN: Fine-Grained Text to Image Generation with Attentional Generative Adversarial Networks",
+        "year": 2017,
+        "cites": 1893,
+        "llm": 0.75,
+        "score": 0.5543028453361492
+      },
+      {
+        "title": "Zero-Shot Text-to-Image Generation",
+        "year": 2021,
+        "cites": 1128,
+        "llm": 0.75,
+        "score": 0.5878815032674183
+      },
+      {
+        "title": "Image Generation from Scene Graphs",
+        "year": 2018,
+        "cites": 814,
+        "llm": 0.75,
+        "score": 0.5288950285831701
+      },
+      {
+        "title": "DRAW: A Recurrent Neural Network For Image Generation",
+        "year": 2015,
+        "cites": 758,
+        "llm": 0.75,
+        "score": 0.5096485317066252
+      },
+      {
+        "title": "GLIGEN: Open-Set Grounded Text-to-Image Generation",
+        "year": 2023,
+        "cites": 409,
+        "llm": 0.75,
+        "score": 0.5968157421856529
+      }
+    ],
+    "reviews": [
+      {
+        "title": "A survey on Image Data Augmentation for Deep Learning",
+        "year": 2019,
+        "cites": 11356,
+        "llm": 0.75,
+        "score": 0.5740487286499002
+      }
+    ],
+    "applications": [
+      {
+        "title": "Building Face Ageing Model Using Face Synthesis",
+        "year": 2024,
+        "cites": 737,
+        "llm": 0.75,
+        "score": 0.5939846077457795
+      }
+    ]
+  },
+  "antibiotic resistance mechanisms": {
+    "elapsed": 50.503917932510376,
+    "foundational": [
+      {
+        "title": "Global burden of bacterial antimicrobial resistance in 2019: a systematic analysis",
+        "year": 2022,
+        "cites": 13787,
+        "llm": 0.75,
+        "score": 0.8170750929935547
+      },
+      {
+        "title": "Bacterial Biofilms: A Common Cause of Persistent Infections",
+        "year": 1999,
+        "cites": 11809,
+        "llm": 0.75,
+        "score": 0.6120200548508743
+      },
+      {
+        "title": "CRISPR Provides Acquired Resistance Against Viruses in Prokaryotes",
+        "year": 2007,
+        "cites": 6121,
+        "llm": 0.75,
+        "score": 0.5547539240925289
+      },
+      {
+        "title": "Identification of acquired antimicrobial resistance genes",
+        "year": 2012,
+        "cites": 4963,
+        "llm": 0.75,
+        "score": 0.7165396923556557
+      },
+      {
+        "title": "Antimicrobial resistance: a global multifaceted phenomenon",
+        "year": 2015,
+        "cites": 3062,
+        "llm": 0.75,
+        "score": 0.6850385265021383
+      },
+      {
+        "title": "Emergence of a new antibiotic resistance mechanism in India, Pakistan, and the UK: a molecular, biological, and epidemiological study",
+        "year": 2010,
+        "cites": 2887,
+        "llm": 0.75,
+        "score": 0.6420826581988709
+      }
+    ],
+    "methodology": [
+      {
+        "title": "Inactivation of Antibiotics and the Dissemination of Resistance Genes",
+        "year": 1994,
+        "cites": 1735,
+        "llm": 0.75,
+        "score": 0.5550917038052794
+      },
+      {
+        "title": "A novel antibiotic class targeting the lipopolysaccharide transporter",
+        "year": 2024,
+        "cites": 252,
+        "llm": 0.75,
+        "score": 0.5173560392569451
+      },
+      {
+        "title": "Interaction between microplastic biofilm formation and antibiotics: Effect of microplastic biofilm and its driving mechanisms on antibiotic resistance gene",
+        "year": 2023,
+        "cites": 112,
+        "llm": 0.75,
+        "score": 0.4860790158821525
+      },
+      {
+        "title": "Unravelling the mechanisms of antibiotic and heavy metal resistance co-selection in environmental bacteria",
+        "year": 2024,
+        "cites": 109,
+        "llm": 0.75,
+        "score": 0.5026491486158755
+      },
+      {
+        "title": "Molecular mechanism of plasmid-borne resistance to sulfonamide antibiotics",
+        "year": 2023,
+        "cites": 98,
+        "llm": 0.75,
+        "score": 0.484879153009338
+      },
+      {
+        "title": "Perspectives on Usage of Functional Nanomaterials in Antimicrobial Therapy for Antibiotic-Resistant Bacterial Infections",
+        "year": 2023,
+        "cites": 90,
+        "llm": 0.75,
+        "score": 0.4841935170820154
+      },
+      {
+        "title": "Pseudomonas aeruginosa antibiotic susceptibility profiles, genomic epidemiology and resistance mechanisms: a nation-wide five-year time lapse analysis",
+        "year": 2023,
+        "cites": 72,
+        "llm": 0.75,
+        "score": 0.48265083624553956
+      },
+      {
+        "title": "The tetracycline resistome is shaped by selection for specific resistance mechanisms by each antibiotic generation",
+        "year": 2025,
+        "cites": 34,
+        "llm": 0.75,
+        "score": 0.5140855330819335
+      },
+      {
+        "title": "Inverse Association between the Existence of CRISPR/Cas Systems with Antibiotic Resistance, Extended Spectrum \u03b2-Lactamase and Carbapenemase Production in Multidrug, Extensive Drug and Pandrug-Resistant Klebsiella pneumoniae",
+        "year": 2023,
+        "cites": 33,
+        "llm": 0.75,
+        "score": 0.47930836109984193
+      },
+      {
+        "title": "Molecular mechanisms of tigecycline-resistance among Enterobacterales",
+        "year": 2024,
+        "cites": 31,
+        "llm": 0.75,
+        "score": 0.4946272082662012
+      },
+      {
+        "title": "Genetic Factors That Contribute to Antibiotic Resistance through Intrinsic and Acquired Bacterial Genes in Urinary Tract Infections",
+        "year": 2023,
+        "cites": 31,
+        "llm": 0.75,
+        "score": 0.47930836109984193
+      },
+      {
+        "title": "Escherichia coli resistance mechanism AcrAB-TolC efflux pump interactions with commonly used antibiotics: a molecular dynamics study",
+        "year": 2024,
+        "cites": 29,
+        "llm": 0.75,
+        "score": 0.49442151748800445
+      }
+    ],
+    "reviews": [
+      {
+        "title": "Understanding the mechanisms and drivers of antimicrobial resistance",
+        "year": 2015,
+        "cites": 2441,
+        "llm": 0.75,
+        "score": 0.6247288884199599
+      },
+      {
+        "title": "Mobile Genetic Elements Associated with Antimicrobial Resistance",
+        "year": 2018,
+        "cites": 2306,
+        "llm": 0.75,
+        "score": 0.6165820759237428
+      },
+      {
+        "title": "Antibiotic resistance in Pseudomonas aeruginosa: mechanisms and alternative therapeutic strategies",
+        "year": 2018,
+        "cites": 2091,
+        "llm": 0.75,
+        "score": 0.632781276534582
+      },
+      {
+        "title": "Antimicrobial Resistance in ESKAPE Pathogens",
+        "year": 2020,
+        "cites": 1891,
+        "llm": 0.75,
+        "score": 0.644047113860858
+      },
+      {
+        "title": "Antibiotics and Antibiotic Resistance Genes in Natural Environments",
+        "year": 2008,
+        "cites": 1750,
+        "llm": 0.75,
+        "score": 0.5451443805439982
+      },
+      {
+        "title": "An overview of the antimicrobial resistance mechanisms of bacteria",
+        "year": 2018,
+        "cites": 1736,
+        "llm": 0.95,
+        "score": 0.6658448614755238
+      },
+      {
+        "title": "Emerging Strategies to Combat ESKAPE Pathogens in the Era of Antimicrobial Resistance: A Review",
+        "year": 2019,
+        "cites": 1549,
+        "llm": 0.75,
+        "score": 0.5639365993200589
+      },
+      {
+        "title": "Antimicrobial Resistance: A Growing Serious Threat for Global Public Health",
+        "year": 2023,
+        "cites": 1481,
+        "llm": 0.75,
+        "score": 0.631533463945231
+      }
+    ],
+    "applications": [
+      {
+        "title": "Diverse and abundant antibiotic resistance genes in Chinese swine farms",
+        "year": 2013,
+        "cites": 2345,
+        "llm": 0.75,
+        "score": 0.6434395429588382
+      },
+      {
+        "title": "Antibiotic resistance genes and virulence factors in the plastisphere in wastewater treatment plant effluent: Health risk quantification and driving mechanism interpretation",
+        "year": 2024,
+        "cites": 47,
+        "llm": 0.75,
+        "score": 0.49627273449177545
+      },
+      {
+        "title": "Transmission mechanisms of antibiotic resistance genes in arsenic-contaminated soil under sulfamethoxazole stress",
+        "year": 2023,
+        "cites": 34,
+        "llm": 0.75,
+        "score": 0.47939406559075726
+      }
+    ]
+  }
+}
