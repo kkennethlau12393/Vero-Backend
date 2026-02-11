@@ -41,7 +41,20 @@ MAX_PARALLEL_BATCHES = 6  # 6 batches of 15 = 90 papers, all in parallel
 # v16: Added back clear examples for paper types
 # v17: Added modality boundaries rule (vision/NLP/audio are distinct domains)
 # v18: Cache invalidation - ensure domain matching is applied to all papers
-MODEL_VERSION = "llm-type-v18"
+# v19: Intersection-aware scoring - compound queries require ALL concepts, not just one
+# v20: Stricter intersection scoring - 2-of-3 concepts caps at MEDIUM, not HIGH
+# v21: Single-topic vs intersection distinction, sharper MEDIUM/LOW boundary,
+#      generic-tool and social-impact rules
+# v22: Technique-name≠domain-match rule, sub-task boundaries, stronger modality enforcement
+# v23: Research-contribution vs application-use rule, generic-theory cap for domain-specific queries,
+#      strengthened sub-task boundary with explicit examples
+# v24: Expanded modality boundaries (time-series, medical imaging explicit), human-concept vs ML-concept rule
+# v25: Consolidated prompt - merged 9 rule sections into 4 clear sections for better LLM compliance
+# v26: System-boundary principle (same concept in different scientific system ≠ same domain),
+#      intersection decomposition (METHOD + DOMAIN, different method for same task → LOW)
+# v27: Adjacent-phenomena specificity rule (dark matter ≠ dark energy, etc.),
+#      cause-effect topic constraint for "[cause] [system]" queries
+MODEL_VERSION = "llm-type-v27"
 
 # Tier to score mapping
 TIER_SCORES = {
@@ -189,44 +202,56 @@ def score_batch(
 
     prompt = f"""Classify papers by relevance AND type. Return ONLY a JSON object, no other text.
 
-RELEVANCE (how related to query):
-- ESSENTIAL: Core focus directly on query topic, seminal/foundational work
-- HIGH: Directly addresses query topic
-- MEDIUM: Supports query topic
-- LOW: Tangentially related or wrong domain
-- NONE: Unrelated
+STEP 1 - DOMAIN CHECK (apply FIRST, before anything else):
+Identify the paper's PRIMARY research domain. If it does NOT match the query's domain → LOW.
+This overrides everything. Sharing a technique name (attention, transformer, BERT, RL) does NOT
+make domains match. The paper must CONTRIBUTE TO the query's domain.
 
-CRITICAL - DOMAIN MATCHING:
-A query about "X in domain Y" requires papers that cover BOTH X and Y together.
-- "AI in healthcare" wants papers about AI APPLIED TO healthcare, not just healthcare papers
-- "machine learning for drug discovery" wants ML methods for drugs, not just biology papers
-- Papers from the target domain that don't use the target method → LOW
-- Papers about the method but in wrong domain → LOW
+Domain mismatches → always LOW:
+- Vision/image/segmentation paper for an NLP/text query
+- NLP/text paper for a vision/image query
+- Time-series/forecasting paper for an NLP query
+- Genomics/DNA paper that uses BERT for an NLP query (contributes to genomics, not NLP)
+- Game-playing RL (Atari, board games) for a robotics manipulation query
+- Healthcare/education/economics paper that uses ChatGPT for an NLP query
+- Psychology/neuroscience about human cognition for an ML query
+- Different robotics sub-tasks: drone racing ≠ manipulation, flying ≠ grasping
+Same-sounding concept in a different scientific system ≠ same domain. Match the query's
+SPECIFIC system, not just the general phenomenon (e.g., drug resistance in bacteria ≠
+drug resistance in tumors; energy harvesting in wireless ≠ energy harvesting in solar).
+Adjacent/sibling phenomena within the SAME field ≠ same topic. When the query names a
+SPECIFIC phenomenon, papers about a closely related but DISTINCT phenomenon → LOW.
+Examples: dark matter ≠ dark energy (both cosmology, fundamentally different physics),
+Type 1 ≠ Type 2 diabetes, DNA methylation ≠ histone modification, apoptosis ≠ necrosis,
+RNA splicing ≠ RNA editing, innate immunity ≠ adaptive immunity.
 
-MODALITY BOUNDARIES (within ML/AI):
-Different data modalities are DISTINCT domains. A paper about one modality is LOW for queries about another:
-- Images/video vs Text/language vs Audio/speech vs Graphs vs Tabular data
-If query is about "text" or "language" or "NLP", papers about image/vision processing are WRONG DOMAIN.
-If query is about "vision" or "images", papers about language models are WRONG DOMAIN.
-Shared techniques (e.g., transformers, attention) don't make domains equivalent - what matters is the DATA TYPE the paper works with.
+STEP 2 - QUERY TYPE:
+- SINGLE TOPIC ("CRISPR gene therapy", "climate change impacts", "deep learning computer vision"):
+  Papers about any core aspect of this topic can score HIGH/ESSENTIAL.
+  For "[cause/effect] [system]" queries (e.g., "ocean acidification coral reefs"), the paper
+  must discuss the cause-effect relationship, not just the system in isolation. Papers about
+  the system alone (e.g., coral reproduction, coral predators) without the cause → MEDIUM at best.
+- INTERSECTION QUERY ("ML drug discovery", "GAN image synthesis", "RL robotics manipulation"):
+  Decompose into [METHOD/TECHNIQUE] + [DOMAIN/TASK].
+  Paper must address THE INTERSECTION, not just one component.
+  - Paper about METHOD only (no DOMAIN) → MEDIUM at best
+  - Paper about DOMAIN only (no METHOD) → MEDIUM at best
+  - Paper using a DIFFERENT method for the same task → LOW
 
-PAPER TYPE (what kind of paper is this):
-- foundational: RARE. Papers that introduced a genuinely new paradigm or concept that changed a field.
-  (e.g., the paper that first proposed neural networks, or first sequenced a genome)
-- methodology: Tools, software, algorithms, frameworks, pipelines, techniques, protocols.
-  This is the DEFAULT for most technical papers - if it describes HOW to do something, it's methodology.
-  (e.g., software packages, new algorithms, analysis pipelines, benchmarks)
-- review: Reviews, surveys, meta-analyses, systematic reviews.
-- application: Real-world implementations, clinical trials, case studies, deployments.
-- theoretical: Pure theory, proofs, mathematical foundations.
-- other: Default if unclear.
+STEP 3 - RELEVANCE TIER:
+- ESSENTIAL: Seminal/foundational work that shaped this specific field
+- HIGH: Directly addresses the query topic; paper is primarily ABOUT this topic
+- MEDIUM: Same field, useful context, but not primarily about the query topic
+- LOW: Wrong domain, wrong modality, generic tool, or only mentions topic in passing
+- NONE: Completely unrelated
 
-RULES:
-1. Papers must be DIRECTLY about the query topic to score HIGH+
-2. Generic tools/books that could be used for ANY topic → LOW relevance
-3. Papers that MENTION the topic but aren't ABOUT it → LOW relevance
-4. Papers from a domain WITHOUT using the target method → LOW relevance
-5. "foundational" is about paper TYPE (introduced something new), not popularity
+PAPER TYPE:
+- foundational: Introduced a genuinely new paradigm (RARE)
+- methodology: Tools, algorithms, frameworks, techniques (DEFAULT for most papers)
+- review: Surveys, meta-analyses, systematic reviews
+- application: Real-world implementations, clinical trials, case studies
+- theoretical: Pure theory, proofs
+- other: If unclear
 
 QUERY: {normalized_query}
 
@@ -241,7 +266,7 @@ OUTPUT (JSON only):
             response = client.chat.completions.create(
                 model="meta-llama/llama-4-maverick-17b-128e-instruct",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
+                temperature=0.0,
                 max_tokens=2048,
             )
 
