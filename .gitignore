@@ -8,3 +8,8 @@ __pycache__/
 *.egg-info/
 build/
 docs/
+
+# Evaluation and benchmarking files
+eval_*.py
+eval_*.json
+eval_*.md

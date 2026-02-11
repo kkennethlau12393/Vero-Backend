@@ -15,6 +15,8 @@ import requests
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app.feature3.paper_identity import decode_openalex_abstract
+
 logger = logging.getLogger(__name__)
 
 OPENALEX_BATCH_SIZE = 50
@@ -184,7 +186,7 @@ def _fetch_and_insert_works(conn: Connection, work_ids: List[str]) -> None:
             cited_by_count = w.get("cited_by_count") or 0
 
             # Decode abstract from inverted index
-            abstract = _decode_abstract(w.get("abstract_inverted_index"))
+            abstract = decode_openalex_abstract(w.get("abstract_inverted_index"))
 
             # Extract primary_topic_id for cross-domain filtering
             primary_topic = w.get("primary_topic", {})
@@ -216,27 +218,6 @@ def _fetch_and_insert_works(conn: Connection, work_ids: List[str]) -> None:
     except Exception as e:
         logger.warning(f"Failed to fetch/insert works: {e}")
 
-
-def _decode_abstract(inverted_index: Any) -> Optional[str]:
-    """Reconstruct abstract from OpenAlex inverted index."""
-    if not inverted_index or not isinstance(inverted_index, dict):
-        return None
-
-    position_map: Dict[int, str] = {}
-    for word, positions in inverted_index.items():
-        if not isinstance(positions, list):
-            continue
-        for pos in positions:
-            try:
-                position_map[int(pos)] = word
-            except (ValueError, TypeError):
-                continue
-
-    if not position_map:
-        return None
-
-    ordered = [position_map[i] for i in sorted(position_map.keys())]
-    return " ".join(ordered).strip() or None
 
 
 def _load_reference_details(

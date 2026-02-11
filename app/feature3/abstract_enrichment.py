@@ -18,6 +18,8 @@ import requests
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app.feature3.paper_identity import decode_openalex_abstract
+
 from app.feature3.paper_identity import (
     PaperIdentity,
     normalize_arxiv_id,
@@ -313,16 +315,7 @@ def fetch_openalex_abstract(work_id: str, title: str = None) -> Optional[Dict[st
         data = resp.json()
 
         # Reconstruct abstract from inverted index
-        abstract_inv = data.get("abstract_inverted_index")
-        if not abstract_inv:
-            return None
-
-        word_positions = []
-        for word, positions in abstract_inv.items():
-            for pos in positions:
-                word_positions.append((pos, word))
-        word_positions.sort()
-        abstract = " ".join(word for _, word in word_positions)
+        abstract = decode_openalex_abstract(data.get("abstract_inverted_index"))
 
         if not abstract or len(abstract) < 50:
             return None

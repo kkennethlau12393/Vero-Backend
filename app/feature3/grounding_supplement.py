@@ -28,6 +28,7 @@ from openai import OpenAI
 from sqlalchemy.engine import Connection
 
 from app.feature3.json_utils import extract_json_from_llm_response_with_repair
+from app.feature3.paper_identity import decode_openalex_abstract
 from app.feature3.methodology import get_methodology, is_methodology_mismatch
 from app.feature3.paper_cache import (
     get_landmarks,
@@ -283,6 +284,7 @@ def suggest_papers_llm(
                     {"role": "user", "content": prompt},
                 ],
                 timeout=30.0,
+                temperature=0,
             )
 
             content = (resp.choices[0].message.content or "").strip()
@@ -465,19 +467,7 @@ def lookup_paper_in_openalex(
 
 def _extract_abstract(work: Dict[str, Any]) -> Optional[str]:
     """Extract abstract from OpenAlex work data."""
-    abstract_inv = work.get("abstract_inverted_index")
-    if not abstract_inv:
-        return None
-
-    try:
-        word_positions = []
-        for word, positions in abstract_inv.items():
-            for pos in positions:
-                word_positions.append((pos, word))
-        word_positions.sort()
-        return " ".join(word for _, word in word_positions)
-    except Exception:
-        return None
+    return decode_openalex_abstract(work.get("abstract_inverted_index"))
 
 
 def _resolve_suggestions(

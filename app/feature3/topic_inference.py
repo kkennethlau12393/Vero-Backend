@@ -233,6 +233,7 @@ def infer_topic_via_llm(
                     {"role": "user", "content": prompt},
                 ],
                 timeout=30.0,
+                temperature=0,
             )
 
             content = (resp.choices[0].message.content or "").strip()
@@ -278,65 +279,72 @@ def map_llm_topic_to_openalex(
     Map LLM-inferred topic to the closest OpenAlex topic_id.
 
     Strategy:
-    1. Search openalex_topics for matching subfield/field names
-    2. Use fuzzy matching if exact match not found
-    3. Return most common topic in that subfield
-
-    Note: This requires topic names in the openalex_topics table.
-    If not available, we'll create a synthetic topic_id.
+    1. Search OpenAlex /topics API by subfield name (most precise)
+    2. Fallback: search local openalex_topics table by display_name
+    3. Fallback: search works table by category field
+    4. Return None if no match (caller handles gracefully)
     """
-    # First, try to find topics in this field
-    # (This is a simplified mapping - ideally we'd have topic names in DB)
+    # Step 1: Search OpenAlex /topics API by subfield
+    topic_id = _search_openalex_topics_api(subfield)
+    if topic_id:
+        logger.info(f"Mapped topic via OpenAlex API: {field}/{subfield} -> {topic_id}")
+        return topic_id
 
-    # Common field -> topic_id prefix mappings
-    field_prefixes = {
-        "computer science": "T10",
-        "physics": "T11",
-        "mathematics": "T12",
-        "biology": "T13",
-        "chemistry": "T14",
-        "medicine": "T15",
-        "economics": "T16",
-        "psychology": "T17",
-    }
-
-    field_lower = field.lower()
-    prefix = None
-    for f, p in field_prefixes.items():
-        if f in field_lower or field_lower in f:
-            prefix = p
-            break
-
-    if not prefix:
-        # Default to computer science for ML/AI papers
-        if any(term in subfield.lower() for term in ["learning", "neural", "ai", "vision", "nlp"]):
-            prefix = "T10"
-        else:
-            prefix = "T10"  # Default fallback
-
-    # Try to find a topic with this prefix that has papers in the DB
+    # Step 2: Search local openalex_topics table
     try:
         row = conn.execute(
             text("""
-                SELECT primary_topic_id, COUNT(*) as cnt
-                FROM works
-                WHERE primary_topic_id LIKE :prefix || '%'
-                AND primary_topic_id IS NOT NULL
-                GROUP BY primary_topic_id
-                ORDER BY cnt DESC
+                SELECT topic_id FROM openalex_topics
+                WHERE display_name ILIKE :pattern
                 LIMIT 1
             """),
-            {"prefix": prefix},
+            {"pattern": f"%{subfield}%"},
         ).mappings().first()
-
         if row:
-            return row["primary_topic_id"]
+            logger.info(f"Mapped topic via local DB: {field}/{subfield} -> {row['topic_id']}")
+            return row["topic_id"]
+    except Exception as e:
+        logger.warning(f"Error searching local topics: {e}")
+
+    # Step 3: Search by field name if subfield didn't match
+    if field and field.lower() != subfield.lower():
+        topic_id = _search_openalex_topics_api(field)
+        if topic_id:
+            logger.info(f"Mapped topic via OpenAlex API (field fallback): {field} -> {topic_id}")
+            return topic_id
+
+    # Step 4: No match found — return None, no synthetic IDs
+    logger.warning(f"Could not map LLM topic to OpenAlex: {field}/{subfield}")
+    return None
+
+
+def _search_openalex_topics_api(search_term: str) -> Optional[str]:
+    """Search OpenAlex /topics endpoint by name and return the best match topic ID."""
+    if not search_term or len(search_term) < 3:
+        return None
+
+    try:
+        resp = requests.get(
+            "https://api.openalex.org/topics",
+            params={"search": search_term, "per_page": 5},
+            timeout=OPENALEX_TIMEOUT,
+        )
+        resp.raise_for_status()
+
+        results = resp.json().get("results", [])
+        if not results:
+            return None
+
+        # Take the first (best) result
+        topic_url = results[0].get("id", "")
+        if topic_url and "/" in topic_url:
+            return topic_url.rsplit("/", 1)[-1]
+
+        return None
 
     except Exception as e:
-        logger.warning(f"Error mapping topic: {e}")
-
-    # Return a synthetic topic_id based on field
-    return f"{prefix}000"
+        logger.warning(f"OpenAlex topics API search error for '{search_term}': {e}")
+        return None
 
 
 # ============================================================================
