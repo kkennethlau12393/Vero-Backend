@@ -20,15 +20,171 @@ from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Minimum LLM relevance score - papers below this are filtered out
-MIN_LLM_RELEVANCE_THRESHOLD = 0.50
+# ---------------------------------------------------------------------------
+# Programmatic boundary enforcement (deterministic safety net over LLM)
+# ---------------------------------------------------------------------------
+# The LLM unreliably enforces domain/modality/method boundaries. These
+# programmatic checks catch papers where the title clearly indicates a
+# different domain than the query, regardless of what the LLM scored.
+#
+# Three independent categories of checks:
+# 1. ML modality groups (NLP vs vision vs audio etc.)
+# 2. Scientific system groups (bacterial vs cancer vs parasitology)
+# 3. Generative method groups (GAN vs diffusion vs VAE etc.)
+#
+# Each check only fires when BOTH query and title have detectable groups
+# within the same category AND they don't overlap. If either side has no
+# detectable group, no filtering occurs (safe default).
 
-# Category limits - 4 categories
+_ML_MODALITY_GROUPS = {
+    "nlp": ["language", " nlp", "text ", "linguistic", "translation", "sentiment",
+            "named entity", "question answering", "reading comprehension",
+            "summarization", "dialogue"],
+    "vision": ["image", "vision", "visual", "segmentation", "object detection",
+               "pixel", "video", "face recognition", "pose estimation"],
+    "medical_imaging": ["medical image", "pathology", "radiology", "x-ray",
+                        "ct scan", "mri ", "ultrasound", "histopathology"],
+    "timeseries": ["time-series", "time series", "forecasting", "temporal prediction"],
+    "audio": ["audio", "speech recognition", "sound", "acoustic", "music"],
+    "graph": ["graph neural", "graph attention", "graph convolution",
+              "node classification", "link prediction"],
+    "robotics": ["robot", "manipulation", "grasping", "locomotion", "navigation",
+                 "humanoid", "drone"],
+    "genomics": ["dna", "genomic", "genome", "deoxyribonucleic", "nucleotide",
+                 "amino acid", "protein fold", "gene sequence"],
+}
+
+# Scientific system groups - catches cross-system confusion where the same
+# phenomenon name (e.g., "drug resistance") appears in different biological systems.
+_SCIENTIFIC_SYSTEM_GROUPS = {
+    "bacterial": ["antibiotic", "antimicrobial", " bacteria", "bacterial",
+                  "pseudomonas", "staphylococc", "streptococc", "enterococc",
+                  "escherichia", "klebsiella", "acinetobacter", "biofilm",
+                  "beta-lactam", "efflux pump"],
+    "oncology": [" tumor", " tumour", " cancer", "carcinoma", "melanoma",
+                 "leukemia", "leukaemia", "lymphoma", "neoplasm", " metasta",
+                 "oncolog", "chemotherap", "anti-tumor", "antitumor"],
+    "parasitology": ["leishmani", " malaria", "plasmodium", " parasite",
+                     "parasit", "helminth", "protozoa", "trypanosoma",
+                     "schistosom"],
+}
+
+# Generative method groups - catches method boundary violations where a paper
+# uses a different generative method than what the query specifies.
+_GENERATIVE_METHOD_GROUPS = {
+    "gan": ["generative adversarial", " gan ", " gans ", "adversarial network",
+            " dcgan", "cyclegan", "stylegan", "progan", "biggan",
+            "wasserstein gan", " wgan"],
+    "diffusion": ["diffusion model", "denoising diffusion", " ddpm", " ddim",
+                  "score-based generative", "latent diffusion",
+                  "stable diffusion"],
+    "autoregressive_gen": ["pixelcnn", "pixelrnn"],
+    "vae": ["variational autoencoder", " vae ", " vaes "],
+}
+
+# All group categories to check (order doesn't matter, all are independent)
+_ALL_CONFLICT_GROUPS = [
+    _ML_MODALITY_GROUPS,
+    _SCIENTIFIC_SYSTEM_GROUPS,
+    _GENERATIVE_METHOD_GROUPS,
+]
+
+# ---------------------------------------------------------------------------
+# Tool/software paper detection
+# ---------------------------------------------------------------------------
+# Papers primarily about software tools, databases, web servers, or analysis
+# platforms are capped at "methodology" and cannot be "foundational". They are
+# useful instruments used in the field, not the intellectual breakthroughs.
+_TOOL_PAPER_INDICATORS = [
+    "web server", "web portal", "web tool", "web-based tool",
+    "web service for", "online server", "online tool", "online resource",
+    "database:", "updated database", "database in 20",
+    " server for ", " server:",
+    "toolkit", "toolbox", "software tool", "software package",
+    "r package", "python package", "bioconductor",
+    "analysis pipeline", "computational pipeline",
+    "comprehensive integration",
+    "user-friendly",
+    "freely available at",
+]
+
+
+def _is_tool_paper(title: str) -> bool:
+    """Detect papers that are primarily software tools, databases, or platforms."""
+    title_lower = f" {title.lower()} "
+    return any(ind in title_lower for ind in _TOOL_PAPER_INDICATORS)
+
+
+# ---------------------------------------------------------------------------
+# Textbook detection
+# ---------------------------------------------------------------------------
+# General textbooks get their own category rather than mixing with research.
+_TEXTBOOK_TITLE_PREFIXES = [
+    "introduction to ",
+    "an introduction to ",
+    "textbook of ",
+    "a textbook of ",
+]
+
+_TEXTBOOK_TITLE_CONTAINS = [
+    " handbook of ",
+]
+
+
+def _is_textbook(title: str) -> bool:
+    """Detect general textbooks by title patterns."""
+    title_lower = title.lower().strip()
+    if any(title_lower.startswith(prefix) for prefix in _TEXTBOOK_TITLE_PREFIXES):
+        return True
+    title_padded = f" {title_lower} "
+    if any(phrase in title_padded for phrase in _TEXTBOOK_TITLE_CONTAINS):
+        return True
+    return False
+
+
+def _detect_groups(text: str, groups: dict) -> set:
+    """Detect which groups from a category a text belongs to."""
+    text_lower = f" {text.lower()} "
+    found = set()
+    for group_name, indicators in groups.items():
+        if any(ind in text_lower for ind in indicators):
+            found.add(group_name)
+    return found
+
+
+def _check_group_conflict(query_text: str, title: str, groups: dict) -> bool:
+    """Return True if query and title belong to DIFFERENT groups within a category.
+
+    Only fires when both have detectable groups and they don't overlap.
+    """
+    query_groups = _detect_groups(query_text, groups)
+    if not query_groups:
+        return False
+    title_groups = _detect_groups(title, groups)
+    if not title_groups:
+        return False
+    return len(query_groups & title_groups) == 0
+
+
+def check_all_domain_conflicts(query_text: str, title: str) -> bool:
+    """Run all programmatic conflict checks. Returns True if ANY conflict detected."""
+    return any(
+        _check_group_conflict(query_text, title, groups)
+        for groups in _ALL_CONFLICT_GROUPS
+    )
+
+
+# Minimum LLM relevance score - papers below this are filtered out
+# Only HIGH (0.75) and ESSENTIAL (0.95) pass; MEDIUM (0.50) means "supports topic" = tangential
+MIN_LLM_RELEVANCE_THRESHOLD = 0.60
+
+# Category limits - 5 categories
 DEFAULT_CATEGORY_LIMITS = {
     "foundational": 8,
     "methodology": 12,
     "reviews": 8,
     "applications": 10,
+    "textbooks": 5,
 }
 
 @dataclass
@@ -159,9 +315,10 @@ def determine_output_category(
     is_highly_cited = citations >= thresholds.legendary  # Top 15%
 
     # Priority 1: Foundational - top 15% citations + old enough
-    # Use lower relevance threshold (0.25 = LOW tier) to allow older terminology
-    # but still filter out completely unrelated papers
-    FOUNDATIONAL_MIN_RELEVANCE = 0.25
+    # Require HIGH (0.75+) relevance. With tier scores at 0.50/0.75/0.95,
+    # a threshold of 0.70 effectively requires HIGH or ESSENTIAL.
+    # This prevents MEDIUM-scored off-domain famous papers from being foundational.
+    FOUNDATIONAL_MIN_RELEVANCE = 0.70
     if is_highly_cited and is_old_enough and llm_relevance >= FOUNDATIONAL_MIN_RELEVANCE:
         return "foundational"
 
@@ -204,6 +361,7 @@ def partition_results_by_category(
     ranked_items: List[Dict],
     llm_scores: Dict[str, Dict[str, Any]],
     category_limits: Optional[Dict[str, int]] = None,
+    query_text: Optional[str] = None,
 ) -> Dict[str, List[Dict]]:
     """Partition ranked results into 4 categories using LLM types + citations.
 
@@ -211,6 +369,7 @@ def partition_results_by_category(
         ranked_items: List of ranked result dicts with 'work_id' key
         llm_scores: Dict mapping work_id to {"score": float, "paper_type": str}
         category_limits: Optional dict overriding default limits
+        query_text: Optional query text for programmatic modality boundary check
 
     Returns:
         Dict with 4 category keys, each containing a list of items up to the limit.
@@ -237,9 +396,12 @@ def partition_results_by_category(
         "methodology": [],
         "reviews": [],
         "applications": [],
+        "textbooks": [],
     }
 
-    filtered_stats = {"low_relevance": 0, "low_citations": 0, "bad_data": 0}
+    filtered_stats = {"low_relevance": 0, "low_citations": 0, "bad_data": 0,
+                      "domain_conflict": 0, "tool_paper_capped": 0,
+                      "textbook": 0}
 
     for item in ranked_items:
         work_id = item.get("work_id")
@@ -264,6 +426,29 @@ def partition_results_by_category(
         relevance = llm_data.get("score", 0.0)
         paper_type = llm_data.get("paper_type", "other")
 
+        # === TEXTBOOK CHECK ===
+        # General textbooks get their own category, not mixed with research.
+        if _is_textbook(title):
+            if relevance >= MIN_LLM_RELEVANCE_THRESHOLD:
+                buckets["textbooks"].append(item)
+                filtered_stats["textbook"] += 1
+            else:
+                filtered_stats["low_relevance"] += 1
+            continue
+
+        # === DOMAIN BOUNDARY CHECK ===
+        # Deterministic safety net: catch papers where the LLM gave HIGH but
+        # the title clearly indicates a different domain/modality/method.
+        # Checks: ML modalities, scientific systems, generative methods.
+        if query_text and relevance >= MIN_LLM_RELEVANCE_THRESHOLD:
+            if check_all_domain_conflicts(query_text, title):
+                logger.debug(
+                    f"Domain conflict: '{title[:60]}' (llm={relevance}) "
+                    f"filtered for query '{query_text[:40]}'"
+                )
+                filtered_stats["domain_conflict"] += 1
+                continue
+
         # === DETERMINE CATEGORY ===
         category = determine_output_category(
             paper_type=paper_type,
@@ -281,13 +466,34 @@ def partition_results_by_category(
                 filtered_stats["low_citations"] += 1
             continue
 
+        # === TOOL PAPER CAP ===
+        # Software tools, databases, web servers → methodology at most.
+        # They are useful instruments, not the intellectual breakthroughs.
+        if category == "foundational" and _is_tool_paper(title):
+            logger.debug(
+                f"Tool paper capped: '{title[:60]}' → methodology"
+            )
+            category = "methodology"
+            filtered_stats["tool_paper_capped"] += 1
+
         buckets[category].append(item)
 
     # Sort each bucket and truncate to limits
-    # - Foundational/Methodology/Reviews: by citations (highest first)
+    # - Foundational: by LLM relevance first (ESSENTIAL > HIGH), then citations
+    #   This ensures the most relevant papers are at the top, not just most-cited tools
+    # - Methodology/Reviews/Textbooks: by citations (highest first)
     # - Applications: blended 65% citations + 35% recency (recent applications matter)
     for category in buckets:
-        if category == "applications" and buckets[category]:
+        if category == "foundational" and buckets[category]:
+            # Sort by LLM relevance tier first, then citations within tier
+            buckets[category].sort(
+                key=lambda x: (
+                    llm_scores.get(x.get("work_id"), {}).get("score", 0),
+                    x.get("preview", {}).get("cited_by_count", 0) or 0,
+                ),
+                reverse=True,
+            )
+        elif category == "applications" and buckets[category]:
             # Compute blended score for applications
             apps = buckets[category]
             citations_list = [x.get("preview", {}).get("cited_by_count", 0) or 0 for x in apps]
@@ -318,11 +524,19 @@ def partition_results_by_category(
     # Log filtering stats
     total_filtered = sum(filtered_stats.values())
     if total_filtered > 0:
+        extras = []
+        if filtered_stats.get("domain_conflict", 0) > 0:
+            extras.append(f"{filtered_stats['domain_conflict']} domain conflict")
+        if filtered_stats.get("tool_paper_capped", 0) > 0:
+            extras.append(f"{filtered_stats['tool_paper_capped']} tool→methodology")
+        if filtered_stats.get("textbook", 0) > 0:
+            extras.append(f"{filtered_stats['textbook']} textbooks")
+        extras_str = (", " + ", ".join(extras)) if extras else ""
         logger.info(
             f"Filtered {total_filtered} papers: "
             f"{filtered_stats['low_relevance']} low relevance, "
             f"{filtered_stats['low_citations']} low citations, "
-            f"{filtered_stats['bad_data']} bad data"
+            f"{filtered_stats['bad_data']} bad data{extras_str}"
         )
 
     counts = {k: len(v) for k, v in buckets.items()}

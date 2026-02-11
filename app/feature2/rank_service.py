@@ -57,62 +57,27 @@ from .methodological_alignment import (
 
 
 # Ranking pipeline version - increment to invalidate rank caches when logic changes
-# v9: 4 output categories (foundational/methodology/reviews/applications)
-# v10: Strict domain matching in LLM prompt, application citation threshold
-# v11: Clarified foundational vs methodology distinction
-# v12: Python routing respects LLM paper_type for foundational
-# v13: Legendary papers (10k+ cites) can go to foundational regardless of LLM type
-# v14: Recent methodology papers need minimum citations (0-1yr: 5+, 2-3yr: 10+)
-# v15: Super-legendary papers (15k+ cites) go to foundational regardless of type
-# v16: Lowered super-legendary threshold to 12k
-# v17: Fixed cache returning all items as methodology
-# v18-v22: Debug versions
-# v23: Always categorize (removed skip_categorization for specific queries)
-# v24: Lowered legendary threshold from 8k to 7k
-# v25: LLM v17 with modality boundaries
-# v26: Force fresh run
-# v27: Include application papers in legendary path
-# v28: Domain-adaptive legendary threshold (percentile-based)
-# v29: Debug threshold
-# v30: Lower MIN_PROVENANCE_SCORE_FOR_RESERVE to include highly_cited papers
-# v34: Reverted SPECIFIC threshold to 0.3, removed debug prints
-# v35: Simplified three-tier candidate selection (citations, recent, lexical)
-# v36: Adjusted tier sizes, weights (impact 20%, recency 10%), min LLM threshold 0.50
-# v37: Debug paper types
-# v38: All category thresholds are now dynamic (percentile-based)
-# v39: Debug thresholds
-# v40: Fixed foundational_min = legendary/2 instead of top 5%
-# v41: foundational_min = legendary/4 for more foundational papers
-# v42: More inclusive thresholds for 6+ papers per category
-# v43: Larger tier sizes (120/60/80) for better category coverage
-# v44: Fresh run
-# v45: Lower thresholds for reviews (top 70%) and methodology (top 60%)
-# v46: foundational_min = top 10% (not legendary/4)
-# v47: foundational_min = top 20%
-# v48: legendary = top 5% (was top 2%)
-# v49: legendary = top 8%
-# v50: application = top 85%
-# v51: Fresh eval
-# v52: Debug missing papers
-# v53: Partition debug
-# v54: Tier debug
-# v55: LLM filter debug
-# v56: Fixed LLM scoring to score ALL tier-selected candidates (not just first 90)
-# v57: Fresh categorization
-# v58: Removed debug statements, verified super-legendary routing
-# v59: Removed hardcoded 12k floor from super-legendary threshold (fully dynamic)
-# v60: Removed ALL hardcoded citation minimums - purely percentile-based thresholds
-# v61: Widened legendary to top 15%, foundational_min to top 25% for more foundational papers
-# v62: Simplified: top 15% citations + older than median age = foundational (fully dynamic)
-# v63: Sort by citations before truncating - highest cited papers get priority in each category
-# v64: Use 25th percentile age (not median) - prevents mature fields from over-filtering
-# v65: Don't filter foundational papers by LLM relevance - citations prove importance
-# v66: S2 highly-cited now includes synonyms (not just foundational_works) for better retrieval
-# v67: Foundational papers need minimum 0.25 LLM relevance (filters completely unrelated papers)
-# v68: SPECIFIC mode less aggressive - 0.60 threshold (not 0.75), score 120 papers (not 60)
-# v69: SPECIFIC mode uses same 0.50 threshold as BROAD - prevents sparse results for intersections
 # v70: Applications sorted by 65% citations + 35% recency (recent applications matter)
-RANKING_VERSION = "rank-v70"
+# v71: Audit fixes - citation-floor boost requires lexical evidence, store paper_type
+#      in cache, raise foundational LLM threshold to 0.40, zero dead topic weight,
+#      graceful empty-candidate handling
+# v72: LLM prompt v19 - intersection-aware scoring for compound queries
+# v73: Raised MIN_LLM_RELEVANCE_THRESHOLD 0.50→0.60, FOUNDATIONAL_MIN_RELEVANCE 0.40→0.60
+# v74: LLM prompt v20 - stricter 2-of-3 concept capping at MEDIUM
+# v75: LLM prompt v21 - single-topic vs intersection, sharper MEDIUM/LOW,
+#      FOUNDATIONAL_MIN_RELEVANCE 0.60→0.70, removed dead citation-floor boost
+# v76: LLM prompt v22 - technique≠domain rule, sub-task boundaries, stronger modality
+# v77: LLM prompt v23 - research-contribution vs application-use, generic-theory cap,
+#      temperature 0.0 for deterministic scoring
+# v78: Programmatic modality boundary enforcement - catches LLM false positives where
+#      same technique name (attention, transformer, RL) is used in different domain
+# v81: LLM prompt v26 - system-boundary principle, intersection METHOD+DOMAIN decomposition
+# v82: Programmatic boundary enforcement expanded - scientific system groups (bacterial vs
+#      oncology vs parasitology) and generative method groups (GAN vs diffusion vs VAE)
+# v83: Tool paper detection (cap at methodology), textbook category,
+#      foundational sort by LLM relevance then citations
+# v84: LLM prompt v27 - adjacent-phenomena specificity, cause-effect topic constraint
+RANKING_VERSION = "rank-v84"
 
 
 def _stable_rank_hash(
@@ -312,46 +277,39 @@ def direct_rank_prod(
                             ],
                         }
 
-                    # For cached results, we don't have LLM categories stored.
-                    # Apply basic filters and return items in core_concepts_and_theory.
-                    # Fresh runs will properly categorize using LLM.
-                    current_year = datetime.now().year
+                    # Re-categorize cached results using stored paper_type + citations
                     cached_query_class = classify_query(tx, query_text)
 
-                    filtered_items = []
-                    for idx, item in enumerate(items):
-                        preview = item.get("preview", {})
-                        year = preview.get("year")
-                        citations = preview.get("cited_by_count", 0) or 0
-                        title = preview.get("title", "")
-
-                        # Basic filters
-                        if not title or year is None:
-                            continue
-                        if year > current_year:
-                            continue
-                        if year >= current_year - 1 and citations == 0:
-                            continue
-
-                        # LLM relevance filter
+                    # Reconstruct llm_scores from cached breakdowns
+                    cached_llm_scores = {}
+                    for item in items:
+                        wid = item["work_id"]
                         breakdown = item.get("score_breakdown", {})
                         norm = breakdown.get("norm", {})
-                        llm_relevance = norm.get("llm_relevance", 1.0)
-                        if llm_relevance < 0.50:
-                            continue
+                        cached_llm_scores[wid] = {
+                            "score": norm.get("llm_relevance", 0.0),
+                            "paper_type": breakdown.get("paper_type", "other"),
+                        }
 
-                        filtered_items.append({
-                            "rank_index": len(filtered_items),
+                    # Use partition_results_by_category for proper categorization
+                    categorized = partition_results_by_category(
+                        items,
+                        cached_llm_scores,
+                        category_limits=None,
+                        query_text=query_text,
+                    )
+
+                    def _fmt_cached(item, idx):
+                        return {
+                            "rank_index": idx,
                             "work_id": item["work_id"],
                             "score": item["score"],
                             "reasons": item.get("reasons", []),
                             "score_breakdown": item.get("score_breakdown", {}),
-                            "preview": preview,
+                            "preview": item.get("preview", {}),
                             "provenance": item.get("provenance", []),
-                        })
+                        }
 
-                    # For cached results, put all in methodology
-                    # Fresh runs will properly categorize using LLM types
                     return {
                         "rank_job_id": rank_job_id,
                         "job": loaded.get("job", {}),
@@ -360,10 +318,21 @@ def direct_rank_prod(
                             "confidence": cached_query_class.confidence,
                             "query_specificity": cached_query_class.query_specificity.value if cached_query_class.query_specificity else None,
                         },
-                        "foundational": [],
-                        "methodology": filtered_items[:12],
-                        "reviews": [],
-                        "applications": [],
+                        "foundational": [
+                            _fmt_cached(item, idx) for idx, item in enumerate(categorized["foundational"])
+                        ],
+                        "methodology": [
+                            _fmt_cached(item, idx) for idx, item in enumerate(categorized["methodology"])
+                        ],
+                        "reviews": [
+                            _fmt_cached(item, idx) for idx, item in enumerate(categorized["reviews"])
+                        ],
+                        "applications": [
+                            _fmt_cached(item, idx) for idx, item in enumerate(categorized["applications"])
+                        ],
+                        "textbooks": [
+                            _fmt_cached(item, idx) for idx, item in enumerate(categorized.get("textbooks", []))
+                        ],
                     }
             else:
                 return {"rank_job_id": rank_job_id, **loaded}
@@ -375,6 +344,7 @@ def direct_rank_prod(
                 "methodology": [],
                 "reviews": [],
                 "applications": [],
+                "textbooks": [],
             }
         if not created_new and status == "failed":
             # Failed jobs should be retried - delete old results and job, then re-run
@@ -703,9 +673,30 @@ def direct_rank_prod(
             # Log LLM filter stats
             logger.info(f"LLM filter: {llm_filter_stats['passed']} passed, {llm_filter_stats['filtered']} filtered (threshold={min_llm_relevance})")
 
-            # If no candidates remain, raise an error
+            # If no candidates remain, return empty categorized result
             if not valid_work_ids:
-                raise ValueError("no_candidates_after_filters")
+                logger.warning("No candidates remain after LLM filtering")
+                with engine.begin() as tx:
+                    RankRepo.mark_completed(tx, rank_job_id)
+                return {
+                    "rank_job_id": rank_job_id,
+                    "job": {
+                        "rank_job_id": rank_job_id,
+                        "rank_type": "direct_prod",
+                        "candidate_set_id": candidate_set_id,
+                        "status": "completed",
+                    },
+                    "query_classification": {
+                        "type": query_classification.query_type.value,
+                        "confidence": query_classification.confidence,
+                        "query_specificity": query_classification.query_specificity.value,
+                    },
+                    "foundational": [],
+                    "methodology": [],
+                    "reviews": [],
+                    "applications": [],
+                    "textbooks": [],
+                }
 
             # Normalise features
             lex_norm = robust_norm(lex_raw)
@@ -717,26 +708,9 @@ def direct_rank_prod(
             recency_norm = robust_norm(recency_raw)
             comp_norm = robust_norm(completeness_raw)
 
-            # Citation-floor boost: ONLY for papers where LLM gave very low scores (< 0.2)
-            # but the paper has extremely high citations (impact >= 0.95).
-            # This helps foundational papers that the LLM missed due to title mismatch.
-            # Example: "Electric Field Effect in Atomically Thin Carbon Films" (64k cites) is the
-            # graphene discovery paper but LLM gives 0.0 for "graphene electronics" query.
-            # IMPORTANT: Don't boost papers with moderate LLM scores (>= 0.2) - the LLM
-            # correctly identified them as only partially relevant (e.g., generic ML tools).
-            for wid in valid_work_ids:
-                impact_val = impact_norm.get(wid, 0)
-                llm_val = llm_norm.get(wid, 0)
-                # Only boost when LLM gave very low score (< 0.2) but paper has top citations
-                if llm_val < 0.2 and impact_val >= 0.95:
-                    llm_norm[wid] = 0.55  # Boost to moderate relevance, not perfect
-                    logger.debug(f"Citation-floor boost: {wid} llm {llm_val:.2f} -> 0.55 (impact={impact_val:.2f})")
-
-            # Note: We already filtered on raw LLM scores above (line 335).
-            # Filtering again on normalized scores would be overly restrictive since
-            # normalization redistributes values differently. Removed duplicate filter.
-            if not valid_work_ids:
-                raise ValueError("no_candidates_after_filters")
+            # Note: Citation-floor boost removed (v73). The global LLM filter (min_llm_relevance=0.50)
+            # already excludes papers with LLM < 0.50, so the boost condition (llm < 0.2) was
+            # unreachable. The improved LLM prompt (v21) handles famous-paper scoring correctly.
 
             # Compose features dictionary for reranker
             # Simplified: LLM relevance is primary, supplemented by lexical, topic, impact, recency
@@ -748,22 +722,25 @@ def direct_rank_prod(
                 "recency": recency_norm,
             }
 
-            # Weights: LLM is dominant signal (0.50), others provide secondary ranking
+            # Weights: LLM is dominant signal (0.55), others provide secondary ranking
+            # Topic relevance weight zeroed: the LLM already judges topical relevance
+            # far better than the OpenAlex topic-ID matching heuristic, which returns 0
+            # for ~90% of papers. Its 5% weight is redistributed to LLM.
             weights_dict = {
-                "llm_relevance": safe_float(rank_params_json.get("w_llm_relevance"), 0.50),
+                "llm_relevance": safe_float(rank_params_json.get("w_llm_relevance"), 0.55),
                 "lexical": safe_float(rank_params_json.get("w_lexical"), 0.15),
-                "topic": safe_float(rank_params_json.get("w_topic"), 0.05),
+                "topic": safe_float(rank_params_json.get("w_topic"), 0.0),
                 "impact": safe_float(rank_params_json.get("w_impact"), 0.20),
                 "recency": safe_float(rank_params_json.get("w_recency"), 0.10),
             }
 
             # Adjust weights for SPECIFIC queries: prioritize LLM relevance (precision)
             if is_specific_query:
-                weights_dict["llm_relevance"] = 0.60
+                weights_dict["llm_relevance"] = 0.65
                 weights_dict["impact"] = 0.10
                 weights_dict["recency"] = 0.10
                 weights_dict["lexical"] = 0.15
-                weights_dict["topic"] = 0.05
+                weights_dict["topic"] = 0.0
                 logger.info(
                     f"SPECIFIC QUERY weights: llm={weights_dict['llm_relevance']:.2f}, "
                     f"lexical={weights_dict['lexical']:.2f}, impact={weights_dict['impact']:.2f}"
@@ -819,21 +796,27 @@ def direct_rank_prod(
                 impact_scores=impact_norm,
             )
 
-            # Add raw LLM scores to breakdown for specific query testing
-            # This allows tests to verify topic precision using the actual LLM judgment
-            # rather than normalized scores which compress the range
+            # Add raw LLM scores and paper_type to breakdown for:
+            # 1. Specific query testing (verify topic precision via actual LLM judgment)
+            # 2. Cache re-categorization (paper_type needed to re-categorize cached results)
             for item in ranked_items:
                 wid = item["work_id"]
-                if "breakdown" in item and wid in llm_raw:
+                if "breakdown" in item:
+                    llm_entry = llm_scores.get(wid, {})
                     item["breakdown"]["raw"] = {
-                        "llm_relevance": llm_raw[wid],
+                        "llm_relevance": llm_raw.get(wid, 0.0),
                     }
+                    item["breakdown"]["paper_type"] = (
+                        llm_entry.get("paper_type", "other")
+                        if isinstance(llm_entry, dict) else "other"
+                    )
 
-            # Partition results into 3 categories using LLM classifications
+            # Partition results into 4 categories using LLM classifications
             categorized = partition_results_by_category(
                 ranked_items,
                 llm_scores,
                 category_limits,
+                query_text=query_text,
             )
 
             # Prepare result rows for persistence (all items together)
@@ -941,6 +924,9 @@ def direct_rank_prod(
             ],
             "applications": [
                 _format_item(item, idx) for idx, item in enumerate(categorized["applications"])
+            ],
+            "textbooks": [
+                _format_item(item, idx) for idx, item in enumerate(categorized.get("textbooks", []))
             ],
             "convergence": convergence_info,
         }
