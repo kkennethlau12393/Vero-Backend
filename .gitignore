@@ -13,3 +13,6 @@ docs/
 eval_*.py
 eval_*.json
 eval_*.md
+benchmark_*.json
+ranking_benchmark*.py
+diag_*.py
