@@ -1,0 +1,34 @@
+{
+  "PSMATCH2: Stata Module for Matching": {
+    "category": "implementation",
+    "needs_review": false
+  },
+  "A Survey of Deep Learning Techniques": {
+    "category": "handbook",
+    "needs_review": false
+  },
+  "Dynamics of Structures": {
+    "category": "foundational",
+    "needs_review": false
+  },
+  "A New Algorithm for Optimization": {
+    "category": "methodological",
+    "needs_review": false
+  },
+  "Deep Learning for Image Recognition": {
+    "category": "recent",
+    "needs_review": false
+  },
+  "Proceedings of the 5th Conference on AI": {
+    "category": "specific_topics",
+    "needs_review": false
+  },
+  "Fundamentals of Geotechnical Engineering": {
+    "category": "foundational",
+    "needs_review": true
+  },
+  "Seismic Response of Bridges": {
+    "category": null,
+    "needs_review": false
+  }
+}

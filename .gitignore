@@ -16,3 +16,35 @@ eval_*.md
 benchmark_*.json
 ranking_benchmark*.py
 diag_*.py
+
+# Live test result snapshots
+tests/live/results/*.json
+
+# Backup files
+*.bak
+*.bak2
+*.afternoon_backup
+
+# Debug and one-off scripts (root level)
+debug_*.py
+download_*.py
+find_work_ids.py
+score_*.py
+
+# Root-level ad-hoc test scripts
+/test_*.py
+/test_pdfs/
+
+# Logs and output files
+*.log
+scoring_output.txt
+full_scoring_output.txt
+baseline_*.txt
+
+# Root-level result/scoring files
+citation_map_e2e_result.json
+llm_judged_scores_*.json
+scoring_manifest.json
+scoring_report_*.md
+feature1_final_scores.md
+final_scores.md

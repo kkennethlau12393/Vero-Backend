@@ -13,21 +13,27 @@ from uuid import UUID
 
 
 class CitationMapRequest(BaseModel):
-    """Request to build a citation map."""
-    # Mode 1: Direct seed paper
-    seed_work_id: Optional[str] = None
+    """Request to build a citation map.
 
-    # Mode 2: Natural language query
-    query_text: Optional[str] = None
+    Supports multiple seed identification modes (only ONE should be provided):
+    1. seed_work_id: Direct OpenAlex work ID (for internal use)
+    2. seed_doi: DOI from PDF metadata (primary - most PDFs have DOI)
+    3. seed_title: Paper title (fallback - all PDFs have title)
+    4. query_text: Natural language query (exploratory - finds most influential seed)
+    """
+    # Seed identification modes (provide ONE)
+    seed_work_id: Optional[str] = None  # Direct OpenAlex ID (internal use)
+    seed_doi: Optional[str] = None      # DOI (from PDF metadata - primary)
+    seed_title: Optional[str] = None    # Paper title (fallback - all PDFs have this)
+    query_text: Optional[str] = None    # NL query (exploratory search)
 
     # Expansion config
     citing_limit: int = 15      # Papers that cite the seed (incoming edges)
     references_limit: int = 15  # Papers the seed cites (outgoing edges)
     min_citations: int = 0      # Minimum citation count threshold for inclusion
 
-    # Multi-hop expansion (recommended for richer networks)
-    use_multi_hop: bool = True  # Use multi-hop citation network exploration
-    total_nodes: Optional[int] = None  # Target nodes for multi-hop; defaults to citing_limit + references_limit + 1
+    # Multi-hop expansion
+    total_nodes: Optional[int] = None  # Target nodes; defaults to citing_limit + references_limit + 1
 
     # Output control
     create_graph_draft: bool = True

@@ -103,6 +103,90 @@ DEFAULT_K_TOPIC = 200
 DEFAULT_LIMIT_POOL = 3000
 PIPELINE_VERSION = "openalex_v1"
 
+
+# ============================================================================
+# Deduplication Utility Functions
+# ============================================================================
+
+def normalize_doi_for_dedup(doi: str | None) -> str | None:
+    """Normalize DOI for deduplication (lowercase, strip URL prefixes).
+
+    Examples:
+        "10.1234/example" → "10.1234/example"
+        "https://doi.org/10.1234/example" → "10.1234/example"
+        "DOI:10.1234/example" → "10.1234/example"
+    """
+    if not doi:
+        return None
+    from app.feature3.paper_identity import normalize_doi
+    return normalize_doi(doi)
+
+
+def normalize_arxiv_id(arxiv_id: str | None) -> str | None:
+    """Normalize ArXiv ID for deduplication.
+
+    Strips prefixes like "arXiv:" and version suffixes like "v1", "v2".
+
+    Examples:
+        "1706.03762" → "1706.03762"
+        "arXiv:1706.03762" → "1706.03762"
+        "1706.03762v3" → "1706.03762"
+        "arxiv:2301.07041v2" → "2301.07041"
+    """
+    if not arxiv_id:
+        return None
+    # Strip prefixes like "arXiv:" or "arxiv:"
+    clean = arxiv_id.lower().replace("arxiv:", "").strip()
+    # Strip version suffixes (e.g., "1706.03762v3" → "1706.03762")
+    if "v" in clean:
+        parts = clean.split("v")
+        if len(parts) == 2 and parts[1].isdigit():
+            clean = parts[0]
+    return clean
+
+
+def build_external_id_maps(
+    conn: Connection,
+    dois: list[str],
+    arxiv_ids: list[str],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Pre-fetch existing papers by DOI and ArXiv ID from the works table.
+
+    This enables cross-source deduplication by identifying papers that were
+    previously ingested from different sources but represent the same work.
+
+    Args:
+        conn: Database connection
+        dois: List of DOIs to look up (normalized format)
+        arxiv_ids: List of ArXiv IDs to look up (normalized format)
+
+    Returns:
+        Tuple of (doi_to_work_id, arxiv_id_to_work_id) dictionaries
+    """
+    doi_to_work_id = {}
+    arxiv_id_to_work_id = {}
+
+    if dois:
+        rows = conn.execute(text("""
+            SELECT DISTINCT ON (doi) doi, work_id
+            FROM works
+            WHERE doi = ANY(:dois)
+            ORDER BY doi, work_id
+        """), {"dois": list(set(dois))}).mappings().all()
+        doi_to_work_id = {row["doi"]: row["work_id"] for row in rows}
+
+    if arxiv_ids:
+        rows = conn.execute(text("""
+            SELECT DISTINCT ON (arxiv_id) arxiv_id, work_id
+            FROM works
+            WHERE arxiv_id = ANY(:arxiv_ids)
+            ORDER BY arxiv_id, work_id
+        """), {"arxiv_ids": list(set(arxiv_ids))}).mappings().all()
+        arxiv_id_to_work_id = {row["arxiv_id"]: row["work_id"] for row in rows}
+
+    return doi_to_work_id, arxiv_id_to_work_id
+
+
 def _search_semantic_scholar(query: str, k: int = SEMANTIC_SCHOLAR_LIMIT) -> List[Tuple[str, Dict[str, Any]]]:
     """Search Semantic Scholar for papers.
 
@@ -1261,16 +1345,18 @@ def _enrich_arxiv_with_citations(
 def _ingest_arxiv_papers(
     conn: Connection,
     papers: List[Tuple[str, Dict[str, Any]]],
-) -> Tuple[List[str], Dict[str, str]]:
+) -> Tuple[List[str], Dict[str, str], Dict[str, str]]:
     """Ingest papers from ArXiv into the works table.
 
     ArXiv is a co-equal source - papers use AX:{arxiv_id} as their ID.
-    Title-based deduplication: if paper with same title exists, use existing ID.
+    DOI/ArXiv ID-based deduplication: if paper with same ID exists, use existing work_id.
+    Title-based fallback: if no ID match but same title exists, use existing work_id.
 
     Returns:
         Tuple of:
         - List of work_ids that were successfully ingested
         - Dict mapping lowercase title -> work_id for cross-source deduplication
+        - Dict mapping normalized arxiv_id -> work_id for cross-source deduplication
     """
     if not papers:
         return [], {}
@@ -1279,13 +1365,37 @@ def _ingest_arxiv_papers(
     from sqlalchemy.dialects.postgresql import JSONB
     from sqlalchemy import bindparam
 
-    # Track titles to work_ids for cross-source deduplication
+    # Track titles and arxiv_ids to work_ids for cross-source deduplication
     title_to_work_id: Dict[str, str] = {}
+    arxiv_id_to_work_id: Dict[str, str] = {}
 
-    # Pre-fetch existing papers by title for deduplication
+    # Pre-fetch existing papers by ArXiv ID for deduplication (primary)
+    arxiv_ids_to_check = [normalize_arxiv_id(arxiv_id) for arxiv_id, _ in papers]
+    arxiv_ids_to_check = [aid for aid in arxiv_ids_to_check if aid]  # Remove None
+
+    # Pre-fetch existing papers by title for fallback deduplication
     titles_to_check = [meta.get("title") for _, meta in papers if meta.get("title")]
     existing_by_title: Dict[str, Tuple[str, int]] = {}  # title -> (work_id, citations)
 
+    # Build ArXiv ID dedup map
+    if arxiv_ids_to_check:
+        try:
+            rows = conn.execute(
+                text("""
+                    SELECT DISTINCT ON (arxiv_id)
+                        arxiv_id, work_id
+                    FROM works
+                    WHERE arxiv_id = ANY(:arxiv_ids)
+                    ORDER BY arxiv_id, work_id
+                """),
+                {"arxiv_ids": arxiv_ids_to_check},
+            ).fetchall()
+            for row in rows:
+                arxiv_id_to_work_id[row[0]] = row[1]
+        except Exception as e:
+            logger.warning(f"Failed to check existing papers by arxiv_id: {e}")
+
+    # Build title dedup map (fallback)
     if titles_to_check:
         try:
             rows = conn.execute(
@@ -1306,19 +1416,27 @@ def _ingest_arxiv_papers(
     work_ids = []
     for arxiv_id, meta in papers:
         title = meta.get("title", "")
+        normalized_arxiv = normalize_arxiv_id(arxiv_id)
 
-        # Title-based deduplication: use existing entry if same title exists
-        if title and title.lower() in existing_by_title:
+        # Multi-stage deduplication:
+        # Stage 1: ArXiv ID match (primary)
+        if normalized_arxiv and normalized_arxiv in arxiv_id_to_work_id:
+            work_id = arxiv_id_to_work_id[normalized_arxiv]
+            logger.debug(f"ArXiv {arxiv_id} deduped to existing {work_id} (ArXiv ID match)")
+        # Stage 2: Title match (fallback)
+        elif title and title.lower() in existing_by_title:
             existing_id, _ = existing_by_title[title.lower()]
             work_id = existing_id
-            logger.debug(f"ArXiv {arxiv_id} deduped to existing {work_id}")
+            logger.debug(f"ArXiv {arxiv_id} deduped to existing {work_id} (title match)")
+        # Stage 3: Create new work_id
         else:
-            # Use ArXiv's own ID
             work_id = f"AX:{arxiv_id}"
 
         work_ids.append(work_id)
 
-        # Track title -> work_id for cross-source deduplication
+        # Update dedup maps for subsequent sources
+        if normalized_arxiv:
+            arxiv_id_to_work_id[normalized_arxiv] = work_id
         if title:
             title_to_work_id[title.lower()] = work_id
 
@@ -1330,12 +1448,12 @@ def _ingest_arxiv_papers(
                         work_id, title, year, cited_by_count,
                         authors_json, venue, primary_topic_id,
                         primary_topic_score, topics_json, is_retracted,
-                        abstract
+                        abstract, arxiv_id
                     ) VALUES (
                         :work_id, :title, :year, :cited_by_count,
                         :authors_json, :venue, :primary_topic_id,
                         :primary_topic_score, :topics_json, :is_retracted,
-                        :abstract
+                        :abstract, :arxiv_id
                     )
                     ON CONFLICT (work_id) DO UPDATE
                     SET
@@ -1354,7 +1472,9 @@ def _ingest_arxiv_papers(
                             ELSE works.year
                         END,
                         -- Fill in abstract if missing
-                        abstract = COALESCE(works.abstract, EXCLUDED.abstract)
+                        abstract = COALESCE(works.abstract, EXCLUDED.abstract),
+                        -- Fill in arxiv_id if missing
+                        arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id)
                 """).bindparams(
                     bindparam("authors_json", type_=JSONB),
                     bindparam("topics_json", type_=JSONB),
@@ -1371,27 +1491,28 @@ def _ingest_arxiv_papers(
                     "topics_json": [],
                     "is_retracted": False,
                     "abstract": meta.get("abstract"),
+                    "arxiv_id": normalized_arxiv,
                 },
             )
         except Exception as e:
             logger.warning(f"Failed to ingest ArXiv paper {work_id}: {e}")
 
-    return work_ids, title_to_work_id
+    return work_ids, title_to_work_id, arxiv_id_to_work_id
 
 
 def _ingest_semantic_scholar_papers(
     conn: Connection,
     papers: List[Tuple[str, Dict[str, Any]]],
     arxiv_titles: Optional[Dict[str, str]] = None,
-) -> List[str]:
+    arxiv_ids: Optional[Dict[str, str]] = None,
+) -> Tuple[List[str], Dict[str, str], Dict[str, str]]:
     """Ingest papers from Semantic Scholar into the works table with cross-source linking.
 
-    Uses canonical ID strategy to avoid duplicates:
-    1. If OpenAlex ID exists → use that (enables full OpenAlex metadata enrichment)
-    2. Else if ArXiv ID exists → check if AX:{arxiv_id} already in DB, use existing ID
-    3. Else check DB for existing paper with same title → use existing ID
-       (includes freshly-inserted ArXiv papers via arxiv_titles param)
-    4. Else → use S2:{id} prefix
+    Uses multi-stage deduplication to avoid duplicates:
+    1. DOI match (primary) → use existing work_id
+    2. ArXiv ID match → use existing work_id
+    3. Title match → use existing work_id (includes freshly-inserted papers from prior sources)
+    4. No match → create new S2:{id}
 
     This ensures papers retrieved from multiple sources are properly unified.
 
@@ -1399,9 +1520,13 @@ def _ingest_semantic_scholar_papers(
         conn: Database connection
         papers: List of (s2_id, metadata) tuples from Semantic Scholar
         arxiv_titles: Optional dict mapping lowercase title -> work_id from ArXiv ingestion
-                      This enables deduplication against freshly-inserted ArXiv papers
+        arxiv_ids: Optional dict mapping normalized arxiv_id -> work_id from ArXiv ingestion
 
-    Returns list of work_ids that were successfully ingested.
+    Returns:
+        Tuple of:
+        - List of work_ids that were successfully ingested
+        - Dict mapping lowercase title -> work_id for cross-source deduplication
+        - Dict mapping normalized arxiv_id -> work_id for cross-source deduplication
     """
     if not papers:
         return []
@@ -1413,28 +1538,37 @@ def _ingest_semantic_scholar_papers(
     work_ids = []
     rows_to_insert = []
 
-    # First pass: collect ArXiv IDs to check for existing DB entries
+    # Initialize dedup maps (combine fresh ArXiv data with DB lookups)
+    doi_to_work_id: Dict[str, str] = {}
+    arxiv_id_to_work_id: Dict[str, str] = arxiv_ids.copy() if arxiv_ids else {}
+    title_to_work_id: Dict[str, str] = arxiv_titles.copy() if arxiv_titles else {}
+
+    # Extract DOIs and ArXiv IDs from S2 papers for pre-fetching
+    dois_to_check = []
     arxiv_ids_to_check = []
     for s2_id, meta in papers:
+        doi = meta.get("doi")
         arxiv_id = meta.get("arxiv_id")
-        if arxiv_id and not meta.get("openalex_id"):
-            arxiv_ids_to_check.append(f"AX:{arxiv_id}")
+        if doi:
+            normalized_doi = normalize_doi_for_dedup(doi)
+            if normalized_doi:
+                dois_to_check.append(normalized_doi)
+        if arxiv_id:
+            normalized_arxiv = normalize_arxiv_id(arxiv_id)
+            if normalized_arxiv:
+                arxiv_ids_to_check.append(normalized_arxiv)
 
-    # Check which ArXiv papers already exist in DB
-    existing_arxiv = set()
-    if arxiv_ids_to_check:
-        try:
-            rows = conn.execute(
-                text("SELECT work_id FROM works WHERE work_id = ANY(:ids)"),
-                {"ids": arxiv_ids_to_check},
-            ).scalars().all()
-            existing_arxiv = set(rows)
-        except Exception:
-            pass
+    # Pre-fetch existing papers by DOI and ArXiv ID from DB
+    db_doi_map, db_arxiv_map = build_external_id_maps(conn, dois_to_check, arxiv_ids_to_check)
+    # Merge DB results into our maps (don't overwrite fresh ArXiv data)
+    for doi, wid in db_doi_map.items():
+        if doi not in doi_to_work_id:
+            doi_to_work_id[doi] = wid
+    for arxiv_id, wid in db_arxiv_map.items():
+        if arxiv_id not in arxiv_id_to_work_id:
+            arxiv_id_to_work_id[arxiv_id] = wid
 
-    # Pre-fetch existing papers by title for deduplication
-    # Check ALL papers (not just those without external IDs) to catch cases where
-    # ArXiv search didn't retrieve a paper but S2 has an ArXiv ID for it
+    # Pre-fetch existing papers by title for fallback deduplication
     titles_to_check = [meta.get("title") for _, meta in papers if meta.get("title")]
     existing_by_title: Dict[str, Tuple[str, int]] = {}  # title -> (work_id, citations)
 
@@ -1455,31 +1589,46 @@ def _ingest_semantic_scholar_papers(
         except Exception as e:
             logger.warning(f"Failed to check existing papers by title: {e}")
 
-    # Merge freshly-inserted ArXiv titles into existing_by_title
-    # This ensures S2 papers can link to ArXiv papers that were just inserted
-    # in the same transaction (before they're visible in DB query above)
-    if arxiv_titles:
-        for title_lower, arxiv_work_id in arxiv_titles.items():
-            if title_lower not in existing_by_title:
-                # Add freshly-inserted ArXiv paper (citations unknown, but ID is what matters)
-                existing_by_title[title_lower] = (arxiv_work_id, 0)
-                logger.debug(f"Added freshly-inserted ArXiv paper to title map: {title_lower[:40]}... -> {arxiv_work_id}")
+    # Merge existing title lookups into title_to_work_id
+    for title_lower, (wid, _) in existing_by_title.items():
+        if title_lower not in title_to_work_id:
+            title_to_work_id[title_lower] = wid
 
     for s2_id, meta in papers:
-        # S2 papers use their own ID - no hierarchy between sources
-        # Title-based deduplication handles cross-source duplicates at candidate pool level
         title = meta.get("title", "")
+        doi = meta.get("doi")
+        arxiv_id = meta.get("arxiv_id")
 
-        # Check if paper with same title already exists (avoid duplicates)
-        if title and title.lower() in existing_by_title:
-            existing_id, existing_cites = existing_by_title[title.lower()]
-            work_id = existing_id
-            logger.debug(f"S2 {s2_id[:12]} deduped to existing {work_id}")
+        # Normalize external IDs
+        normalized_doi = normalize_doi_for_dedup(doi) if doi else None
+        normalized_arxiv = normalize_arxiv_id(arxiv_id) if arxiv_id else None
+
+        # Multi-stage deduplication:
+        # Stage 1: DOI match (highest priority)
+        if normalized_doi and normalized_doi in doi_to_work_id:
+            work_id = doi_to_work_id[normalized_doi]
+            logger.debug(f"S2 {s2_id[:12]} deduped to existing {work_id} (DOI match)")
+        # Stage 2: ArXiv ID match
+        elif normalized_arxiv and normalized_arxiv in arxiv_id_to_work_id:
+            work_id = arxiv_id_to_work_id[normalized_arxiv]
+            logger.debug(f"S2 {s2_id[:12]} deduped to existing {work_id} (ArXiv ID match)")
+        # Stage 3: Title match (fallback)
+        elif title and title.lower() in title_to_work_id:
+            work_id = title_to_work_id[title.lower()]
+            logger.debug(f"S2 {s2_id[:12]} deduped to existing {work_id} (title match)")
+        # Stage 4: Create new work_id
         else:
-            # Use S2's own ID
             work_id = f"S2:{s2_id[:20]}"
 
         work_ids.append(work_id)
+
+        # Update dedup maps for subsequent sources
+        if normalized_doi:
+            doi_to_work_id[normalized_doi] = work_id
+        if normalized_arxiv:
+            arxiv_id_to_work_id[normalized_arxiv] = work_id
+        if title:
+            title_to_work_id[title.lower()] = work_id
 
         # Prepare row for insertion
         rows_to_insert.append({
@@ -1494,6 +1643,8 @@ def _ingest_semantic_scholar_papers(
             "topics_json": [],
             "is_retracted": False,
             "abstract": None,
+            "doi": normalized_doi,
+            "arxiv_id": normalized_arxiv,
             "source": "semantic_scholar",
         })
 
@@ -1510,12 +1661,12 @@ def _ingest_semantic_scholar_papers(
                             work_id, title, year, cited_by_count,
                             authors_json, venue, primary_topic_id,
                             primary_topic_score, topics_json, is_retracted,
-                            abstract
+                            abstract, doi, arxiv_id
                         ) VALUES (
                             :work_id, :title, :year, :cited_by_count,
                             :authors_json, :venue, :primary_topic_id,
                             :primary_topic_score, :topics_json, :is_retracted,
-                            :abstract
+                            :abstract, :doi, :arxiv_id
                         )
                         ON CONFLICT (work_id) DO UPDATE
                         SET
@@ -1532,7 +1683,10 @@ def _ingest_semantic_scholar_papers(
                                 ELSE works.year
                             END,
                             -- Fill in title if missing
-                            title = COALESCE(works.title, EXCLUDED.title)
+                            title = COALESCE(works.title, EXCLUDED.title),
+                            -- Fill in external IDs if missing
+                            doi = COALESCE(works.doi, EXCLUDED.doi),
+                            arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id)
                     """).bindparams(
                         bindparam("authors_json", type_=JSONB),
                         bindparam("topics_json", type_=JSONB),
@@ -1542,7 +1696,7 @@ def _ingest_semantic_scholar_papers(
             except Exception as e:
                 logger.warning(f"Failed to ingest S2 paper {row['work_id']}: {e}")
 
-    return work_ids
+    return work_ids, title_to_work_id, arxiv_id_to_work_id
 
 
 def _search_openalex(query: str, k: int, year_filter: Optional[str] = None) -> List[Tuple[str, float]]:
@@ -1990,6 +2144,8 @@ def generate_candidates_direct(
     # 2c) Ingest ArXiv papers FIRST (they get enriched with S2 data and canonical IDs)
     # This must happen before S2 ingestion so that S2 papers can link to existing ArXiv entries
     arxiv_title_map: Dict[str, str] = {}  # title -> work_id for cross-source deduplication
+    arxiv_id_map: Dict[str, str] = {}  # arxiv_id -> work_id for cross-source deduplication
+    doi_map: Dict[str, str] = {}  # doi -> work_id for cross-source deduplication
     if arxiv_papers:
         # Deduplicate by ArXiv ID
         seen_arxiv_ids = set()
@@ -1999,9 +2155,9 @@ def generate_candidates_direct(
                 seen_arxiv_ids.add(arxiv_id)
                 unique_arxiv_papers.append((arxiv_id, meta))
 
-        # Ingest into DB and get work_ids + title map (uses canonical ID strategy)
-        arxiv_work_ids, arxiv_title_map = _ingest_arxiv_papers(conn, unique_arxiv_papers)
-        logger.info(f"Ingested {len(arxiv_work_ids)} papers from ArXiv (title map: {len(arxiv_title_map)})")
+        # Ingest into DB and get work_ids + dedup maps (DOI, ArXiv ID, title)
+        arxiv_work_ids, arxiv_title_map, arxiv_id_map = _ingest_arxiv_papers(conn, unique_arxiv_papers)
+        logger.info(f"Ingested {len(arxiv_work_ids)} papers from ArXiv (title map: {len(arxiv_title_map)}, arxiv_id map: {len(arxiv_id_map)})")
 
         # Add to candidate map with provenance
         for idx, (wid, (arxiv_id, meta)) in enumerate(zip(arxiv_work_ids, unique_arxiv_papers)):
@@ -2024,10 +2180,14 @@ def generate_candidates_direct(
                 seen_s2_ids.add(s2_id)
                 unique_s2_papers.append((s2_id, meta))
 
-        # Ingest into DB and get work_ids (will link to existing ArXiv entries if available)
-        # Pass arxiv_title_map to enable linking to freshly-inserted ArXiv papers
-        s2_work_ids = _ingest_semantic_scholar_papers(conn, unique_s2_papers, arxiv_titles=arxiv_title_map)
-        logger.info(f"Ingested {len(s2_work_ids)} papers from Semantic Scholar")
+        # Ingest into DB and get work_ids + updated dedup maps
+        # Pass existing maps to enable linking to freshly-inserted ArXiv papers
+        s2_work_ids, arxiv_title_map, arxiv_id_map = _ingest_semantic_scholar_papers(
+            conn, unique_s2_papers,
+            arxiv_titles=arxiv_title_map,
+            arxiv_ids=arxiv_id_map
+        )
+        logger.info(f"Ingested {len(s2_work_ids)} papers from Semantic Scholar (updated title map: {len(arxiv_title_map)}, arxiv_id map: {len(arxiv_id_map)})")
 
         # Add to candidate map with provenance (may merge with existing ArXiv entries)
         for idx, (wid, (s2_id, meta)) in enumerate(zip(s2_work_ids, unique_s2_papers)):
@@ -2038,11 +2198,6 @@ def generate_candidates_direct(
                 "citations": meta.get("citations", 0),
             }
             candidate_map.setdefault(wid, []).append(prov_entry)
-
-            # Add S2 titles to dedup map (for cross-source deduplication with OpenAlex)
-            s2_title = meta.get("title")
-            if s2_title:
-                arxiv_title_map[s2_title.lower()] = wid
 
     # 2d-ii) Ingest CrossRef papers
     if crossref_papers:
@@ -2056,13 +2211,26 @@ def generate_candidates_direct(
         logger.info(f"Processing {len(unique_crossref)} unique CrossRef papers")
         for idx, (doi, meta) in enumerate(unique_crossref):
             title = meta.get("title", "")
-            # Check for existing paper by title
-            if title and title.lower() in arxiv_title_map:
+            normalized_doi = normalize_doi_for_dedup(doi)
+
+            # Multi-stage deduplication:
+            # Stage 1: DOI match (primary)
+            if normalized_doi and normalized_doi in doi_map:
+                wid = doi_map[normalized_doi]
+                logger.debug(f"CrossRef {doi[:30]} deduped to existing {wid} (DOI match)")
+            # Stage 2: Title match (fallback)
+            elif title and title.lower() in arxiv_title_map:
                 wid = arxiv_title_map[title.lower()]
+                logger.debug(f"CrossRef {doi[:30]} deduped to existing {wid} (title match)")
+            # Stage 3: Create new work_id
             else:
                 wid = f"DOI:{doi}"
-                if title:
-                    arxiv_title_map[title.lower()] = wid
+
+            # Update dedup maps for subsequent sources
+            if normalized_doi:
+                doi_map[normalized_doi] = wid
+            if title:
+                arxiv_title_map[title.lower()] = wid
 
             prov_entry = {
                 "source": "crossref",
@@ -2073,16 +2241,17 @@ def generate_candidates_direct(
             }
             candidate_map.setdefault(wid, []).append(prov_entry)
 
-            # Upsert into works table
+            # Upsert into works table with DOI
             try:
                 conn.execute(
                     text("""
-                        INSERT INTO works (work_id, title, year, cited_by_count, venue)
-                        VALUES (:wid, :title, :year, :citations, :venue)
+                        INSERT INTO works (work_id, title, year, cited_by_count, venue, doi)
+                        VALUES (:wid, :title, :year, :citations, :venue, :doi)
                         ON CONFLICT (work_id) DO UPDATE SET
                             cited_by_count = GREATEST(COALESCE(works.cited_by_count, 0), COALESCE(EXCLUDED.cited_by_count, 0)),
                             title = COALESCE(works.title, EXCLUDED.title),
-                            venue = COALESCE(works.venue, EXCLUDED.venue)
+                            venue = COALESCE(works.venue, EXCLUDED.venue),
+                            doi = COALESCE(works.doi, EXCLUDED.doi)
                     """),
                     {
                         "wid": wid,
@@ -2090,6 +2259,7 @@ def generate_candidates_direct(
                         "year": meta.get("year"),
                         "citations": meta.get("citations", 0),
                         "venue": meta.get("venue"),
+                        "doi": normalized_doi,
                     },
                 )
             except Exception as e:
@@ -2108,14 +2278,26 @@ def generate_candidates_direct(
         for idx, (pmid, meta) in enumerate(unique_pubmed):
             title = meta.get("title", "")
             doi = meta.get("doi")
-            # Check for existing paper by title or DOI
-            if title and title.lower() in arxiv_title_map:
+            normalized_doi = normalize_doi_for_dedup(doi) if doi else None
+
+            # Multi-stage deduplication:
+            # Stage 1: DOI match (primary)
+            if normalized_doi and normalized_doi in doi_map:
+                wid = doi_map[normalized_doi]
+                logger.debug(f"PubMed {pmid} deduped to existing {wid} (DOI match)")
+            # Stage 2: Title match (fallback)
+            elif title and title.lower() in arxiv_title_map:
                 wid = arxiv_title_map[title.lower()]
-            elif doi:
+                logger.debug(f"PubMed {pmid} deduped to existing {wid} (title match)")
+            # Stage 3: Create new work_id (prefer DOI over PMID)
+            elif normalized_doi:
                 wid = f"DOI:{doi}"
             else:
                 wid = f"PMID:{pmid}"
 
+            # Update dedup maps for subsequent sources
+            if normalized_doi:
+                doi_map[normalized_doi] = wid
             if title:
                 arxiv_title_map[title.lower()] = wid
 
@@ -2127,21 +2309,23 @@ def generate_candidates_direct(
             }
             candidate_map.setdefault(wid, []).append(prov_entry)
 
-            # Upsert into works table
+            # Upsert into works table with DOI
             try:
                 conn.execute(
                     text("""
-                        INSERT INTO works (work_id, title, year, venue)
-                        VALUES (:wid, :title, :year, :venue)
+                        INSERT INTO works (work_id, title, year, venue, doi)
+                        VALUES (:wid, :title, :year, :venue, :doi)
                         ON CONFLICT (work_id) DO UPDATE SET
                             title = COALESCE(works.title, EXCLUDED.title),
-                            venue = COALESCE(works.venue, EXCLUDED.venue)
+                            venue = COALESCE(works.venue, EXCLUDED.venue),
+                            doi = COALESCE(works.doi, EXCLUDED.doi)
                     """),
                     {
                         "wid": wid,
                         "title": title,
                         "year": meta.get("year"),
                         "venue": meta.get("venue"),
+                        "doi": normalized_doi,
                     },
                 )
             except Exception as e:
@@ -2199,64 +2383,104 @@ def generate_candidates_direct(
             except Exception as e:
                 logger.debug(f"DBLP upsert failed for {wid}: {e}")
 
-    # 2e) Cross-source deduplication: Add OpenAlex results with title-based dedup
-    # OpenAlex results were stored temporarily; now we check each against ArXiv/S2 titles
-    # to avoid duplicate papers with different work_ids
+    # 2e) Cross-source deduplication: Add OpenAlex results with multi-stage dedup
+    # OpenAlex results were stored temporarily; now we check each against prior sources
+    # Priority: DOI match → ArXiv ID match → Title match
     if openalex_results:
-        # Collect unique OpenAlex work_ids to fetch titles from DB
+        # Collect unique OpenAlex work_ids to fetch metadata from DB
         oa_work_ids = list(set(wid for wid, _, _ in openalex_results))
 
-        # Fetch titles from DB for deduplication (batch query)
-        oa_titles: Dict[str, str] = {}  # work_id -> title
+        # Fetch titles, DOI, and arxiv_id from DB for deduplication (batch query)
+        oa_metadata: Dict[str, Dict[str, Optional[str]]] = {}  # work_id -> {title, doi, arxiv_id}
         if oa_work_ids:
             try:
                 rows = conn.execute(
-                    text("SELECT work_id, title FROM works WHERE work_id = ANY(:ids)"),
+                    text("SELECT work_id, title, doi, arxiv_id FROM works WHERE work_id = ANY(:ids)"),
                     {"ids": oa_work_ids},
                 ).fetchall()
                 for row in rows:
-                    if row[1]:  # title exists
-                        oa_titles[row[0]] = row[1]
+                    oa_metadata[row[0]] = {
+                        "title": row[1],
+                        "doi": row[2],
+                        "arxiv_id": row[3],
+                    }
             except Exception as e:
-                logger.warning(f"Failed to fetch OpenAlex titles for dedup: {e}")
+                logger.warning(f"Failed to fetch OpenAlex metadata for dedup: {e}")
 
-        # If titles not in DB yet, we need to fetch from OpenAlex API
+        # If metadata not in DB yet, we need to fetch from OpenAlex API
         # This happens for papers not yet ingested
-        missing_title_wids = [wid for wid in oa_work_ids if wid not in oa_titles]
-        if missing_title_wids:
+        missing_wids = [wid for wid in oa_work_ids if wid not in oa_metadata]
+        if missing_wids:
             # WorkStore.ensure_works_present will fetch these - do it now for dedup
-            WorkStore.ensure_works_present(conn, missing_title_wids)
-            # Re-fetch titles
+            WorkStore.ensure_works_present(conn, missing_wids)
+            # Re-fetch metadata
             try:
                 rows = conn.execute(
-                    text("SELECT work_id, title FROM works WHERE work_id = ANY(:ids)"),
-                    {"ids": missing_title_wids},
+                    text("SELECT work_id, title, doi, arxiv_id FROM works WHERE work_id = ANY(:ids)"),
+                    {"ids": missing_wids},
                 ).fetchall()
                 for row in rows:
-                    if row[1]:
-                        oa_titles[row[0]] = row[1]
+                    oa_metadata[row[0]] = {
+                        "title": row[1],
+                        "doi": row[2],
+                        "arxiv_id": row[3],
+                    }
             except Exception:
                 pass
 
-        # Now add OpenAlex results with deduplication
+        # Now add OpenAlex results with multi-stage deduplication
         dedup_count = 0
+        dedup_by_type = {"doi": 0, "arxiv_id": 0, "title": 0}
         for oa_wid, _, prov_entry in openalex_results:
-            oa_title = oa_titles.get(oa_wid)
+            meta = oa_metadata.get(oa_wid, {})
+            oa_title = meta.get("title")
+            oa_doi = meta.get("doi")
+            oa_arxiv = meta.get("arxiv_id")
 
-            # Check if this paper already exists via ArXiv/S2 (by title)
-            if oa_title and oa_title.lower() in arxiv_title_map:
-                # Use the ArXiv/S2 work_id instead (they may have better metadata)
+            # Normalize external IDs
+            normalized_doi = normalize_doi_for_dedup(oa_doi) if oa_doi else None
+            normalized_arxiv = normalize_arxiv_id(oa_arxiv) if oa_arxiv else None
+
+            canonical_wid = None
+
+            # Stage 1: DOI match (primary)
+            if normalized_doi and normalized_doi in doi_map:
+                canonical_wid = doi_map[normalized_doi]
+                if canonical_wid != oa_wid:
+                    dedup_count += 1
+                    dedup_by_type["doi"] += 1
+                    logger.debug(f"Dedup: OpenAlex {oa_wid} → {canonical_wid} (DOI match)")
+
+            # Stage 2: ArXiv ID match
+            elif normalized_arxiv and normalized_arxiv in arxiv_id_map:
+                canonical_wid = arxiv_id_map[normalized_arxiv]
+                if canonical_wid != oa_wid:
+                    dedup_count += 1
+                    dedup_by_type["arxiv_id"] += 1
+                    logger.debug(f"Dedup: OpenAlex {oa_wid} → {canonical_wid} (ArXiv ID match)")
+
+            # Stage 3: Title match (fallback)
+            elif oa_title and oa_title.lower() in arxiv_title_map:
                 canonical_wid = arxiv_title_map[oa_title.lower()]
                 if canonical_wid != oa_wid:
                     dedup_count += 1
-                    logger.debug(f"Dedup: OpenAlex {oa_wid} -> {canonical_wid} (title match)")
-                candidate_map.setdefault(canonical_wid, []).append(prov_entry)
-            else:
-                # No ArXiv/S2 match - use OpenAlex work_id
-                candidate_map.setdefault(oa_wid, []).append(prov_entry)
+                    dedup_by_type["title"] += 1
+                    logger.debug(f"Dedup: OpenAlex {oa_wid} → {canonical_wid} (title match)")
+
+            # Use canonical work_id if dedup match found, otherwise use OpenAlex work_id
+            final_wid = canonical_wid if canonical_wid else oa_wid
+            candidate_map.setdefault(final_wid, []).append(prov_entry)
+
+            # Update dedup maps with OpenAlex papers
+            if normalized_doi and not canonical_wid:
+                doi_map[normalized_doi] = oa_wid
+            if normalized_arxiv and not canonical_wid:
+                arxiv_id_map[normalized_arxiv] = oa_wid
+            if oa_title and not canonical_wid:
+                arxiv_title_map[oa_title.lower()] = oa_wid
 
         if dedup_count > 0:
-            logger.info(f"Cross-source dedup: {dedup_count} OpenAlex papers linked to ArXiv/S2 entries")
+            logger.info(f"Cross-source dedup: {dedup_count} OpenAlex papers linked (DOI: {dedup_by_type['doi']}, ArXiv: {dedup_by_type['arxiv_id']}, Title: {dedup_by_type['title']})")
 
     # 2g) Highly-cited papers retrieval - ensures foundational papers are included
     # This retrieves the most-cited papers for the query, sorted by citation count
@@ -2302,28 +2526,48 @@ def generate_candidates_direct(
     highly_cited_added = 0
     highly_cited_deduped = 0
 
-    # Helper function to add highly-cited paper with deduplication
-    def add_highly_cited_paper(wid: str, title: Optional[str], prov_entry: Dict) -> bool:
-        """Add a highly-cited paper with cross-source deduplication. Returns True if added as new."""
+    # Helper function to add highly-cited paper with multi-stage deduplication
+    def add_highly_cited_paper(wid: str, meta: Optional[Dict[str, Optional[str]]], prov_entry: Dict) -> bool:
+        """Add a highly-cited paper with cross-source deduplication (DOI → ArXiv ID → Title). Returns True if added as new."""
         nonlocal highly_cited_added, highly_cited_deduped
 
-        # Check if this paper exists via ArXiv/S2 (by title)
-        if title and title.lower() in arxiv_title_map:
+        title = meta.get("title") if meta else None
+        doi = meta.get("doi") if meta else None
+        arxiv_id = meta.get("arxiv_id") if meta else None
+
+        # Normalize external IDs
+        normalized_doi = normalize_doi_for_dedup(doi) if doi else None
+        normalized_arxiv = normalize_arxiv_id(arxiv_id) if arxiv_id else None
+
+        canonical_wid = None
+
+        # Stage 1: DOI match (primary)
+        if normalized_doi and normalized_doi in doi_map:
+            canonical_wid = doi_map[normalized_doi]
+            if canonical_wid != wid:
+                highly_cited_deduped += 1
+
+        # Stage 2: ArXiv ID match
+        elif normalized_arxiv and normalized_arxiv in arxiv_id_map:
+            canonical_wid = arxiv_id_map[normalized_arxiv]
+            if canonical_wid != wid:
+                highly_cited_deduped += 1
+
+        # Stage 3: Title match (fallback)
+        elif title and title.lower() in arxiv_title_map:
             canonical_wid = arxiv_title_map[title.lower()]
             if canonical_wid != wid:
                 highly_cited_deduped += 1
-            if canonical_wid not in candidate_map:
-                candidate_map.setdefault(canonical_wid, []).append(prov_entry)
-                highly_cited_added += 1
-                return True
-            else:
-                candidate_map[canonical_wid].append(prov_entry)
-                return False
+
+        # Use canonical work_id if dedup match found, otherwise use original work_id
+        final_wid = canonical_wid if canonical_wid else wid
+
+        if final_wid not in candidate_map:
+            candidate_map.setdefault(final_wid, []).append(prov_entry)
+            highly_cited_added += 1
+            return True
         else:
-            if wid not in candidate_map:
-                candidate_map.setdefault(wid, []).append(prov_entry)
-                highly_cited_added += 1
-                return True
+            candidate_map[final_wid].append(prov_entry)
             return False
 
     # First: Search for foundational works using title.search filter
@@ -2339,7 +2583,7 @@ def generate_candidates_direct(
                 "query": fw_title,
             }
             # Use the foundational work title itself for dedup (it's the paper title)
-            add_highly_cited_paper(wid, fw_title, prov_entry)
+            add_highly_cited_paper(wid, {"title": fw_title}, prov_entry)
 
     # Second: Regular highly-cited search for original query and synonyms
     # For these, we need to fetch titles from DB for deduplication
@@ -2359,25 +2603,28 @@ def generate_candidates_direct(
             hc_work_ids_to_fetch.append(wid)
             hc_results_pending.append((wid, idx, hc_query, prov_entry))
 
-    # Fetch titles for deduplication
-    hc_titles: Dict[str, str] = {}
+    # Fetch metadata (title, DOI, arxiv_id) for deduplication
+    hc_metadata: Dict[str, Dict[str, Optional[str]]] = {}
     if hc_work_ids_to_fetch:
         WorkStore.ensure_works_present(conn, list(set(hc_work_ids_to_fetch)))
         try:
             rows = conn.execute(
-                text("SELECT work_id, title FROM works WHERE work_id = ANY(:ids)"),
+                text("SELECT work_id, title, doi, arxiv_id FROM works WHERE work_id = ANY(:ids)"),
                 {"ids": list(set(hc_work_ids_to_fetch))},
             ).fetchall()
             for row in rows:
-                if row[1]:
-                    hc_titles[row[0]] = row[1]
+                hc_metadata[row[0]] = {
+                    "title": row[1],
+                    "doi": row[2],
+                    "arxiv_id": row[3],
+                }
         except Exception:
             pass
 
     # Now add highly-cited results with deduplication
     for wid, idx, hc_query, prov_entry in hc_results_pending:
-        title = hc_titles.get(wid)
-        add_highly_cited_paper(wid, title, prov_entry)
+        meta = hc_metadata.get(wid)
+        add_highly_cited_paper(wid, meta, prov_entry)
 
     logger.info(
         f"Added {highly_cited_added} new papers from highly-cited + title searches "
