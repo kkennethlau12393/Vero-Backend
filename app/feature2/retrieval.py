@@ -77,7 +77,7 @@ PUBMED_ENABLED = True
 PUBMED_LIMIT = 100  # Papers from PubMed
 
 # DBLP configuration (computer science)
-DBLP_ENABLED = True
+DBLP_ENABLED = False 
 DBLP_LIMIT = 100  # Papers from DBLP
 
 # OpenCitations configuration (free, open citation index)
