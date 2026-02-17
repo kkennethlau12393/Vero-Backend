@@ -13,7 +13,9 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
+import unicodedata
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -62,6 +64,30 @@ ARXIV_LIMIT = 100
 # Rate limiting
 SEMANTIC_SCHOLAR_DELAY = 1.0
 OPENALEX_TIMEOUT = 15
+
+
+# ============================================================================
+# Text normalization
+# ============================================================================
+
+def _normalize_title_text(title: str) -> str:
+    """Normalize title text for API search and comparison.
+
+    Handles PDF-extracted ligatures (ﬁ→fi, ﬂ→fl, etc.) and collapses whitespace.
+    NFKC decomposition maps compatibility characters to their canonical forms.
+    """
+    if not title:
+        return title
+    normalized = unicodedata.normalize("NFKC", title)
+    return " ".join(normalized.split())
+
+
+_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+
+
+def _strip_punct(word: str) -> str:
+    """Strip punctuation from a word for Jaccard comparison."""
+    return _PUNCT_RE.sub("", word)
 
 
 # ============================================================================
@@ -556,6 +582,26 @@ def _lookup_openalex_by_doi(doi: str) -> Optional[str]:
         return None
 
 
+def _get_s2_paper_id(doi: Optional[str] = None, title: Optional[str] = None) -> Optional[str]:
+    """Get S2 paper ID for a paper using any available identifier.
+
+    Tries DOI first, then title search. Returns S2 paper ID or None.
+    """
+    # Try DOI first (most reliable)
+    if doi:
+        paper = _lookup_s2_paper_by_doi(doi)
+        if paper and paper.get("paperId"):
+            return paper["paperId"]
+
+    # Try title search
+    if title:
+        results = _search_s2_by_title(title, limit=3)
+        if results:
+            return results[0].get("s2_id")
+
+    return None
+
+
 def _batch_lookup_openalex_by_dois(dois: List[str]) -> Dict[str, str]:
     """Batch lookup OpenAlex work_ids by DOIs.
 
@@ -609,12 +655,13 @@ def _batch_lookup_openalex_by_dois(dois: List[str]) -> Dict[str, str]:
 # Semantic Scholar Citation Fetching
 # ============================================================================
 
-def _fetch_citing_papers_s2(doi: str, limit: int = 50) -> List[Dict[str, Any]]:
-    """Fetch papers that cite a given work from Semantic Scholar using DOI.
+def _fetch_citing_papers_s2(identifier: str, limit: int = 50, id_type: str = "DOI") -> List[Dict[str, Any]]:
+    """Fetch papers that cite a given work from Semantic Scholar.
 
+    Supports multiple identifier types: DOI, S2 paper ID, ArXiv ID.
     Returns list of dicts with: doi, s2_id, title, year, cited_by_count
     """
-    if not doi:
+    if not identifier:
         return []
 
     headers = {}
@@ -622,7 +669,12 @@ def _fetch_citing_papers_s2(doi: str, limit: int = 50) -> List[Dict[str, Any]]:
         headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
 
     try:
-        url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}/citations"
+        if id_type == "S2":
+            url = f"https://api.semanticscholar.org/graph/v1/paper/{identifier}/citations"
+        elif id_type == "ArXiv":
+            url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{identifier}/citations"
+        else:
+            url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{identifier}/citations"
         params = {
             "fields": "paperId,title,year,citationCount,externalIds",
             "limit": min(limit, 1000),
@@ -630,7 +682,7 @@ def _fetch_citing_papers_s2(doi: str, limit: int = 50) -> List[Dict[str, Any]]:
         resp = requests.get(url, params=params, headers=headers, timeout=30)
 
         if resp.status_code == 404:
-            logger.debug(f"S2 citations not found for DOI:{doi}")
+            logger.debug(f"S2 citations not found for {id_type}:{identifier}")
             return []
 
         resp.raise_for_status()
@@ -660,20 +712,21 @@ def _fetch_citing_papers_s2(doi: str, limit: int = 50) -> List[Dict[str, Any]]:
                 "cited_by_count": citing.get("citationCount") or 0,
             })
 
-        logger.info(f"S2 citations: {len(result)} papers for DOI:{doi}")
+        logger.info(f"S2 citations: {len(result)} papers for {id_type}:{identifier}")
         return result
 
     except Exception as e:
-        logger.warning(f"Failed to fetch S2 citations for DOI {doi}: {e}")
+        logger.warning(f"Failed to fetch S2 citations for {id_type}:{identifier}: {e}")
         return []
 
 
-def _fetch_references_s2(doi: str, limit: int = 50) -> List[Dict[str, Any]]:
-    """Fetch papers that a given work cites from Semantic Scholar using DOI.
+def _fetch_references_s2(identifier: str, limit: int = 50, id_type: str = "DOI") -> List[Dict[str, Any]]:
+    """Fetch papers that a given work cites from Semantic Scholar.
 
+    Supports multiple identifier types: DOI, S2 paper ID, ArXiv ID.
     Returns list of dicts with: doi, s2_id, title, year, cited_by_count
     """
-    if not doi:
+    if not identifier:
         return []
 
     headers = {}
@@ -681,7 +734,12 @@ def _fetch_references_s2(doi: str, limit: int = 50) -> List[Dict[str, Any]]:
         headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
 
     try:
-        url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}/references"
+        if id_type == "S2":
+            url = f"https://api.semanticscholar.org/graph/v1/paper/{identifier}/references"
+        elif id_type == "ArXiv":
+            url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{identifier}/references"
+        else:
+            url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{identifier}/references"
         params = {
             "fields": "paperId,title,year,citationCount,externalIds",
             "limit": min(limit, 1000),
@@ -689,7 +747,7 @@ def _fetch_references_s2(doi: str, limit: int = 50) -> List[Dict[str, Any]]:
         resp = requests.get(url, params=params, headers=headers, timeout=30)
 
         if resp.status_code == 404:
-            logger.debug(f"S2 references not found for DOI:{doi}")
+            logger.debug(f"S2 references not found for {id_type}:{identifier}")
             return []
 
         resp.raise_for_status()
@@ -719,11 +777,11 @@ def _fetch_references_s2(doi: str, limit: int = 50) -> List[Dict[str, Any]]:
                 "cited_by_count": ref.get("citationCount") or 0,
             })
 
-        logger.info(f"S2 references: {len(result)} papers for DOI:{doi}")
+        logger.info(f"S2 references: {len(result)} papers for {id_type}:{identifier}")
         return result
 
     except Exception as e:
-        logger.warning(f"Failed to fetch S2 references for DOI {doi}: {e}")
+        logger.warning(f"Failed to fetch S2 references for {id_type}:{identifier}: {e}")
         return []
 
 
@@ -957,11 +1015,104 @@ def fetch_references(work_id: str, limit: int = 25, fetch_limit: int = 100) -> L
         return []
 
 
+def _fetch_s2_paper_details(s2_id: str, work_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch paper details from Semantic Scholar by S2 paper ID."""
+    headers = {}
+    if SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    try:
+        url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
+        params = {"fields": "paperId,title,year,citationCount,abstract,externalIds"}
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
+        if resp.status_code == 429:
+            time.sleep(SEMANTIC_SCHOLAR_DELAY)
+            resp = requests.get(url, params=params, headers=headers, timeout=15)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        return {
+            "work_id": work_id,
+            "title": data.get("title"),
+            "year": data.get("year"),
+            "cited_by_count": data.get("citationCount") or 0,
+            "abstract": data.get("abstract"),
+        }
+    except Exception as e:
+        logger.warning(f"Failed to fetch S2 paper details for {s2_id}: {e}")
+        return None
+
+
+def _fetch_arxiv_paper_details(arxiv_id: str, work_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch paper details for an ArXiv paper.
+
+    Uses S2's ArXiv bridge first (has citations + abstract, 100 req/min with key).
+    Falls back to ArXiv Atom API only if S2 fails (strict 1 req/3s rate limit).
+    """
+    # Primary: S2 ArXiv bridge (fast, has citation counts and abstracts)
+    headers = {}
+    if SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    try:
+        url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}"
+        params = {"fields": "paperId,title,year,citationCount,abstract,externalIds"}
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                "work_id": work_id,
+                "title": data.get("title"),
+                "year": data.get("year"),
+                "cited_by_count": data.get("citationCount") or 0,
+                "abstract": data.get("abstract"),
+            }
+    except Exception as e:
+        logger.debug(f"S2 ArXiv bridge failed for {arxiv_id}: {e}")
+
+    # Fallback: ArXiv Atom API (no citations, no abstract, 1 req/3s limit)
+    try:
+        url = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        entry = root.find("atom:entry", ns)
+        if entry is not None:
+            title_elem = entry.find("atom:title", ns)
+            title = title_elem.text.strip().replace("\n", " ") if title_elem is not None else None
+            published = entry.find("atom:published", ns)
+            year = None
+            if published is not None and published.text:
+                try:
+                    year = int(published.text[:4])
+                except (ValueError, TypeError):
+                    pass
+            return {
+                "work_id": work_id,
+                "title": title,
+                "year": year,
+                "cited_by_count": 0,
+                "abstract": None,
+            }
+    except Exception as e:
+        logger.warning(f"ArXiv API fallback failed for {arxiv_id}: {e}")
+    return None
+
+
 def fetch_seed_paper_details(work_id: str) -> Optional[Dict[str, Any]]:
-    """Fetch details for a single paper from OpenAlex."""
+    """Fetch details for a single paper from any source (OpenAlex, S2, ArXiv)."""
     if not work_id:
         return None
 
+    # S2 paper
+    if work_id.startswith("S2:"):
+        return _fetch_s2_paper_details(work_id[3:], work_id)
+
+    # ArXiv paper
+    if work_id.startswith("AX:"):
+        return _fetch_arxiv_paper_details(work_id[3:], work_id)
+
+    # OpenAlex paper (W prefix or legacy)
     try:
         url = f"https://api.openalex.org/works/{work_id}"
         params = {}
@@ -1010,6 +1161,42 @@ MIN_SEED_LLM_SCORE = 0.75
 
 # Minimum LLM score for connection papers (MEDIUM+ for diversity)
 MIN_CONNECTION_LLM_SCORE = 0.50
+
+# Stopwords for keyword overlap sanity check
+_SEED_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of",
+    "with", "by", "from", "as", "is", "was", "are", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could", "should",
+    "may", "might", "can", "shall", "it", "its", "this", "that", "these", "those",
+    "i", "we", "you", "he", "she", "they", "me", "us", "him", "her", "them",
+    "my", "our", "your", "his", "their", "what", "which", "who", "whom", "how",
+    "when", "where", "why", "all", "each", "every", "both", "few", "more", "most",
+    "other", "some", "such", "no", "not", "only", "same", "so", "than", "too",
+    "very", "just", "about", "above", "after", "again", "also", "any", "because",
+    "before", "between", "during", "into", "new", "over", "own", "through", "under",
+    "using", "based", "via", "approach", "method", "methods", "model", "models",
+    "system", "systems", "paper", "study", "analysis", "results", "data",
+    "learning", "deep", "neural", "network", "networks", "machine",
+})
+
+
+def _keyword_overlap_score(query: str, title: str, abstract: str = "") -> float:
+    """Compute keyword overlap between query and a paper's title+abstract.
+
+    Returns a score 0.0-1.0: fraction of query keywords found in the paper text.
+    Used as a deterministic sanity check — catches LLM hallucinations where a paper
+    from a completely unrelated field is rated HIGH.
+    """
+    import re
+    query_words = set(re.findall(r'[a-z]{3,}', query.lower())) - _SEED_STOPWORDS
+    if not query_words:
+        return 1.0  # Can't check, assume ok
+
+    paper_text = f"{title} {abstract}".lower()
+    paper_words = set(re.findall(r'[a-z]{3,}', paper_text))
+
+    matches = query_words & paper_words
+    return len(matches) / len(query_words)
 
 
 def _stratified_sample(
@@ -1067,20 +1254,21 @@ def _stratified_sample(
 # Multi-hop Citation Network Expansion
 # ============================================================================
 
-def _merge_s2_citations_with_openalex(
+def _merge_s2_citations(
     s2_papers: List[Dict[str, Any]],
     existing_work_ids: set,
-) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
-    """Map S2 citation results back to OpenAlex IDs using DOI bridge.
+) -> List[Dict[str, Any]]:
+    """Merge S2 citation results into the graph.
 
-    Returns:
-        - papers: list of paper dicts with OpenAlex work_ids
-        - doi_to_workid: mapping of DOI to OpenAlex work_id for edge creation
+    All 3 sources are equal peers. Papers are mapped to OpenAlex IDs when possible
+    via DOI bridge, but S2-only papers are included with S2: prefix.
+
+    Returns list of paper dicts with work_ids (OpenAlex or S2: prefixed).
     """
     if not s2_papers:
-        return [], {}
+        return []
 
-    # Collect DOIs that need mapping
+    # Collect DOIs for batch mapping
     dois_to_lookup = []
     for p in s2_papers:
         doi = p.get("doi")
@@ -1088,34 +1276,41 @@ def _merge_s2_citations_with_openalex(
             clean_doi = doi.replace("https://doi.org/", "")
             dois_to_lookup.append(clean_doi)
 
-    if not dois_to_lookup:
-        return [], {}
-
     # Batch lookup DOIs -> OpenAlex IDs
-    doi_to_workid = _batch_lookup_openalex_by_dois(dois_to_lookup)
+    doi_to_workid = _batch_lookup_openalex_by_dois(dois_to_lookup) if dois_to_lookup else {}
 
-    # Convert S2 papers to OpenAlex-compatible format
     result = []
+    mapped_count = 0
+    s2_only_count = 0
     for p in s2_papers:
         doi = p.get("doi")
-        if not doi:
-            continue
+        s2_id = p.get("s2_id")
+        clean_doi = doi.replace("https://doi.org/", "") if doi else None
 
-        clean_doi = doi.replace("https://doi.org/", "")
-        work_id = doi_to_workid.get(clean_doi)
+        # Try OpenAlex mapping first
+        work_id = doi_to_workid.get(clean_doi) if clean_doi else None
 
-        if work_id and work_id not in existing_work_ids:
+        if work_id:
+            mapped_count += 1
+        elif s2_id:
+            # Keep as S2-only paper — sources are equal peers
+            work_id = f"S2:{s2_id}"
+            s2_only_count += 1
+        else:
+            continue  # No usable identifier
+
+        if work_id not in existing_work_ids:
             result.append({
                 "work_id": work_id,
                 "title": p.get("title"),
                 "year": p.get("year"),
                 "cited_by_count": p.get("cited_by_count") or 0,
-                "abstract": None,  # S2 doesn't return abstracts in citation endpoints
+                "abstract": None,
                 "source": "semantic_scholar",
             })
 
-    logger.info(f"S2 DOI bridge: {len(s2_papers)} S2 papers -> {len(result)} mapped to OpenAlex")
-    return result, doi_to_workid
+    logger.info(f"S2 merge: {len(s2_papers)} S2 papers -> {mapped_count} mapped to OA + {s2_only_count} S2-only")
+    return result
 
 
 def _expand_citation_network(
@@ -1142,6 +1337,8 @@ def _expand_citation_network(
     edge_set: set = set()
 
     def add_edge(from_id: str, to_id: str):
+        if from_id == to_id:
+            return  # Skip self-loops
         if (from_id, to_id) not in edge_set:
             edge_set.add((from_id, to_id))
             edges.append((from_id, to_id))
@@ -1161,24 +1358,57 @@ def _expand_citation_network(
             "is_seed": True,
         }
 
-    # Get DOI for seed to enable S2 lookup
-    seed_doi = _get_doi_for_work(seed_work_id)
-    logger.info(f"Seed DOI for S2 bridge: {seed_doi}")
+    # Resolve identifiers for all sources — all 3 sources are EQUAL peers
+    seed_doi = _get_doi_for_work(seed_work_id) if seed_work_id.startswith("W") else None
+    seed_title = papers[seed_work_id].get("title")
 
-    # Hop 1: Get seed's direct connections from OpenAlex
-    hop1_citing = fetch_citing_papers(seed_work_id, limit=hop1_fetch, fetch_limit=hop1_fetch)
-    hop1_refs = fetch_references(seed_work_id, limit=hop1_fetch, fetch_limit=hop1_fetch)
+    # Get S2 paper ID — extract directly from prefix when available
+    if seed_work_id.startswith("S2:"):
+        seed_s2_id = seed_work_id[3:]
+    elif seed_work_id.startswith("AX:"):
+        # ArXiv seed: resolve via S2 ArXiv bridge to get S2 paper ID
+        arxiv_id = seed_work_id[3:]
+        seed_s2_id = None
+        _s2_hdrs = {}
+        if SEMANTIC_SCHOLAR_API_KEY:
+            _s2_hdrs["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+        try:
+            _ax_resp = requests.get(
+                f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}",
+                params={"fields": "paperId"}, headers=_s2_hdrs, timeout=10,
+            )
+            if _ax_resp.status_code == 200:
+                seed_s2_id = _ax_resp.json().get("paperId")
+        except Exception:
+            pass
+        if not seed_s2_id:
+            seed_s2_id = _get_s2_paper_id(doi=seed_doi, title=seed_title)
+    else:
+        # W prefix: resolve via DOI then title
+        seed_s2_id = _get_s2_paper_id(doi=seed_doi, title=seed_title)
+    logger.info(f"Seed identifiers — OA: {seed_work_id}, DOI: {seed_doi}, S2: {seed_s2_id}")
 
-    # Also get from S2 if we have a DOI
-    if seed_doi:
-        s2_citing = _fetch_citing_papers_s2(seed_doi, limit=hop1_fetch)
-        s2_refs = _fetch_references_s2(seed_doi, limit=hop1_fetch)
+    # Hop 1: Get seed's direct connections from ALL sources in parallel
+    hop1_citing = []
+    hop1_refs = []
 
-        # Map S2 results to OpenAlex IDs and merge
-        s2_citing_mapped, doi_map_citing = _merge_s2_citations_with_openalex(
+    # Source 1: OpenAlex (if we have an OpenAlex work_id)
+    if seed_work_id.startswith("W"):
+        hop1_citing = fetch_citing_papers(seed_work_id, limit=hop1_fetch, fetch_limit=hop1_fetch)
+        hop1_refs = fetch_references(seed_work_id, limit=hop1_fetch, fetch_limit=hop1_fetch)
+
+    # Source 2: Semantic Scholar (try S2 paper ID first, then DOI)
+    s2_identifier = seed_s2_id or seed_doi
+    s2_id_type = "S2" if seed_s2_id else "DOI"
+    if s2_identifier:
+        s2_citing = _fetch_citing_papers_s2(s2_identifier, limit=hop1_fetch, id_type=s2_id_type)
+        s2_refs = _fetch_references_s2(s2_identifier, limit=hop1_fetch, id_type=s2_id_type)
+
+        # Merge S2 results — includes both mapped-to-OA and S2-only papers
+        s2_citing_mapped = _merge_s2_citations(
             s2_citing, set(papers.keys()) | {p.get("work_id") for p in hop1_citing}
         )
-        s2_refs_mapped, doi_map_refs = _merge_s2_citations_with_openalex(
+        s2_refs_mapped = _merge_s2_citations(
             s2_refs, set(papers.keys()) | {p.get("work_id") for p in hop1_refs}
         )
 
@@ -1207,20 +1437,35 @@ def _expand_citation_network(
     top_hop1 = hop1_papers[:min(10, len(hop1_papers))]
 
     for wid, paper_data in top_hop1:
-        # Get this paper's connections from OpenAlex
-        h2_citing = fetch_citing_papers(wid, limit=hop2_fetch, fetch_limit=hop2_fetch)
-        h2_refs = fetch_references(wid, limit=hop2_fetch, fetch_limit=hop2_fetch)
+        h2_citing = []
+        h2_refs = []
 
-        # Also try S2 for hop-2 expansion (only for high-cited hop-1 papers)
-        hop1_doi = _get_doi_for_work(wid)
-        if hop1_doi and paper_data.get("cited_by_count", 0) > 100:
-            s2_h2_citing = _fetch_citing_papers_s2(hop1_doi, limit=hop2_fetch // 2)
-            s2_h2_refs = _fetch_references_s2(hop1_doi, limit=hop2_fetch // 2)
+        # Source 1: OpenAlex (if OpenAlex work_id)
+        if wid.startswith("W"):
+            h2_citing = fetch_citing_papers(wid, limit=hop2_fetch, fetch_limit=hop2_fetch)
+            h2_refs = fetch_references(wid, limit=hop2_fetch, fetch_limit=hop2_fetch)
 
-            s2_h2_citing_mapped, _ = _merge_s2_citations_with_openalex(
+        # Source 2: S2 — all sources are equal peers, always try S2
+        hop1_doi = _get_doi_for_work(wid) if wid.startswith("W") else None
+        hop1_title = paper_data.get("title")
+        hop1_s2_id = None
+
+        # For S2: papers, extract the ID directly
+        if wid.startswith("S2:"):
+            hop1_s2_id = wid[3:]
+        elif hop1_doi or hop1_title:
+            hop1_s2_id = _get_s2_paper_id(doi=hop1_doi, title=hop1_title)
+
+        h2_s2_id = hop1_s2_id or hop1_doi
+        h2_s2_type = "S2" if hop1_s2_id else "DOI"
+        if h2_s2_id:
+            s2_h2_citing = _fetch_citing_papers_s2(h2_s2_id, limit=hop2_fetch, id_type=h2_s2_type)
+            s2_h2_refs = _fetch_references_s2(h2_s2_id, limit=hop2_fetch, id_type=h2_s2_type)
+
+            s2_h2_citing_mapped = _merge_s2_citations(
                 s2_h2_citing, set(papers.keys()) | {p.get("work_id") for p in h2_citing}
             )
-            s2_h2_refs_mapped, _ = _merge_s2_citations_with_openalex(
+            s2_h2_refs_mapped = _merge_s2_citations(
                 s2_h2_refs, set(papers.keys()) | {p.get("work_id") for p in h2_refs}
             )
 
@@ -1352,6 +1597,30 @@ def _expand_citation_network(
     for wid, _, _ in hop2_papers_sorted[:hop2_quota]:
         selected_ids.add(wid)
 
+    # Reserve slots for EMERGING papers (<100 citations) to ensure citation diversity
+    # This ensures the graph has a mix of highly-cited and emerging/recent work
+    emerging_quota = max(3, total_limit // 6)  # ~15% for emerging papers
+    emerging_candidates = []
+    for wid, p in papers.items():
+        if wid in selected_ids or p.get("is_seed"):
+            continue
+        cites = p.get("cited_by_count", 0)
+        hop = p.get("hop", 0)
+        deg = degree.get(wid, 0)
+        # Emerging: <100 citations, recent (2018+), has local connections
+        year = p.get("year")
+        if cites < 100 and deg >= 1 and hop <= 1:
+            # Prefer recent papers with higher local connectivity
+            emerging_score = deg * 2.0 + (0.5 if year and year >= 2020 else 0.0)
+            emerging_candidates.append((wid, emerging_score))
+        elif cites < 100 and deg >= 2 and hop == 2:
+            emerging_score = deg * 1.5
+            emerging_candidates.append((wid, emerging_score))
+
+    emerging_candidates.sort(key=lambda x: -x[1])
+    for wid, _ in emerging_candidates[:emerging_quota]:
+        selected_ids.add(wid)
+
     # Fill remainder with best-scored papers (any hop)
     # For hop-2 papers, apply same density filter to avoid generic mega-cited papers
     remaining = total_limit - len(selected_ids)
@@ -1408,7 +1677,7 @@ def _expand_citation_network(
 def _score_seed_candidates(
     query: str,
     candidates: List[Dict[str, Any]],
-    top_k: int = 20,
+    top_k: int = 40,
 ) -> Dict[str, float]:
     """Score seed candidates using LLM tier classification.
 
@@ -1426,45 +1695,66 @@ def _score_seed_candidates(
     # Limit to top_k candidates (already sorted by citation count)
     candidates_to_score = candidates[:top_k]
 
-    # Prepare papers for prompt
+    # Prepare papers for prompt — include year and abstract for better judgment
     papers_for_prompt = []
     for c in candidates_to_score:
-        papers_for_prompt.append({
+        entry = {
             "id": c.get("work_id"),
             "title": c.get("title", "")[:200],
-        })
+        }
+        if c.get("year"):
+            entry["year"] = c["year"]
+        if c.get("cited_by_count"):
+            entry["citations"] = c["cited_by_count"]
+        abstract = c.get("abstract")
+        if abstract:
+            entry["abstract"] = abstract[:300]
+        papers_for_prompt.append(entry)
 
     papers_json = json.dumps(papers_for_prompt, indent=2)
 
-    prompt = f"""Classify papers by relevance to the query. Return ONLY a JSON object mapping paper_id to relevance tier.
+    prompt = f"""Classify papers by relevance to the query for SEED PAPER selection. Return ONLY a JSON object mapping paper_id to relevance tier.
 
-STRICT RELEVANCE RULES:
-1. Papers must be DIRECTLY about the query topic to score HIGH or ESSENTIAL
-2. Generic methodology papers, tools, or techniques that just COULD be used → LOW or MEDIUM
-3. Papers in a tangentially related field → LOW
+A good seed paper DEFINES or PIONEERED the research area — it is the paper others cite when working on this topic.
 
-INTERSECTION MATCHING (CRITICAL):
-- Query has MULTIPLE components (e.g., "deep learning" + "drug discovery")
-- Paper must match ALL components to score HIGH
-- Paper matching only ONE component → LOW or MEDIUM
-- Examples:
-  * Query "deep learning drug discovery" + Paper "Natural products in drug discovery" → LOW (drug discovery but NOT deep learning)
-  * Query "transformer attention NLP" + Paper "Transformers for time series" → LOW (transformers but NOT NLP)
-  * Query "autonomous driving perception" + Paper "UAV computer vision" → LOW (CV but NOT autonomous driving)
+STEP 0 — WRONG FIELD (check FIRST, overrides EVERYTHING):
+If the paper is from a COMPLETELY DIFFERENT scientific discipline than the query, it is NONE. Period.
+High citation count does NOT make a paper relevant. Famous papers from unrelated fields are NONE.
+Examples:
+- Crystallography/biology software → NONE for "quantum error correction"
+- Protein structure paper → NONE for "deep learning optimization"
+- Medical imaging paper → NONE for "graph theory algorithms"
+Ask: does this paper share ANY core concepts, methods, or phenomena with the query? If no → NONE.
 
-DOMAIN MATCHING:
-- If query specifies an application domain (e.g., "NLP", "robotics", "medical", "autonomous driving")
-- Papers in a DIFFERENT domain must score LOW even if they use similar techniques
-- Examples:
-  * Query "reinforcement learning robotics" + Paper "RL for game playing" → LOW (RL but wrong domain)
-  * Query "computer vision autonomous driving" + Paper "CV for drone navigation" → LOW (CV but wrong domain)
+STEP 1 — ABOUT vs USES (apply SECOND, overrides tier assignment):
+A paper that USES or EVALUATES a technique but is primarily ABOUT a different domain → LOW.
+This is the #1 mistake to avoid. Check: what is this paper's PRIMARY contribution about?
+- Paper uses ChatGPT but is about medical exams → LOW for "LLM agents"
+- Paper uses ML but is about soil mapping → LOW for "ML climate modeling"
+- Paper uses transformers but is about time-series forecasting → LOW for "transformers NLP"
+- Healthcare/education paper that evaluates an AI tool → LOW for queries about the AI tool itself
 
-RELEVANCE TIERS:
-- ESSENTIAL: Core focus DIRECTLY on ALL query components (rare - 1-2 per query)
-- HIGH: Directly addresses ALL query components (not just some of them)
-- MEDIUM: Matches most components but missing one, OR foundational work
-- LOW: Matches only ONE component, wrong domain, or generic tool
-- NONE: Unrelated
+STEP 2 — QUERY TYPE:
+- SINGLE TOPIC ("CRISPR", "deep learning", "capsule networks"):
+  Papers about any core aspect of this topic can score HIGH/ESSENTIAL.
+- INTERSECTION QUERY ("ML drug discovery", "NLP legal text", "RL robotics"):
+  Decompose into [METHOD/TECHNIQUE] + [DOMAIN/APPLICATION].
+  A paper primarily about applying METHOD to DOMAIN → HIGH (this IS the intersection).
+  A paper about METHOD only (no DOMAIN) → HIGH if it's foundational to the method, else MEDIUM.
+  A paper about DOMAIN only (no METHOD) → MEDIUM at best.
+  KEY: a paper that applies NLP to legal texts IS "NLP legal text" — don't reject it for being "just an application".
+
+STEP 3 — TOOL vs TOPIC:
+A paper about a tool/technique commonly USED IN a field but not ABOUT the field itself → MEDIUM at best.
+- t-SNE visualizes embeddings but is about dimensionality reduction → MEDIUM for "embedding"
+- ADAM optimizer is used in deep learning but is about optimization → MEDIUM for "deep learning"
+
+STEP 4 — RELEVANCE TIER:
+- ESSENTIAL: Seminal/foundational work that DEFINED this specific field (rare — 1-2 per query)
+- HIGH: Directly about the query topic; paper's primary contribution IS this topic
+- MEDIUM: Same field, useful context, but not primarily about the query topic
+- LOW: Wrong domain, uses but isn't about the topic, or tangentially related
+- NONE: Completely different field, unrelated discipline, no shared concepts
 
 QUERY: {query}
 
@@ -1481,8 +1771,8 @@ OUTPUT (JSON only, no explanation):
             response = client.chat.completions.create(
                 model="meta-llama/llama-4-maverick-17b-128e-instruct",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=1024,
+                temperature=0.0,
+                max_tokens=2048,
             )
 
             content = response.choices[0].message.content.strip()
@@ -1587,14 +1877,51 @@ def _search_s2_by_title(title: str, limit: int = 5) -> List[Dict[str, Any]]:
 def _lookup_openalex_by_arxiv(arxiv_id: str) -> Optional[Dict[str, Any]]:
     """Look up OpenAlex work by ArXiv ID.
 
-    Note: OpenAlex ArXiv ID filter is inconsistent and often fails.
-    This is a best-effort lookup.
+    Uses ArXiv DOI format (10.48550/arXiv.XXXX) for reliable lookup.
+    Falls back to S2 bridge (ArXiv -> S2 -> DOI -> OpenAlex).
     """
     if not arxiv_id:
         return None
 
-    # ArXiv ID lookup is unreliable in OpenAlex - skip for now
-    # The S2 -> OpenAlex title matching provides the same functionality
+    # Strategy 1: ArXiv DOI format (most reliable)
+    arxiv_doi = f"10.48550/arXiv.{arxiv_id}"
+    result = _search_openalex_by_doi(arxiv_doi)
+    if result:
+        return result
+
+    # Strategy 2: S2 bridge — look up ArXiv paper in S2, get DOI, then OpenAlex
+    headers = {}
+    if SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+
+    try:
+        url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}"
+        params = {"fields": "paperId,title,year,citationCount,externalIds"}
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            s2_paper = resp.json()
+            external_ids = s2_paper.get("externalIds") or {}
+
+            # Try DOI from S2
+            doi = external_ids.get("DOI")
+            if doi:
+                oa_result = _search_openalex_by_doi(doi)
+                if oa_result:
+                    return oa_result
+
+            # Try OpenAlex ID directly from S2 external IDs
+            oa_id = external_ids.get("OpenAlex")
+            if oa_id:
+                return {
+                    "work_id": oa_id,
+                    "title": s2_paper.get("title"),
+                    "year": s2_paper.get("year"),
+                    "cited_by_count": s2_paper.get("citationCount") or 0,
+                    "source": "arxiv_s2_bridge",
+                }
+    except Exception as e:
+        logger.debug(f"S2 ArXiv bridge lookup failed for {arxiv_id}: {e}")
+
     return None
 
 
@@ -1737,6 +2064,21 @@ def _find_paper_by_metadata(
     oa_results = _search_openalex_by_title(title, k=10, year=year, year_range=2)
     candidates.extend(oa_results)
 
+    # Strategy 4: S2-only fallback — keep papers that couldn't bridge to OA
+    if not candidates and s2_results:
+        for r in s2_results:
+            s2_id = r.get("s2_id")
+            if s2_id:
+                candidates.append({
+                    "work_id": f"S2:{s2_id}",
+                    "title": r.get("title"),
+                    "year": r.get("year"),
+                    "cited_by_count": r.get("cited_by_count") or 0,
+                    "source": "s2_only",
+                })
+        if candidates:
+            logger.info(f"_find_paper_by_metadata: using {len(candidates)} S2-only papers (no OA bridge found)")
+
     if not candidates:
         return None
 
@@ -1841,6 +2183,7 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
 
     # Use dict to allow updating entries when better metadata is found
     papers_by_id: Dict[str, Dict[str, Any]] = {}
+    llm_expanded_ids: set = set()  # Track papers from LLM expansion (priority candidates)
 
     # Use LLM to get titles + years of foundational papers
     expanded_queries = _expand_search_queries(query)
@@ -1872,17 +2215,26 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
                 result = future.result()
                 # Handle both list and single dict results
                 papers = [result] if isinstance(result, dict) else (result or [])
-                for paper in papers:
+                for rank, paper in enumerate(papers):
                     if not paper:
                         continue
                     work_id = paper.get("work_id", "")
                     if not work_id:
                         continue
 
+                    # Track LLM-expanded papers (priority candidates for scoring)
+                    if source.startswith("llm_match:"):
+                        llm_expanded_ids.add(work_id)
+
+                    # Track API relevance rank (position in search results)
+                    paper["api_rank"] = rank
+
                     # Smart dedup: prefer higher citation counts (S2 metadata override)
                     # This handles OpenAlex data corruption where famous papers have wrong metadata
                     existing = papers_by_id.get(work_id)
                     if existing:
+                        # Keep best (lowest) API rank across sources
+                        existing["api_rank"] = min(existing.get("api_rank", 999), rank)
                         existing_cites = existing.get("cited_by_count", 0)
                         new_cites = paper.get("cited_by_count", 0)
                         # Replace if new entry has significantly more citations (5x or 10K+ more)
@@ -1891,6 +2243,7 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
                                 f"Updating paper metadata: {work_id} "
                                 f"({existing_cites:,} -> {new_cites:,} cites)"
                             )
+                            paper["api_rank"] = existing["api_rank"]  # preserve best rank
                             papers_by_id[work_id] = paper
                     else:
                         papers_by_id[work_id] = paper
@@ -1906,20 +2259,154 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
             "candidates_considered": 0,
         }
 
-    # Filter to only OpenAlex IDs (W...) for seed - we need these for citation expansion
-    openalex_papers = [p for p in all_papers if p.get("work_id", "").startswith("W")]
+    # All 3 sources are equal — no source-based filtering
+    openalex_papers = [p for p in all_papers if p.get("work_id")]
     if not openalex_papers:
         return None, {
             "selection_strategy": "llm_validated_highest_cited",
-            "selection_reason": "No OpenAlex papers found (needed for citation expansion)",
-            "candidates_considered": len(all_papers),
+            "selection_reason": "No papers found in any source",
+            "candidates_considered": 0,
         }
 
-    # Sort by citation count to prioritize highly-cited candidates
-    openalex_papers.sort(key=lambda p: p.get("cited_by_count") or 0, reverse=True)
+    # Build diversified scoring batch: LLM-expanded first, then interleave
+    # by citations and API relevance rank to get both famous AND relevant papers
+    llm_priority = [p for p in openalex_papers if p.get("work_id") in llm_expanded_ids]
+    llm_priority.sort(key=lambda p: p.get("cited_by_count") or 0, reverse=True)
+    others = [p for p in openalex_papers if p.get("work_id") not in llm_expanded_ids]
 
-    # Run LLM validation on top candidates
-    llm_scores = _score_seed_candidates(query, openalex_papers, top_k=20)
+    # Interleave: top by citations + top by API relevance (deduped)
+    by_citations = sorted(others, key=lambda p: p.get("cited_by_count") or 0, reverse=True)
+    by_relevance = sorted(others, key=lambda p: p.get("api_rank", 999))
+    seen_ids = {p.get("work_id") for p in llm_priority}
+    interleaved = []
+    ci, ri = 0, 0
+    while len(interleaved) < len(others):
+        # Alternate: one from citations, one from relevance
+        for lst, idx_ref in [(by_citations, 'ci'), (by_relevance, 'ri')]:
+            idx = ci if idx_ref == 'ci' else ri
+            while idx < len(lst):
+                wid = lst[idx].get("work_id")
+                if idx_ref == 'ci':
+                    ci = idx + 1
+                else:
+                    ri = idx + 1
+                if wid not in seen_ids:
+                    seen_ids.add(wid)
+                    interleaved.append(lst[idx])
+                    break
+                if idx_ref == 'ci':
+                    ci = idx + 1
+                else:
+                    ri = idx + 1
+                idx += 1
+
+    openalex_papers = llm_priority + interleaved
+    if llm_expanded_ids:
+        logger.info(f"LLM-expanded priority candidates: {len(llm_priority)} papers")
+    logger.info(f"Diversified scoring batch: {len(openalex_papers)} total candidates")
+
+    # Fetch abstracts for top candidates to give LLM better context
+    def _fetch_abstract_for_candidate(paper):
+        wid = paper.get("work_id", "")
+        if paper.get("abstract"):
+            return
+
+        if wid.startswith("W"):
+            # OpenAlex
+            try:
+                url = f"https://api.openalex.org/works/{wid}"
+                params = {"select": "abstract_inverted_index"}
+                if OPENALEX_API_KEY:
+                    params["api_key"] = OPENALEX_API_KEY
+                resp = requests.get(url, params=params, timeout=10)
+                if resp.status_code == 200:
+                    abstract = _extract_abstract(resp.json())
+                    if abstract:
+                        paper["abstract"] = abstract
+            except Exception:
+                pass
+
+        elif wid.startswith("S2:"):
+            # Semantic Scholar
+            s2_id = wid[3:]
+            s2_headers = {}
+            if SEMANTIC_SCHOLAR_API_KEY:
+                s2_headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+            try:
+                url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
+                resp = requests.get(url, params={"fields": "abstract"}, headers=s2_headers, timeout=10)
+                if resp.status_code == 200:
+                    abstract = resp.json().get("abstract")
+                    if abstract:
+                        paper["abstract"] = abstract
+            except Exception:
+                pass
+
+        elif wid.startswith("AX:"):
+            # ArXiv via S2 bridge (avoids ArXiv's 1 req/3s rate limit)
+            arxiv_id = wid[3:]
+            s2_headers = {}
+            if SEMANTIC_SCHOLAR_API_KEY:
+                s2_headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+            try:
+                url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}"
+                resp = requests.get(url, params={"fields": "abstract"}, headers=s2_headers, timeout=10)
+                if resp.status_code == 200:
+                    abstract = resp.json().get("abstract")
+                    if abstract:
+                        paper["abstract"] = abstract
+            except Exception:
+                pass
+
+    # Fetch abstracts in parallel for top-80 candidates
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        executor.map(_fetch_abstract_for_candidate, openalex_papers[:80])
+
+    # Run LLM validation on top-80 candidates (interleaved by citations + relevance)
+    llm_scores = _score_seed_candidates(query, openalex_papers, top_k=80)
+
+    # Helper: pick best seed from candidate list with keyword sanity check
+    def _pick_best_seed(candidates, scores, strategy_label, filter_desc):
+        """Pick best seed with keyword overlap guard against wrong-field selections."""
+        import math as _math
+        if not candidates:
+            return None
+        max_cites = max((p.get("cited_by_count") or 0 for p in candidates), default=1) or 1
+
+        def _composite(p):
+            llm = scores.get(p.get("work_id"), 0) if scores else 0
+            cites = p.get("cited_by_count") or 0
+            norm_cites = _math.log1p(cites) / _math.log1p(max_cites)
+            return 0.6 * llm + 0.4 * norm_cites
+
+        candidates.sort(key=_composite, reverse=True)
+
+        # Try each candidate — reject seeds with zero keyword overlap (wrong field)
+        for paper in candidates:
+            overlap = _keyword_overlap_score(
+                query,
+                paper.get("title", ""),
+                paper.get("abstract", ""),
+            )
+            if overlap > 0:
+                llm_score = scores.get(paper.get("work_id"), 0) if scores else 0
+                return paper["work_id"], {
+                    "selection_strategy": strategy_label,
+                    "selection_reason": (
+                        f"{filter_desc} "
+                        f"(citations: {paper.get('cited_by_count', 0):,}, "
+                        f"relevance: {llm_score:.2f}, keyword_overlap: {overlap:.2f})"
+                    ),
+                    "candidates_considered": len(all_papers),
+                    "llm_validated_count": len(candidates),
+                    "seed_title": paper.get("title"),
+                }
+            else:
+                logger.warning(
+                    f"Seed rejected (zero keyword overlap): "
+                    f"{paper.get('title', '')[:80]} for query '{query}'"
+                )
+        return None
 
     if llm_scores:
         # Filter to HIGH+ relevance papers (score >= 0.75)
@@ -1929,53 +2416,63 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
         ]
 
         if relevant_papers:
-            # Pick highest cited among relevant papers
-            relevant_papers.sort(key=lambda p: p.get("cited_by_count") or 0, reverse=True)
-            best_paper = relevant_papers[0]
-            llm_score = llm_scores.get(best_paper.get("work_id"), 0)
+            result = _pick_best_seed(
+                relevant_papers, llm_scores,
+                "llm_validated_highest_cited",
+                f"Best of {len(relevant_papers)} LLM-validated papers",
+            )
+            if result:
+                return result
+            # All HIGH+ papers failed keyword check — fall through to below-threshold
 
-            return best_paper["work_id"], {
-                "selection_strategy": "llm_validated_highest_cited",
-                "selection_reason": (
-                    f"Highest cited ({best_paper.get('cited_by_count', 0):,}) "
-                    f"among {len(relevant_papers)} LLM-validated papers "
-                    f"(relevance score: {llm_score:.2f})"
-                ),
-                "candidates_considered": len(all_papers),
-                "llm_validated_count": len(relevant_papers),
-                "seed_title": best_paper.get("title"),
-            }
-        else:
-            # No papers passed LLM validation - fall back to highest scored
-            # (even if below threshold)
-            scored_papers = [
-                (p, llm_scores.get(p.get("work_id"), 0))
-                for p in openalex_papers
-                if p.get("work_id") in llm_scores
-            ]
-            if scored_papers:
-                scored_papers.sort(key=lambda x: (-x[1], -(x[0].get("cited_by_count") or 0)))
-                best_paper, best_score = scored_papers[0]
+        # No papers passed LLM threshold (or all failed keyword check)
+        # Use highest LLM-scored paper (even if below threshold)
+        scored_papers = [
+            p for p in openalex_papers
+            if p.get("work_id") in llm_scores and llm_scores.get(p.get("work_id"), 0) > 0.05
+        ]
+        if scored_papers:
+            result = _pick_best_seed(
+                scored_papers, llm_scores,
+                "llm_validated_highest_cited",
+                f"Best available (no papers reached HIGH threshold)",
+            )
+            if result:
+                return result
 
-                return best_paper["work_id"], {
-                    "selection_strategy": "llm_validated_highest_cited",
-                    "selection_reason": (
-                        f"Best available (LLM score: {best_score:.2f}, "
-                        f"citations: {best_paper.get('cited_by_count', 0):,}) - "
-                        f"no papers reached HIGH relevance threshold"
-                    ),
-                    "candidates_considered": len(all_papers),
-                    "llm_validated_count": 0,
-                    "seed_title": best_paper.get("title"),
-                }
+    # Fallback: LLM validation failed or all candidates failed keyword check.
+    # Use keyword-based heuristic instead of blindly picking highest cited.
+    keyword_scored = []
+    for p in openalex_papers[:80]:
+        kw_score = _keyword_overlap_score(
+            query,
+            p.get("title", ""),
+            p.get("abstract", ""),
+        )
+        if kw_score > 0:
+            keyword_scored.append((p, kw_score))
 
-    # Fallback: LLM validation failed, use highest cited
+    if keyword_scored:
+        # Sort by keyword overlap (primary), then citations (secondary)
+        keyword_scored.sort(key=lambda x: (-x[1], -(x[0].get("cited_by_count") or 0)))
+        best_paper, best_kw = keyword_scored[0]
+        return best_paper["work_id"], {
+            "selection_strategy": "keyword_fallback",
+            "selection_reason": (
+                f"LLM validation unavailable; selected by keyword overlap "
+                f"(overlap: {best_kw:.2f}, citations: {best_paper.get('cited_by_count', 0):,})"
+            ),
+            "candidates_considered": len(all_papers),
+            "seed_title": best_paper.get("title"),
+        }
+
+    # Last resort: highest cited (should be extremely rare)
     best_paper = openalex_papers[0]
     return best_paper["work_id"], {
         "selection_strategy": "highest_cited_fallback",
         "selection_reason": (
             f"Highest cited ({best_paper.get('cited_by_count', 0):,}) - "
-            f"LLM validation unavailable"
+            f"no keyword matches found"
         ),
         "candidates_considered": len(all_papers),
         "seed_title": best_paper.get("title"),
@@ -2103,10 +2600,10 @@ def _assemble_multihop_graph(
             relationship=relationship,
         ))
 
-    # Only include edges where both endpoints are in the filtered node set
+    # Only include edges where both endpoints are in the filtered node set (no self-loops)
     node_ids = {n.work_id for n in nodes}
     for from_id, to_id in edge_tuples:
-        if from_id in node_ids and to_id in node_ids:
+        if from_id != to_id and from_id in node_ids and to_id in node_ids:
             edges.append(CitationEdge(from_work_id=from_id, to_work_id=to_id))
 
     logger.info(f"Assembled multi-hop graph: {len(nodes)} nodes, {len(edges)} edges")
@@ -2186,9 +2683,119 @@ def build_citation_map(
     2. Provide query_text to find the best seed paper automatically
     """
     with engine.connect() as conn:
-        # Step 1: Determine seed paper
-        if request.seed_work_id:
-            # Mode 1: Direct seed paper
+        # Step 1: Determine seed paper (support multiple input modes)
+        if request.seed_doi:
+            # Mode: DOI (from PDF metadata or user input)
+            logger.info(f"Looking up paper by DOI: {request.seed_doi}")
+            seed_work_id = _lookup_openalex_by_doi(request.seed_doi)
+
+            if not seed_work_id:
+                # Fallback: try Semantic Scholar by DOI
+                logger.info(f"DOI not in OpenAlex, trying S2: {request.seed_doi}")
+                s2_paper = _lookup_s2_paper_by_doi(request.seed_doi)
+                if s2_paper and s2_paper.get("paperId"):
+                    seed_work_id = f"S2:{s2_paper['paperId']}"
+                    logger.info(f"Found via S2: {seed_work_id}")
+
+            if not seed_work_id:
+                raise ValueError(f"Paper with DOI {request.seed_doi} not found in OpenAlex or Semantic Scholar")
+            seed_data = fetch_seed_paper_details(seed_work_id)
+            seed_info = SeedSelectionInfo(
+                seed_work_id=seed_work_id,
+                seed_title=seed_data.get("title") if seed_data else None,
+                selection_strategy="doi_lookup",
+                selection_reason=f"Found via DOI: {request.seed_doi}",
+                candidates_considered=1,
+            )
+
+        elif request.seed_title:
+            # Mode: Title search (searches OpenAlex + S2)
+            # Normalize ligatures (ﬁ→fi, ﬂ→fl) that PDF extraction often produces
+            search_title = _normalize_title_text(request.seed_title)
+            logger.info(f"Searching for paper by title: {search_title[:50]}...")
+            # Search OpenAlex
+            oa_results = _search_openalex_by_title(search_title, k=5)
+            # Also search S2
+            s2_raw = _search_s2_by_title(search_title, limit=5)
+
+            # Map S2 results to OpenAlex work_ids via DOI or ArXiv bridge
+            s2_results = []
+            for s2_paper in s2_raw:
+                doi = s2_paper.get("doi")
+                arxiv_id = s2_paper.get("arxiv_id")
+                work_id = None
+
+                # Try DOI first (fastest)
+                if doi:
+                    work_id = _lookup_openalex_by_doi(doi)
+
+                # Fallback to ArXiv ID bridge
+                if not work_id and arxiv_id:
+                    oa_data = _lookup_openalex_by_arxiv(arxiv_id)
+                    if oa_data:
+                        work_id = oa_data.get("work_id")
+
+                if work_id:
+                    s2_results.append({
+                        "work_id": work_id,
+                        "title": s2_paper.get("title"),
+                        "year": s2_paper.get("year"),
+                        "cited_by_count": s2_paper.get("cited_by_count") or 0,
+                        "source": "s2_mapped",
+                    })
+                elif s2_paper.get("s2_id"):
+                    # S2-only paper (no OA bridge) — keep as independent source
+                    s2_results.append({
+                        "work_id": f"S2:{s2_paper['s2_id']}",
+                        "title": s2_paper.get("title"),
+                        "year": s2_paper.get("year"),
+                        "cited_by_count": s2_paper.get("cited_by_count") or 0,
+                        "source": "s2_only",
+                    })
+
+            # Combine and dedupe by work_id — prefer higher-cited entry for duplicates
+            all_candidates = {}
+            for p in (oa_results + s2_results):
+                wid = p.get("work_id")
+                if not wid:
+                    continue
+                existing = all_candidates.get(wid)
+                if not existing or (p.get("cited_by_count", 0) > existing.get("cited_by_count", 0)):
+                    all_candidates[wid] = p
+
+            if not all_candidates:
+                raise ValueError(f"Paper with title '{request.seed_title}' not found in any source")
+
+            # Use title similarity + citations to pick best match
+            # This handles duplicate OpenAlex entries (e.g., pdf_svm, title_backprop)
+            def _title_match_score(wid):
+                p = all_candidates[wid]
+                p_title = _normalize_title_text((p.get("title") or "")).lower()
+                q_title = _normalize_title_text(search_title).lower()
+                # Jaccard on punctuation-stripped words (so "BERT:" matches "BERT")
+                p_words = {_strip_punct(w) for w in p_title.split() if _strip_punct(w)}
+                q_words = {_strip_punct(w) for w in q_title.split() if _strip_punct(w)}
+                jaccard = len(p_words & q_words) / max(len(p_words | q_words), 1)
+                cites = p.get("cited_by_count", 0)
+                import math as _m
+                # Near-exact title match: let citations decide entirely
+                # Handles OpenAlex duplicates where same paper has wildly different cite counts
+                if jaccard > 0.85:
+                    return 1.0 + _m.log1p(cites)
+                return jaccard * 0.6 + _m.log1p(cites) / _m.log1p(100000) * 0.4
+
+            seed_work_id = max(all_candidates.keys(), key=_title_match_score)
+            seed_data = all_candidates[seed_work_id]
+            seed_info = SeedSelectionInfo(
+                seed_work_id=seed_work_id,
+                seed_title=seed_data.get("title"),
+                selection_strategy="title_search",
+                selection_reason=f"Found via title search across OpenAlex + S2",
+                candidates_considered=len(all_candidates),
+            )
+
+        elif request.seed_work_id:
+            # Mode: Direct OpenAlex work ID
             seed_work_id = request.seed_work_id
             seed_data = fetch_seed_paper_details(seed_work_id)
             if not seed_data:
@@ -2241,54 +2848,25 @@ def build_citation_map(
         else:
             raise ValueError("Either seed_work_id or query_text must be provided")
 
-        # Step 2: Build citation network
-        if request.use_multi_hop:
-            # Compute effective total: use explicit value or derive from limits
-            effective_total = request.total_nodes or (request.citing_limit + request.references_limit + 1)
+        # Step 2: Build citation network (multi-hop exploration)
+        effective_total = request.total_nodes or (request.citing_limit + request.references_limit + 1)
 
-            # Multi-hop exploration: explores 2 hops from seed with hybrid scoring
-            papers_dict, edge_tuples = _expand_citation_network(
-                seed_work_id=seed_work_id,
-                total_limit=effective_total,
-                hop1_fetch=max(request.citing_limit, request.references_limit) * 3,
-                hop2_fetch=30,  # Increased to ensure hop-2 papers are available
-                citation_weight=0.6,
-                connectivity_weight=0.4,
-            )
+        papers_dict, edge_tuples = _expand_citation_network(
+            seed_work_id=seed_work_id,
+            total_limit=effective_total,
+            hop1_fetch=max(request.citing_limit, request.references_limit) * 3,
+            hop2_fetch=30,
+            citation_weight=0.6,
+            connectivity_weight=0.4,
+        )
 
-            # Convert to CitationNode and CitationEdge
-            nodes, edges = _assemble_multihop_graph(
-                seed_work_id=seed_work_id,
-                papers_dict=papers_dict,
-                edge_tuples=edge_tuples,
-                min_citations=request.min_citations,
-            )
-        else:
-            # Legacy 1-hop mode: fetch citing and references separately
-            fetch_multiplier = 5
-            raw_citing = fetch_citing_papers(
-                seed_work_id,
-                limit=request.citing_limit,
-                fetch_limit=request.citing_limit * fetch_multiplier,
-            )
-            raw_references = fetch_references(
-                seed_work_id,
-                limit=request.references_limit,
-                fetch_limit=request.references_limit * fetch_multiplier,
-            )
-
-            # Apply stratified sampling for citation diversity
-            citing_papers = _stratified_sample(raw_citing, request.citing_limit)
-            references = _stratified_sample(raw_references, request.references_limit)
-
-            # Assemble 1-hop graph
-            nodes, edges = _assemble_citation_graph(
-                seed_work_id=seed_work_id,
-                seed_data=seed_data,
-                citing_papers=citing_papers,
-                references=references,
-                min_citations=request.min_citations,
-            )
+        # Convert to CitationNode and CitationEdge
+        nodes, edges = _assemble_multihop_graph(
+            seed_work_id=seed_work_id,
+            papers_dict=papers_dict,
+            edge_tuples=edge_tuples,
+            min_citations=request.min_citations,
+        )
 
         # Step 4: Optionally create graph_draft
         graph_draft_id = None

@@ -227,8 +227,9 @@ class DirectRankResponse(BaseModel):
     # Flat list of ranked papers (used by drill-down endpoint)
     # When present, categorized fields are empty
     items: list[RankedItem] = []
-    # THREE CATEGORIES (canonical spine + applications):
-    # Fundamentals + Core = ~70%, Applications = ~30%
-    fundamentals: list[RankedItem] = []  # Field-defining foundational papers
-    core_concepts_and_theory: list[RankedItem] = []  # Core methods, reviews, and theoretical work
+    # FIVE CATEGORIES (matching rank_service.py implementation):
+    foundational: list[RankedItem] = []  # Field-defining foundational papers
+    methodology: list[RankedItem] = []  # Methods, tools, techniques
+    reviews: list[RankedItem] = []  # Review papers and surveys
     applications: list[RankedItem] = []  # Clinical trials, case studies, implementations
+    textbooks: list[RankedItem] = []  # Educational materials

@@ -1,0 +1,3 @@
+# Keep result JSONs local — they contain timestamps and are for manual review
+*.json
+!.gitkeep
