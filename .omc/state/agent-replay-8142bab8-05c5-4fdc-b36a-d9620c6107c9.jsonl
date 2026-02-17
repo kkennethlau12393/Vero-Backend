@@ -1,0 +1,14 @@
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"team"}
+{"t":0,"agent":"system","event":"mode_change","mode_from":"none","mode_to":"team"}
+{"t":0,"agent":"abe17ad","agent_type":"explorer-1","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"adca305","agent_type":"explorer-2","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a5b5717","agent_type":"explorer-3","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"aff5c77","agent_type":"explorer-4","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"abe17ad","agent_type":"explorer-1","event":"agent_stop","success":true,"duration_ms":123802}
+{"t":0,"agent":"ad1fe00","agent_type":"explorer-1","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"aff5c77","agent_type":"explorer-4","event":"agent_stop","success":true,"duration_ms":102323}
+{"t":0,"agent":"a41573e","agent_type":"explorer-4","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a5b5717","agent_type":"explorer-3","event":"agent_stop","success":true,"duration_ms":172099}
+{"t":0,"agent":"a4da23d","agent_type":"explorer-3","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"adca305","agent_type":"explorer-2","event":"agent_stop","success":true,"duration_ms":193492}
+{"t":0,"agent":"a39f2b1","agent_type":"explorer-2","event":"agent_start","parent_mode":"none"}

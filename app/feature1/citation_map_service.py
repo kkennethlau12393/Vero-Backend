@@ -2185,6 +2185,7 @@ def build_citation_map(
     1. Provide seed_work_id directly
     2. Provide query_text to find the best seed paper automatically
     """
+    t_start = time.time()
     with engine.connect() as conn:
         # Step 1: Determine seed paper
         if request.seed_work_id:
@@ -2294,6 +2295,11 @@ def build_citation_map(
         graph_draft_id = None
         if request.create_graph_draft and nodes:
             graph_draft_id = _create_graph_draft(conn, tenant_id, nodes, edges)
+
+        logger.info(
+            "Citation map done in %.1fs: seed=%s, nodes=%d, edges=%d, draft=%s",
+            time.time() - t_start, seed_work_id, len(nodes), len(edges), graph_draft_id,
+        )
 
         # Step 5: Build stats
         stats = CitationMapStats(

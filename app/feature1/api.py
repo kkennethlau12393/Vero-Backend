@@ -3,6 +3,8 @@ API router for Feature 1: Citation Map Retrieval.
 """
 from __future__ import annotations
 
+import logging
+import time
 from functools import lru_cache
 from uuid import UUID
 
@@ -13,6 +15,8 @@ from app.auth.tenant import get_tenant_id
 from app.db import make_engine
 from app.feature1.citation_map_service import build_citation_map
 from app.feature1.schemas import CitationMapRequest, CitationMapResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["citation-map"])
 
@@ -45,13 +49,16 @@ def build_citation_map_endpoint(
             detail="Either seed_work_id or query_text must be provided",
         )
 
+    t0 = time.perf_counter()
     try:
-        return build_citation_map(
+        result = build_citation_map(
             engine,
             tenant_id=tenant_id,
             request=req,
         )
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.exception("Citation map failed after %.1fs: query=%s seed=%s", time.perf_counter() - t0, repr((req.query_text or "")[:60]), req.seed_work_id)
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")

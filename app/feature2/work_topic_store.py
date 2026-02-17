@@ -158,11 +158,16 @@ class WorkStore:
         if not missing_work_ids:
             return
         import requests
-        # Determine which IDs are absent from the DB
-        existing = conn.execute(
-            text("SELECT work_id FROM works WHERE work_id = ANY(:ids)"),
-            {"ids": missing_work_ids},
-        ).scalars().all()
+        # Determine which IDs are absent from the DB — use savepoint so
+        # a failure here doesn't poison the outer transaction.
+        try:
+            with conn.begin_nested():
+                existing = conn.execute(
+                    text("SELECT work_id FROM works WHERE work_id = ANY(:ids)"),
+                    {"ids": missing_work_ids},
+                ).scalars().all()
+        except Exception:
+            return
         existing_set = set(existing)
         to_fetch = [wid for wid in missing_work_ids if wid not in existing_set]
         if not to_fetch:
@@ -254,13 +259,16 @@ class WorkStore:
                 })
             if not rows:
                 continue
-            # Bulk upsert into works table
+            # Bulk upsert into works table — use savepoint so a single
+            # batch failure doesn't poison the outer transaction.
             # IMPORTANT: Only update if OpenAlex data is more credible
             # - Keep higher citation count (prevents overwriting correct S2/ArXiv data)
             # - Keep earlier year if citations are similar (prevents future-dated papers)
-            conn.execute(
-                text(
-                    """
+            try:
+                with conn.begin_nested():
+                    conn.execute(
+                        text(
+                            """
                     INSERT INTO works (
                         work_id, title, year, cited_by_count,
                         authors_json, venue, primary_topic_id,
@@ -315,13 +323,18 @@ class WorkStore:
                         oa_pdf_url = COALESCE(EXCLUDED.oa_pdf_url, works.oa_pdf_url),
                         doi = COALESCE(EXCLUDED.doi, works.doi)
                     """
-                ).bindparams(
-                    bindparam("authors_json", type_=JSONB),
-                    bindparam("topics_json", type_=JSONB),
-                    bindparam("referenced_works_json", type_=JSONB),
-                ),
-                rows,
-            )
+                        ).bindparams(
+                            bindparam("authors_json", type_=JSONB),
+                            bindparam("topics_json", type_=JSONB),
+                            bindparam("referenced_works_json", type_=JSONB),
+                        ),
+                        rows,
+                    )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Failed to upsert OpenAlex batch of {len(rows)} works: {e}"
+                )
 
 
 def _decode_openalex_abstract(inverted_index: Any) -> Optional[str]:

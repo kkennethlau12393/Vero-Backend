@@ -1,0 +1,412 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1771332575481,
+  "projectRoot": "/Users/sami/project/vero/Vero-Backend",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "fastapi",
+        "version": null,
+        "category": "backend"
+      }
+    ],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "pytest",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "app",
+      "docs",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "alexandria_backend.egg-info": {
+      "path": "alexandria_backend.egg-info",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1771332575472,
+      "keyFiles": [
+        "PKG-INFO",
+        "SOURCES.txt",
+        "dependency_links.txt",
+        "requires.txt",
+        "top_level.txt"
+      ]
+    },
+    "app": {
+      "path": "app",
+      "purpose": "Application code",
+      "fileCount": 4,
+      "lastAccessed": 1771332575472,
+      "keyFiles": [
+        "__init__.py",
+        "api_endpoints.md",
+        "db.py",
+        "main.py"
+      ]
+    },
+    "build": {
+      "path": "build",
+      "purpose": "Build output",
+      "fileCount": 0,
+      "lastAccessed": 1771332575472,
+      "keyFiles": []
+    },
+    "docker": {
+      "path": "docker",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1771332575473,
+      "keyFiles": [
+        "Dockerfile",
+        "docker-compose.yml"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 0,
+      "lastAccessed": 1771332575473,
+      "keyFiles": []
+    },
+    "htmlcov": {
+      "path": "htmlcov",
+      "purpose": null,
+      "fileCount": 29,
+      "lastAccessed": 1771332575474,
+      "keyFiles": [
+        "class_index.html",
+        "coverage_html_cb_dd2e7eb5.js",
+        "favicon_32_cb_c827f16f.png",
+        "function_index.html",
+        "index.html"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 2,
+      "lastAccessed": 1771332575474,
+      "keyFiles": [
+        "conftest.py",
+        "test_integration.py"
+      ]
+    },
+    "venv": {
+      "path": "venv",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1771332575474,
+      "keyFiles": [
+        "pyvenv.cfg"
+      ]
+    },
+    "build/lib": {
+      "path": "build/lib",
+      "purpose": "Library code",
+      "fileCount": 0,
+      "lastAccessed": 1771332575475,
+      "keyFiles": []
+    },
+    "tests/fixtures": {
+      "path": "tests/fixtures",
+      "purpose": "Test fixtures",
+      "fileCount": 0,
+      "lastAccessed": 1771332575478,
+      "keyFiles": []
+    },
+    "tests/services": {
+      "path": "tests/services",
+      "purpose": "Business logic services",
+      "fileCount": 0,
+      "lastAccessed": 1771332575479,
+      "keyFiles": []
+    },
+    "venv/bin": {
+      "path": "venv/bin",
+      "purpose": "Executable scripts",
+      "fileCount": 37,
+      "lastAccessed": 1771332575480,
+      "keyFiles": [
+        "Activate.ps1",
+        "activate",
+        "activate.csh"
+      ]
+    },
+    "venv/lib": {
+      "path": "venv/lib",
+      "purpose": "Library code",
+      "fileCount": 0,
+      "lastAccessed": 1771332575481,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "app",
+      "accessCount": 13,
+      "lastAccessed": 1771332950186,
+      "type": "directory"
+    },
+    {
+      "path": "app/feature1/citation_map_service.py",
+      "accessCount": 9,
+      "lastAccessed": 1771332958982,
+      "type": "file"
+    },
+    {
+      "path": "app/feature2/retrieval.py",
+      "accessCount": 7,
+      "lastAccessed": 1771332949244,
+      "type": "file"
+    },
+    {
+      "path": "app/feature2/rank_service.py",
+      "accessCount": 4,
+      "lastAccessed": 1771332957507,
+      "type": "file"
+    },
+    {
+      "path": "CLAUDE.md",
+      "accessCount": 3,
+      "lastAccessed": 1771333188601,
+      "type": "file"
+    },
+    {
+      "path": "app/db.py",
+      "accessCount": 2,
+      "lastAccessed": 1771332938469,
+      "type": "file"
+    },
+    {
+      "path": "app/main.py",
+      "accessCount": 2,
+      "lastAccessed": 1771332938954,
+      "type": "file"
+    },
+    {
+      "path": "app/auth/tenant.py",
+      "accessCount": 2,
+      "lastAccessed": 1771332960108,
+      "type": "file"
+    },
+    {
+      "path": "app/feature3/node_details_service.py",
+      "accessCount": 2,
+      "lastAccessed": 1771332960255,
+      "type": "file"
+    },
+    {
+      "path": "app/feature5/gap_service.py",
+      "accessCount": 2,
+      "lastAccessed": 1771332960600,
+      "type": "file"
+    },
+    {
+      "path": "app/feature1/api.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332839918,
+      "type": "file"
+    },
+    {
+      "path": "app/feature1/schemas.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332840560,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 1,
+      "lastAccessed": 1771332851966,
+      "type": "directory"
+    },
+    {
+      "path": "app/feature2/rank_api.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332855511,
+      "type": "file"
+    },
+    {
+      "path": "app/feature2/schemas.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332855911,
+      "type": "file"
+    },
+    {
+      "path": "app/feature2/maps_api.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332856396,
+      "type": "file"
+    },
+    {
+      "path": "app/feature3/node_details_api.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332859882,
+      "type": "file"
+    },
+    {
+      "path": "app/feature3/schemas.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332860389,
+      "type": "file"
+    },
+    {
+      "path": "app/feature4/compare_api.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332860950,
+      "type": "file"
+    },
+    {
+      "path": "app/feature2/llm_relevance.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332861480,
+      "type": "file"
+    },
+    {
+      "path": "app/feature4/schemas.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332861640,
+      "type": "file"
+    },
+    {
+      "path": "app/feature2/query_expansion.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332861995,
+      "type": "file"
+    },
+    {
+      "path": "app/feature5/gap_api.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332862336,
+      "type": "file"
+    },
+    {
+      "path": "app/feature5/schemas.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332862815,
+      "type": "file"
+    },
+    {
+      "path": "app/feature3/paper_cache.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332863158,
+      "type": "file"
+    },
+    {
+      "path": "app/settings/api.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332866983,
+      "type": "file"
+    },
+    {
+      "path": "app/settings/store.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332867312,
+      "type": "file"
+    },
+    {
+      "path": "app/settings/access_links.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332867759,
+      "type": "file"
+    },
+    {
+      "path": "app/feature2/repos.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332868989,
+      "type": "file"
+    },
+    {
+      "path": "app/feature2/work_topic_store.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332869615,
+      "type": "file"
+    },
+    {
+      "path": "app/feature4/compare_service.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332869899,
+      "type": "file"
+    },
+    {
+      "path": "app/feature2/query_classification.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332875353,
+      "type": "file"
+    },
+    {
+      "path": "app/feature2/methodological_alignment.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332876059,
+      "type": "file"
+    },
+    {
+      "path": "app/feature5/gap_detection.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332876293,
+      "type": "file"
+    },
+    {
+      "path": "app/feature5/external_validation.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332876798,
+      "type": "file"
+    },
+    {
+      "path": "app/feature4/paper_content.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332877658,
+      "type": "file"
+    },
+    {
+      "path": "app/feature4/citation_lineage.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332877861,
+      "type": "file"
+    },
+    {
+      "path": "app/feature5/prompts.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332878553,
+      "type": "file"
+    },
+    {
+      "path": "app/feature2/maps_service.py",
+      "accessCount": 1,
+      "lastAccessed": 1771332882178,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

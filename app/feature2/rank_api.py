@@ -12,6 +12,7 @@ metadata.  Legacy v1 ranking is no longer exposed via this router.
 from __future__ import annotations
 
 import logging
+import time
 from uuid import UUID
 from functools import lru_cache
 from typing import Any, Dict, Optional
@@ -103,15 +104,14 @@ def direct_rank_endpoint(
     instead of query_text. The backend will use LLM to generate an
     appropriate search query from the paper title.
     """
+    t0 = time.perf_counter()
     try:
         # Determine query_text: use provided query_text, or generate from seed_title
         query_text = req.query_text
         if not query_text and req.seed_title:
-            logger.info(f"Generating query from seed_title: '{req.seed_title[:50]}...'")
             query_text = generate_topic_query_from_title(req.seed_title)
             if not query_text:
                 raise ValueError("Failed to generate query from seed_title")
-            logger.info(f"Generated query: '{query_text}'")
 
         if not query_text:
             raise ValueError("Either query_text or seed_title must be provided")
@@ -131,12 +131,16 @@ def direct_rank_endpoint(
             rank_params_json=rank_params_json,
         )
 
+        elapsed = time.perf_counter() - t0
         status = (result.get("job") or {}).get("status")
         if status in ("pending", "running"):
+            logger.info("Rank 202 in %.1fs: job=%s query=%s", elapsed, result.get("rank_job_id"), repr(query_text[:60]))
             return JSONResponse(
                 status_code=202,
                 content={"rank_job_id": str(result["rank_job_id"]), "status": status},
             )
+
+        logger.info("Rank done in %.1fs: job=%s items=%d query=%s", elapsed, result.get("rank_job_id"), len(result.get("items", [])), repr(query_text[:60]))
         return result
 
     except PermissionError as e:
@@ -148,7 +152,7 @@ def direct_rank_endpoint(
             raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
-        logger.exception("Unexpected error in direct_rank_prod endpoint")
+        logger.exception("Rank failed after %.1fs: query=%s", time.perf_counter() - t0, repr((req.query_text or req.seed_title or "")[:60]))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -187,6 +191,7 @@ def drill_down_endpoint(
     Use this when drilling down into a subtopic from generate-subtopics.
     For full research queries, use the main /rank endpoint instead.
     """
+    t0 = time.perf_counter()
     try:
         # Use lightweight params: fewer candidates, small top_k, reduced LLM cap
         # Skip external sources (DBLP, PubMed, CrossRef) to avoid 15s+ timeouts
@@ -227,6 +232,7 @@ def drill_down_endpoint(
                 status_code=202,
                 content={"rank_job_id": str(result["rank_job_id"]), "status": status},
             )
+        logger.info("Drill-down done in %.1fs: %d items, query=%s", time.perf_counter() - t0, len(result.get("items", [])), repr(req.query_text[:60]))
         return result
 
     except PermissionError as e:
@@ -237,7 +243,7 @@ def drill_down_endpoint(
             raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
-        logger.exception("Unexpected error in drill_down endpoint")
+        logger.exception("Drill-down failed after %.1fs: query=%s", time.perf_counter() - t0, repr(req.query_text[:60]))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -264,6 +270,7 @@ def generate_subtopics_endpoint(
     To get dedicated papers for a subtopic, call:
     POST /v1/rank with {"query_text": subtopic.drill_down_query}
     """
+    t0 = time.perf_counter()
     try:
         # Fetch the original query_text from the rank job's candidate set
         from sqlalchemy import text
@@ -284,6 +291,8 @@ def generate_subtopics_endpoint(
             rank_job_id=rank_job_id,
             query_text=query_text,
         )
+
+        logger.info("Subtopics done in %.1fs: job=%s, %d subtopics", time.perf_counter() - t0, rank_job_id, len(result.get("subtopics", [])))
 
         return SubtopicsResponse(
             rank_job_id=result["rank_job_id"],
@@ -307,7 +316,7 @@ def generate_subtopics_endpoint(
             raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
-        logger.exception("Unexpected error in generate_subtopics endpoint")
+        logger.exception("Subtopics failed after %.1fs: job=%s", time.perf_counter() - t0, rank_job_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -332,6 +341,7 @@ def get_temporal_map_endpoint(
         include_analytics: If true, includes breakthrough detection and
             evolution trend analysis (requires additional LLM calls)
     """
+    t0 = time.perf_counter()
     try:
         result = build_temporal_map(
             engine,
@@ -420,6 +430,8 @@ def get_temporal_map_endpoint(
                 evolution=evolution,
             )
 
+        logger.info("Temporal-map done in %.1fs: job=%s, %d eras", time.perf_counter() - t0, rank_job_id, len(eras))
+
         return TemporalMapResponse(
             rank_job_id=result["rank_job_id"],
             scope=result["scope"],
@@ -436,5 +448,5 @@ def get_temporal_map_endpoint(
             raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
-        logger.exception("Unexpected error in temporal_map endpoint")
+        logger.exception("Temporal-map failed after %.1fs: job=%s", time.perf_counter() - t0, rank_job_id)
         raise HTTPException(status_code=500, detail=str(e))

@@ -1288,16 +1288,17 @@ def _ingest_arxiv_papers(
 
     if titles_to_check:
         try:
-            rows = conn.execute(
-                text("""
-                    SELECT DISTINCT ON (lower(title))
-                        work_id, title, cited_by_count
-                    FROM works
-                    WHERE lower(title) = ANY(:titles)
-                    ORDER BY lower(title), cited_by_count DESC NULLS LAST
-                """),
-                {"titles": [t.lower() for t in titles_to_check if t]},
-            ).fetchall()
+            with conn.begin_nested():
+                rows = conn.execute(
+                    text("""
+                        SELECT DISTINCT ON (lower(title))
+                            work_id, title, cited_by_count
+                        FROM works
+                        WHERE lower(title) = ANY(:titles)
+                        ORDER BY lower(title), cited_by_count DESC NULLS LAST
+                    """),
+                    {"titles": [t.lower() for t in titles_to_check if t]},
+                ).fetchall()
             for row in rows:
                 existing_by_title[row[1].lower()] = (row[0], row[2] or 0)
         except Exception as e:
@@ -1324,55 +1325,56 @@ def _ingest_arxiv_papers(
 
         try:
             # Upsert with preference for better data
-            conn.execute(
-                text("""
-                    INSERT INTO works (
-                        work_id, title, year, cited_by_count,
-                        authors_json, venue, primary_topic_id,
-                        primary_topic_score, topics_json, is_retracted,
-                        abstract
-                    ) VALUES (
-                        :work_id, :title, :year, :cited_by_count,
-                        :authors_json, :venue, :primary_topic_id,
-                        :primary_topic_score, :topics_json, :is_retracted,
-                        :abstract
-                    )
-                    ON CONFLICT (work_id) DO UPDATE
-                    SET
-                        -- Keep higher citation count (S2 enrichment is usually accurate)
-                        cited_by_count = GREATEST(
-                            COALESCE(works.cited_by_count, 0),
-                            COALESCE(EXCLUDED.cited_by_count, 0)
-                        ),
-                        -- Fill in title if missing
-                        title = COALESCE(works.title, EXCLUDED.title),
-                        -- Prefer earlier year (ArXiv often has correct original pub date)
-                        year = CASE
-                            WHEN works.year IS NULL THEN EXCLUDED.year
-                            WHEN EXCLUDED.year IS NULL THEN works.year
-                            WHEN EXCLUDED.year < works.year THEN EXCLUDED.year
-                            ELSE works.year
-                        END,
-                        -- Fill in abstract if missing
-                        abstract = COALESCE(works.abstract, EXCLUDED.abstract)
-                """).bindparams(
-                    bindparam("authors_json", type_=JSONB),
-                    bindparam("topics_json", type_=JSONB),
-                ),
-                {
-                    "work_id": work_id,
-                    "title": meta.get("title"),
-                    "year": meta.get("year"),
-                    "cited_by_count": meta.get("citations", 0),  # Use enriched citation count
-                    "authors_json": meta.get("authors", []),
-                    "venue": "arXiv",
-                    "primary_topic_id": None,
-                    "primary_topic_score": None,
-                    "topics_json": [],
-                    "is_retracted": False,
-                    "abstract": meta.get("abstract"),
-                },
-            )
+            with conn.begin_nested():
+                conn.execute(
+                    text("""
+                        INSERT INTO works (
+                            work_id, title, year, cited_by_count,
+                            authors_json, venue, primary_topic_id,
+                            primary_topic_score, topics_json, is_retracted,
+                            abstract
+                        ) VALUES (
+                            :work_id, :title, :year, :cited_by_count,
+                            :authors_json, :venue, :primary_topic_id,
+                            :primary_topic_score, :topics_json, :is_retracted,
+                            :abstract
+                        )
+                        ON CONFLICT (work_id) DO UPDATE
+                        SET
+                            -- Keep higher citation count (S2 enrichment is usually accurate)
+                            cited_by_count = GREATEST(
+                                COALESCE(works.cited_by_count, 0),
+                                COALESCE(EXCLUDED.cited_by_count, 0)
+                            ),
+                            -- Fill in title if missing
+                            title = COALESCE(works.title, EXCLUDED.title),
+                            -- Prefer earlier year (ArXiv often has correct original pub date)
+                            year = CASE
+                                WHEN works.year IS NULL THEN EXCLUDED.year
+                                WHEN EXCLUDED.year IS NULL THEN works.year
+                                WHEN EXCLUDED.year < works.year THEN EXCLUDED.year
+                                ELSE works.year
+                            END,
+                            -- Fill in abstract if missing
+                            abstract = COALESCE(works.abstract, EXCLUDED.abstract)
+                    """).bindparams(
+                        bindparam("authors_json", type_=JSONB),
+                        bindparam("topics_json", type_=JSONB),
+                    ),
+                    {
+                        "work_id": work_id,
+                        "title": meta.get("title"),
+                        "year": meta.get("year"),
+                        "cited_by_count": meta.get("citations", 0),  # Use enriched citation count
+                        "authors_json": meta.get("authors", []),
+                        "venue": "arXiv",
+                        "primary_topic_id": None,
+                        "primary_topic_score": None,
+                        "topics_json": [],
+                        "is_retracted": False,
+                        "abstract": meta.get("abstract"),
+                    },
+                )
         except Exception as e:
             logger.warning(f"Failed to ingest ArXiv paper {work_id}: {e}")
 
@@ -1440,16 +1442,17 @@ def _ingest_semantic_scholar_papers(
 
     if titles_to_check:
         try:
-            rows = conn.execute(
-                text("""
-                    SELECT DISTINCT ON (lower(title))
-                        work_id, title, cited_by_count
-                    FROM works
-                    WHERE lower(title) = ANY(:titles)
-                    ORDER BY lower(title), cited_by_count DESC NULLS LAST
-                """),
-                {"titles": [t.lower() for t in titles_to_check if t]},
-            ).fetchall()
+            with conn.begin_nested():
+                rows = conn.execute(
+                    text("""
+                        SELECT DISTINCT ON (lower(title))
+                            work_id, title, cited_by_count
+                        FROM works
+                        WHERE lower(title) = ANY(:titles)
+                        ORDER BY lower(title), cited_by_count DESC NULLS LAST
+                    """),
+                    {"titles": [t.lower() for t in titles_to_check if t]},
+                ).fetchall()
             for row in rows:
                 existing_by_title[row[1].lower()] = (row[0], row[2] or 0)
         except Exception as e:
@@ -1504,41 +1507,42 @@ def _ingest_semantic_scholar_papers(
     if rows_to_insert:
         for row in rows_to_insert:
             try:
-                conn.execute(
-                    text("""
-                        INSERT INTO works (
-                            work_id, title, year, cited_by_count,
-                            authors_json, venue, primary_topic_id,
-                            primary_topic_score, topics_json, is_retracted,
-                            abstract
-                        ) VALUES (
-                            :work_id, :title, :year, :cited_by_count,
-                            :authors_json, :venue, :primary_topic_id,
-                            :primary_topic_score, :topics_json, :is_retracted,
-                            :abstract
-                        )
-                        ON CONFLICT (work_id) DO UPDATE
-                        SET
-                            -- Keep higher citation count (S2 often more accurate)
-                            cited_by_count = GREATEST(
-                                COALESCE(works.cited_by_count, 0),
-                                COALESCE(EXCLUDED.cited_by_count, 0)
-                            ),
-                            -- Keep earlier year (prevents future-dated wrong papers)
-                            year = CASE
-                                WHEN works.year IS NULL THEN EXCLUDED.year
-                                WHEN EXCLUDED.year IS NULL THEN works.year
-                                WHEN EXCLUDED.year < works.year THEN EXCLUDED.year
-                                ELSE works.year
-                            END,
-                            -- Fill in title if missing
-                            title = COALESCE(works.title, EXCLUDED.title)
-                    """).bindparams(
-                        bindparam("authors_json", type_=JSONB),
-                        bindparam("topics_json", type_=JSONB),
-                    ),
-                    row,
-                )
+                with conn.begin_nested():
+                    conn.execute(
+                        text("""
+                            INSERT INTO works (
+                                work_id, title, year, cited_by_count,
+                                authors_json, venue, primary_topic_id,
+                                primary_topic_score, topics_json, is_retracted,
+                                abstract
+                            ) VALUES (
+                                :work_id, :title, :year, :cited_by_count,
+                                :authors_json, :venue, :primary_topic_id,
+                                :primary_topic_score, :topics_json, :is_retracted,
+                                :abstract
+                            )
+                            ON CONFLICT (work_id) DO UPDATE
+                            SET
+                                -- Keep higher citation count (S2 often more accurate)
+                                cited_by_count = GREATEST(
+                                    COALESCE(works.cited_by_count, 0),
+                                    COALESCE(EXCLUDED.cited_by_count, 0)
+                                ),
+                                -- Keep earlier year (prevents future-dated wrong papers)
+                                year = CASE
+                                    WHEN works.year IS NULL THEN EXCLUDED.year
+                                    WHEN EXCLUDED.year IS NULL THEN works.year
+                                    WHEN EXCLUDED.year < works.year THEN EXCLUDED.year
+                                    ELSE works.year
+                                END,
+                                -- Fill in title if missing
+                                title = COALESCE(works.title, EXCLUDED.title)
+                        """).bindparams(
+                            bindparam("authors_json", type_=JSONB),
+                            bindparam("topics_json", type_=JSONB),
+                        ),
+                        row,
+                    )
             except Exception as e:
                 logger.warning(f"Failed to ingest S2 paper {row['work_id']}: {e}")
 
@@ -2075,23 +2079,24 @@ def generate_candidates_direct(
 
             # Upsert into works table
             try:
-                conn.execute(
-                    text("""
-                        INSERT INTO works (work_id, title, year, cited_by_count, venue)
-                        VALUES (:wid, :title, :year, :citations, :venue)
-                        ON CONFLICT (work_id) DO UPDATE SET
-                            cited_by_count = GREATEST(COALESCE(works.cited_by_count, 0), COALESCE(EXCLUDED.cited_by_count, 0)),
-                            title = COALESCE(works.title, EXCLUDED.title),
-                            venue = COALESCE(works.venue, EXCLUDED.venue)
-                    """),
-                    {
-                        "wid": wid,
-                        "title": title,
-                        "year": meta.get("year"),
-                        "citations": meta.get("citations", 0),
-                        "venue": meta.get("venue"),
-                    },
-                )
+                with conn.begin_nested():
+                    conn.execute(
+                        text("""
+                            INSERT INTO works (work_id, title, year, cited_by_count, venue)
+                            VALUES (:wid, :title, :year, :citations, :venue)
+                            ON CONFLICT (work_id) DO UPDATE SET
+                                cited_by_count = GREATEST(COALESCE(works.cited_by_count, 0), COALESCE(EXCLUDED.cited_by_count, 0)),
+                                title = COALESCE(works.title, EXCLUDED.title),
+                                venue = COALESCE(works.venue, EXCLUDED.venue)
+                        """),
+                        {
+                            "wid": wid,
+                            "title": title,
+                            "year": meta.get("year"),
+                            "citations": meta.get("citations", 0),
+                            "venue": meta.get("venue"),
+                        },
+                    )
             except Exception as e:
                 logger.debug(f"CrossRef upsert failed for {wid}: {e}")
 
@@ -2129,21 +2134,22 @@ def generate_candidates_direct(
 
             # Upsert into works table
             try:
-                conn.execute(
-                    text("""
-                        INSERT INTO works (work_id, title, year, venue)
-                        VALUES (:wid, :title, :year, :venue)
-                        ON CONFLICT (work_id) DO UPDATE SET
-                            title = COALESCE(works.title, EXCLUDED.title),
-                            venue = COALESCE(works.venue, EXCLUDED.venue)
-                    """),
-                    {
-                        "wid": wid,
-                        "title": title,
-                        "year": meta.get("year"),
-                        "venue": meta.get("venue"),
-                    },
-                )
+                with conn.begin_nested():
+                    conn.execute(
+                        text("""
+                            INSERT INTO works (work_id, title, year, venue)
+                            VALUES (:wid, :title, :year, :venue)
+                            ON CONFLICT (work_id) DO UPDATE SET
+                                title = COALESCE(works.title, EXCLUDED.title),
+                                venue = COALESCE(works.venue, EXCLUDED.venue)
+                        """),
+                        {
+                            "wid": wid,
+                            "title": title,
+                            "year": meta.get("year"),
+                            "venue": meta.get("venue"),
+                        },
+                    )
             except Exception as e:
                 logger.debug(f"PubMed upsert failed for {wid}: {e}")
 
@@ -2181,21 +2187,22 @@ def generate_candidates_direct(
 
             # Upsert into works table
             try:
-                conn.execute(
-                    text("""
-                        INSERT INTO works (work_id, title, year, venue)
-                        VALUES (:wid, :title, :year, :venue)
-                        ON CONFLICT (work_id) DO UPDATE SET
-                            title = COALESCE(works.title, EXCLUDED.title),
-                            venue = COALESCE(works.venue, EXCLUDED.venue)
-                    """),
-                    {
-                        "wid": wid,
-                        "title": title,
-                        "year": meta.get("year"),
-                        "venue": meta.get("venue"),
-                    },
-                )
+                with conn.begin_nested():
+                    conn.execute(
+                        text("""
+                            INSERT INTO works (work_id, title, year, venue)
+                            VALUES (:wid, :title, :year, :venue)
+                            ON CONFLICT (work_id) DO UPDATE SET
+                                title = COALESCE(works.title, EXCLUDED.title),
+                                venue = COALESCE(works.venue, EXCLUDED.venue)
+                        """),
+                        {
+                            "wid": wid,
+                            "title": title,
+                            "year": meta.get("year"),
+                            "venue": meta.get("venue"),
+                        },
+                    )
             except Exception as e:
                 logger.debug(f"DBLP upsert failed for {wid}: {e}")
 
@@ -2210,10 +2217,11 @@ def generate_candidates_direct(
         oa_titles: Dict[str, str] = {}  # work_id -> title
         if oa_work_ids:
             try:
-                rows = conn.execute(
-                    text("SELECT work_id, title FROM works WHERE work_id = ANY(:ids)"),
-                    {"ids": oa_work_ids},
-                ).fetchall()
+                with conn.begin_nested():
+                    rows = conn.execute(
+                        text("SELECT work_id, title FROM works WHERE work_id = ANY(:ids)"),
+                        {"ids": oa_work_ids},
+                    ).fetchall()
                 for row in rows:
                     if row[1]:  # title exists
                         oa_titles[row[0]] = row[1]
@@ -2225,13 +2233,18 @@ def generate_candidates_direct(
         missing_title_wids = [wid for wid in oa_work_ids if wid not in oa_titles]
         if missing_title_wids:
             # WorkStore.ensure_works_present will fetch these - do it now for dedup
-            WorkStore.ensure_works_present(conn, missing_title_wids)
+            try:
+                with conn.begin_nested():
+                    WorkStore.ensure_works_present(conn, missing_title_wids)
+            except Exception as e:
+                logger.warning(f"Failed to ensure works present: {e}")
             # Re-fetch titles
             try:
-                rows = conn.execute(
-                    text("SELECT work_id, title FROM works WHERE work_id = ANY(:ids)"),
-                    {"ids": missing_title_wids},
-                ).fetchall()
+                with conn.begin_nested():
+                    rows = conn.execute(
+                        text("SELECT work_id, title FROM works WHERE work_id = ANY(:ids)"),
+                        {"ids": missing_title_wids},
+                    ).fetchall()
                 for row in rows:
                     if row[1]:
                         oa_titles[row[0]] = row[1]
