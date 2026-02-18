@@ -451,7 +451,7 @@ def get_map_render_payload(
         group_summaries.sort(key=lambda x: (-x["node_count"], x["group_id"]))
 
         # 7) Field contexts header (use stored stats_json.field_breakdown)
-        field_breakdown = (hdr["stats_json"] or {}).get("field_breakdown") or []
+        field_breakdown = (hdr["stats"] or {}).get("field_breakdown") or []
         field_ids_ordered = [fb.get("field_id") for fb in field_breakdown if fb.get("field_id")]
 
         field_label_map = LabelStore.field_labels(conn, field_ids_ordered)
