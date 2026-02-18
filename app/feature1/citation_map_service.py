@@ -2616,7 +2616,7 @@ def _assemble_multihop_graph(
 
 def _create_graph_draft(
     conn: Connection,
-    tenant_id: UUID,
+    workspace_id: UUID,
     nodes: List[CitationNode],
     edges: List[CitationEdge],
 ) -> UUID:
@@ -2626,10 +2626,10 @@ def _create_graph_draft(
     # Insert header
     conn.execute(
         text("""
-            INSERT INTO graph_drafts (graph_draft_id, tenant_id, candidate_set_id)
-            VALUES (:gd_id, :t_id, NULL)
+            INSERT INTO graph_drafts (graph_draft_id, workspace_id, candidate_set_id)
+            VALUES (:gd_id, :w_id, NULL)
         """),
-        {"gd_id": graph_draft_id, "t_id": tenant_id},
+        {"gd_id": graph_draft_id, "w_id": workspace_id},
     )
 
     # Insert nodes
@@ -2672,7 +2672,8 @@ def _create_graph_draft(
 def build_citation_map(
     engine: Engine,
     *,
-    tenant_id: UUID,
+    workspace_id: UUID | None = None,
+    tenant_id: UUID | None = None,
     request: CitationMapRequest,
 ) -> CitationMapResponse:
     """
@@ -2682,6 +2683,10 @@ def build_citation_map(
     1. Provide seed_work_id directly
     2. Provide query_text to find the best seed paper automatically
     """
+    resolved_workspace_id = workspace_id or tenant_id
+    if resolved_workspace_id is None:
+        raise ValueError("workspace_id is required")
+
     with engine.connect() as conn:
         # Step 1: Determine seed paper (support multiple input modes)
         if request.seed_doi:
@@ -2871,7 +2876,7 @@ def build_citation_map(
         # Step 4: Optionally create graph_draft
         graph_draft_id = None
         if request.create_graph_draft and nodes:
-            graph_draft_id = _create_graph_draft(conn, tenant_id, nodes, edges)
+            graph_draft_id = _create_graph_draft(conn, resolved_workspace_id, nodes, edges)
 
         # Step 5: Build stats
         stats = CitationMapStats(

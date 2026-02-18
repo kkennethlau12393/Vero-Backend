@@ -32,7 +32,7 @@ def verify_map_ownership(engine: Engine, map_id: UUID, workspace_id: UUID) -> No
     """Verify that the map belongs to the requesting workspace."""
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT map_id FROM maps WHERE map_id = :map_id AND tenant_id = :workspace_id"),
+            text("SELECT map_id FROM maps WHERE map_id = :map_id AND workspace_id = :workspace_id"),
             {"map_id": map_id, "workspace_id": workspace_id},
         ).first()
         if not row:
@@ -99,7 +99,7 @@ def run_gap_analysis_endpoint(
 
         # Check for cached results (with workspace filtering)
         if not force_refresh:
-            cached = get_cached_gap_analysis(engine, map_id, tenant_id=workspace_id)
+            cached = get_cached_gap_analysis(engine, map_id, workspace_id=workspace_id)
             if cached:
                 logger.info(f"Returning cached gap analysis for map {map_id}")
                 return cached
@@ -131,7 +131,7 @@ def get_gap_analysis_results_endpoint(
     """
     try:
         verify_map_ownership(engine, map_id, workspace_id)
-        return get_cached_gap_analysis(engine, map_id, tenant_id=workspace_id)
+        return get_cached_gap_analysis(engine, map_id, workspace_id=workspace_id)
     except HTTPException:
         raise
     except Exception as e:

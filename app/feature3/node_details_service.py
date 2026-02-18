@@ -1247,7 +1247,8 @@ def _default_response(
 def get_node_details(
     engine: Engine,
     *,
-    tenant_id: UUID,
+    workspace_id: UUID | None = None,
+    tenant_id: UUID | None = None,
     map_id: UUID,
     work_id: str,
     include_timeline: bool = False,
@@ -1257,14 +1258,18 @@ def get_node_details(
 
     This is the main entry point for Feature 3.
     """
+    workspace_id = workspace_id or tenant_id
+    if workspace_id is None:
+        raise ValueError("workspace_id is required")
+
     with engine.connect() as conn:
-        # Verify map exists and belongs to tenant
+        # Verify map exists and belongs to workspace
         map_row = conn.execute(
             text("""
                 SELECT map_id FROM maps
-                WHERE map_id = :map_id AND tenant_id = :tenant_id
+                WHERE map_id = :map_id AND workspace_id = :workspace_id
             """),
-            {"map_id": map_id, "tenant_id": tenant_id},
+            {"map_id": map_id, "workspace_id": workspace_id},
         ).first()
 
         if not map_row:
@@ -1289,15 +1294,15 @@ def get_node_details(
 
         # Resolve access links
         from app.settings.access_links import resolve_access_link
-        from app.settings.store import load_tenant_settings
-        tenant_settings = load_tenant_settings(conn, tenant_id)
+        from app.settings.store import load_workspace_settings
+        workspace_settings = load_workspace_settings(conn, workspace_id)
         access_info = resolve_access_link(
             doi=work_data.get("doi"),
             is_open_access=work_data.get("is_open_access"),
             oa_pdf_url=work_data.get("oa_pdf_url"),
-            proxy_prefix=tenant_settings.get("institutional_proxy_prefix"),
-            libkey_api_key=tenant_settings.get("libkey_api_key"),
-            libkey_library_id=tenant_settings.get("libkey_library_id"),
+            proxy_prefix=workspace_settings.get("institutional_proxy_prefix"),
+            libkey_api_key=workspace_settings.get("libkey_api_key"),
+            libkey_library_id=workspace_settings.get("libkey_library_id"),
         )
 
         # Enrich abstract if invalid (fetch from ArXiv/Semantic Scholar)

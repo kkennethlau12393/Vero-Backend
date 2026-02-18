@@ -124,7 +124,7 @@ def direct_rank_endpoint(
         # Invoke the production ranking pipeline
         result = direct_rank_prod(
             engine,
-            tenant_id=workspace_id,
+            workspace_id=workspace_id,
             query_text=query_text,
             context_json=context_json,
             filters_json=filters_json,
@@ -214,7 +214,7 @@ def drill_down_endpoint(
 
         result = direct_rank_prod(
             engine,
-            tenant_id=workspace_id,
+            workspace_id=workspace_id,
             query_text=req.query_text,
             context_json={},
             filters_json={},

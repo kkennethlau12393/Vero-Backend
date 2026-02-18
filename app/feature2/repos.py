@@ -11,7 +11,7 @@ from sqlalchemy.engine import Connection
 @dataclass(frozen=True)
 class GraphDraftRow:
     graph_draft_id: UUID
-    tenant_id: UUID
+    workspace_id: UUID
     candidate_set_id: Optional[UUID]
 
 @dataclass(frozen=True)
@@ -22,10 +22,10 @@ class GraphDraftData:
 
 class GraphDraftRepo:
     @staticmethod
-    def load(conn: Connection, tenant_id: UUID, graph_draft_id: UUID) -> GraphDraftData:
+    def load(conn: Connection, workspace_id: UUID, graph_draft_id: UUID) -> GraphDraftData:
         hdr = conn.execute(
             text("""
-                SELECT graph_draft_id, tenant_id, candidate_set_id
+                SELECT graph_draft_id, workspace_id, candidate_set_id
                 FROM graph_drafts
                 WHERE graph_draft_id = :gd
             """),
@@ -34,8 +34,8 @@ class GraphDraftRepo:
 
         if not hdr:
             raise ValueError("graph_draft_not_found")
-        if hdr["tenant_id"] != tenant_id:
-            raise PermissionError("graph_draft_wrong_tenant")
+        if hdr["workspace_id"] != workspace_id:
+            raise PermissionError("graph_draft_wrong_workspace")
 
         nodes = conn.execute(
             text("""
@@ -58,7 +58,7 @@ class GraphDraftRepo:
         return GraphDraftData(
             header=GraphDraftRow(
                 graph_draft_id=hdr["graph_draft_id"],
-                tenant_id=hdr["tenant_id"],
+                workspace_id=hdr["workspace_id"],
                 candidate_set_id=hdr["candidate_set_id"],
             ),
             node_work_ids=list(nodes),
@@ -67,15 +67,15 @@ class GraphDraftRepo:
 
 class MapRepo:
     @staticmethod
-    def find_existing_map_id(conn: Connection, tenant_id: UUID, params_hash: str) -> Optional[UUID]:
+    def find_existing_map_id(conn: Connection, workspace_id: UUID, params_hash: str) -> Optional[UUID]:
         row = conn.execute(
             text("""
                 SELECT map_id
                 FROM maps
-                WHERE tenant_id = :t AND params_hash = :h
+                WHERE workspace_id = :w AND params_hash = :h
                 LIMIT 1
             """),
-            {"t": tenant_id, "h": params_hash},
+            {"w": workspace_id, "h": params_hash},
         ).first()
         return row[0] if row else None
 
@@ -84,7 +84,7 @@ class MapRepo:
         conn: Connection,
         *,
         map_id: UUID,
-        tenant_id: UUID,
+        workspace_id: UUID,
         graph_draft_id: UUID,
         default_grouping: str,
         allowed_groupings: list[str],
@@ -94,11 +94,11 @@ class MapRepo:
     ) -> None:
         stmt = text("""
             INSERT INTO maps (
-              map_id, tenant_id, graph_draft_id,
+              map_id, workspace_id, graph_draft_id,
               default_grouping, allowed_groupings,
               stats_json, params_json, params_hash
             ) VALUES (
-              :map_id, :tenant_id, :graph_draft_id,
+              :map_id, :workspace_id, :graph_draft_id,
               :default_grouping, :allowed_groupings,
               :stats_json, :params_json, :params_hash
             )
@@ -112,7 +112,7 @@ class MapRepo:
             stmt,
             {
                 "map_id": map_id,
-                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
                 "graph_draft_id": graph_draft_id,
                 "default_grouping": default_grouping,
                 "allowed_groupings": allowed_groupings,
@@ -160,15 +160,15 @@ class MapRepo:
         )
 
     @staticmethod
-    def load_map_header(conn: Connection, tenant_id: UUID, map_id: UUID) -> dict[str, Any]:
+    def load_map_header(conn: Connection, workspace_id: UUID, map_id: UUID) -> dict[str, Any]:
         row = conn.execute(
             text("""
-                SELECT map_id, tenant_id, default_grouping, allowed_groupings, stats_json
+                SELECT map_id, workspace_id, default_grouping, allowed_groupings, stats_json
                 FROM maps
-                WHERE map_id = :m AND tenant_id = :t
+                WHERE map_id = :m AND workspace_id = :w
                 LIMIT 1
             """),
-            {"m": map_id, "t": tenant_id},
+            {"m": map_id, "w": workspace_id},
         ).mappings().first()
 
         if not row:
@@ -208,11 +208,11 @@ class MapRepo:
 
 class CandidateSetRepo:
     @staticmethod
-    def load_work_ids_and_provenance(conn: Connection, tenant_id: UUID, candidate_set_id: UUID) -> list[dict[str, Any]]:
-        # enforce tenant ownership via candidate_sets header
+    def load_work_ids_and_provenance(conn: Connection, workspace_id: UUID, candidate_set_id: UUID) -> list[dict[str, Any]]:
+        # enforce workspace ownership via candidate_sets header
         hdr = conn.execute(
             text("""
-                SELECT candidate_set_id, tenant_id
+                SELECT candidate_set_id, workspace_id
                 FROM candidate_sets
                 WHERE candidate_set_id = :cs
                 LIMIT 1
@@ -222,8 +222,8 @@ class CandidateSetRepo:
 
         if not hdr:
             raise ValueError("candidate_set_not_found")
-        if hdr["tenant_id"] != tenant_id:
-            raise PermissionError("candidate_set_wrong_tenant")
+        if hdr["workspace_id"] != workspace_id:
+            raise PermissionError("candidate_set_wrong_workspace")
 
         rows = conn.execute(
             text("""
@@ -247,7 +247,7 @@ class CandidateSetRepo:
     def insert_or_get_candidate_set(
         conn: Connection,
         *,
-        tenant_id: UUID,
+        workspace_id: UUID,
         seed_type: str,
         seed_json: dict[str, Any],
         params_hash: str,
@@ -255,7 +255,7 @@ class CandidateSetRepo:
         """
         Insert a candidate set header if not present and return its ID.
 
-        Candidate sets are uniquely identified per tenant by their
+        Candidate sets are uniquely identified per workspace by their
         `params_hash` (deterministic hash of query and filters) to allow
         idempotent reuse.  If a candidate set with the same params already
         exists, this function returns its ID.  Otherwise it creates a new
@@ -265,11 +265,11 @@ class CandidateSetRepo:
         stmt = text(
             """
             INSERT INTO candidate_sets (
-                candidate_set_id, tenant_id, seed_type, seed_json, params_hash
+                candidate_set_id, workspace_id, seed_type, seed_json, params_hash
             ) VALUES (
-                :cs_id, :t, :seed_type, :seed_json, :params_hash
+                :cs_id, :w, :seed_type, :seed_json, :params_hash
             )
-            ON CONFLICT (tenant_id, params_hash) DO NOTHING
+            ON CONFLICT (workspace_id, params_hash) DO NOTHING
             RETURNING candidate_set_id
             """
         ).bindparams(
@@ -279,7 +279,7 @@ class CandidateSetRepo:
             stmt,
             {
                 "cs_id": new_id,
-                "t": tenant_id,
+                "w": workspace_id,
                 "seed_type": seed_type,
                 "seed_json": seed_json or {},
                 "params_hash": params_hash,
@@ -293,11 +293,11 @@ class CandidateSetRepo:
                 """
                 SELECT candidate_set_id
                 FROM candidate_sets
-                WHERE tenant_id = :t AND params_hash = :params_hash
+                WHERE workspace_id = :w AND params_hash = :params_hash
                 LIMIT 1
                 """
             ),
-            {"t": tenant_id, "params_hash": params_hash},
+            {"w": workspace_id, "params_hash": params_hash},
         ).first()
         if not row:
             raise RuntimeError("candidate_set_insert_conflict_but_missing")
@@ -350,7 +350,7 @@ class RankRepo:
     def insert_pending_or_get_existing(
         conn: Connection,
         *,
-        tenant_id: UUID,
+        workspace_id: UUID,
         rank_type: str,
         candidate_set_id: UUID,
         context_json: dict[str, Any],
@@ -368,15 +368,15 @@ class RankRepo:
 
         stmt = text("""
             INSERT INTO rank_jobs (
-                rank_job_id, tenant_id, rank_type, candidate_set_id,
+                rank_job_id, workspace_id, rank_type, candidate_set_id,
                 context_json, filters_json, rank_params_json,
                 params_hash, status
             ) VALUES (
-                :rank_job_id, :tenant_id, :rank_type, :candidate_set_id,
+                :rank_job_id, :workspace_id, :rank_type, :candidate_set_id,
                 :context_json, :filters_json, :rank_params_json,
                 :params_hash, 'pending'
             )
-            ON CONFLICT (tenant_id, rank_type, params_hash) DO NOTHING
+            ON CONFLICT (workspace_id, rank_type, params_hash) DO NOTHING
             RETURNING rank_job_id
         """).bindparams(
             bindparam("context_json", type_=JSONB),
@@ -386,7 +386,7 @@ class RankRepo:
 
         inserted = conn.execute(stmt, {
             "rank_job_id": new_id,
-            "tenant_id": tenant_id,
+            "workspace_id": workspace_id,
             "rank_type": rank_type,
             "candidate_set_id": candidate_set_id,
             "context_json": context_json or {},
@@ -402,10 +402,10 @@ class RankRepo:
             text("""
                 SELECT rank_job_id, status
                 FROM rank_jobs
-                WHERE tenant_id = :t AND rank_type = :rt AND params_hash = :h
+                WHERE workspace_id = :w AND rank_type = :rt AND params_hash = :h
                 LIMIT 1
             """),
-            {"t": tenant_id, "rt": rank_type, "h": params_hash},
+            {"w": workspace_id, "rt": rank_type, "h": params_hash},
         ).mappings().first()
 
         if not existing:
@@ -465,10 +465,10 @@ class RankRepo:
         conn.execute(stmt, rows)
 
     @staticmethod
-    def load_results(conn: Connection, tenant_id: UUID, rank_job_id: UUID) -> dict[str, Any]:
+    def load_results(conn: Connection, workspace_id: UUID, rank_job_id: UUID) -> dict[str, Any]:
         hdr = conn.execute(
             text("""
-                SELECT rank_job_id, tenant_id, rank_type, candidate_set_id, status, context_json, filters_json, rank_params_json
+                SELECT rank_job_id, workspace_id, rank_type, candidate_set_id, status, context_json, filters_json, rank_params_json
                 FROM rank_jobs
                 WHERE rank_job_id=:id
                 LIMIT 1
@@ -477,8 +477,8 @@ class RankRepo:
         ).mappings().first()
         if not hdr:
             raise ValueError("rank_job_not_found")
-        if hdr["tenant_id"] != tenant_id:
-            raise PermissionError("rank_job_wrong_tenant")
+        if hdr["workspace_id"] != workspace_id:
+            raise PermissionError("rank_job_wrong_workspace")
         items = conn.execute(
             text("""
                 SELECT rank_index, work_id, score, score_breakdown_json, reasons_json, work_preview_json, provenance_json
@@ -510,7 +510,7 @@ class RankRepo:
     def find_job_by_params_hash(
         conn: Connection,
         *,
-        tenant_id: UUID,
+        workspace_id: UUID,
         rank_type: str,
         params_hash: str,
     ) -> Optional[dict[str, Any]]:
@@ -518,10 +518,10 @@ class RankRepo:
             text("""
                 SELECT rank_job_id, status
                 FROM rank_jobs
-                WHERE tenant_id = :t AND rank_type = :rt AND params_hash = :h
+                WHERE workspace_id = :w AND rank_type = :rt AND params_hash = :h
                 LIMIT 1
             """),
-            {"t": tenant_id, "rt": rank_type, "h": params_hash},
+            {"w": workspace_id, "rt": rank_type, "h": params_hash},
         ).mappings().first()
         return dict(row) if row else None
 

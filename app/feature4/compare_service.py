@@ -109,7 +109,7 @@ def _get_cached_comparison(
 
 def _cache_comparison(
     conn: Connection,
-    tenant_id: UUID,
+    workspace_id: UUID,
     work_ids: list[str],
     result: Dict[str, Any],
 ) -> None:
@@ -117,8 +117,8 @@ def _cache_comparison(
         conn.execute(
             sa_text("""
                 INSERT INTO methodology_comparison_cache
-                    (comparison_hash, tenant_id, work_ids, result_json, model_version)
-                VALUES (:h, :tid, :wids, :rj, :mv)
+                    (comparison_hash, workspace_id, work_ids, result_json, model_version)
+                VALUES (:h, :wid, :wids, :rj, :mv)
                 ON CONFLICT (comparison_hash) DO UPDATE SET
                     result_json = EXCLUDED.result_json,
                     model_version = EXCLUDED.model_version,
@@ -126,7 +126,7 @@ def _cache_comparison(
             """),
             {
                 "h": _comparison_hash(work_ids),
-                "tid": str(tenant_id),
+                "wid": workspace_id,
                 "wids": work_ids,
                 "rj": json.dumps(result),
                 "mv": MODEL_VERSION,
@@ -972,10 +972,16 @@ def _synthesize(
 
 def compare_methodologies(
     engine: Engine,
-    tenant_id: UUID,
     map_id: str,
     work_ids: list[str],
+    *,
+    workspace_id: UUID | None = None,
+    tenant_id: UUID | None = None,
 ) -> MethodologyComparisonResponse:
+    workspace_id = workspace_id or tenant_id
+    if workspace_id is None:
+        raise ValueError("workspace_id is required")
+
     """
     Full methodology comparison pipeline.
 
@@ -1146,6 +1152,6 @@ def compare_methodologies(
         )
 
         # 8. Cache
-        _cache_comparison(conn, tenant_id, work_ids, response.model_dump())
+        _cache_comparison(conn, workspace_id, work_ids, response.model_dump())
 
         return response

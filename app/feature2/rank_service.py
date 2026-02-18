@@ -82,7 +82,7 @@ RANKING_VERSION = "rank-v84"
 
 def _stable_rank_hash(
     *,
-    tenant_id: UUID,
+    workspace_id: UUID,
     candidate_set_id: UUID,
     context_json: Dict[str, Any],
     filters_json: Dict[str, Any],
@@ -97,7 +97,7 @@ def _stable_rank_hash(
     s = "|".join(
         [
             RANKING_VERSION,  # Include version to invalidate caches on logic changes
-            str(tenant_id),
+            str(workspace_id),
             str(candidate_set_id),
             json.dumps(context_json or {}, sort_keys=True, separators=(",", ":")),
             json.dumps(filters_json or {}, sort_keys=True, separators=(",", ":")),
@@ -128,7 +128,8 @@ def _pick_best_topic_id(w: WorkForMap) -> Optional[str]:
 def direct_rank_prod(
     engine: Engine,
     *,
-    tenant_id: UUID,
+    workspace_id: UUID | None = None,
+    tenant_id: UUID | None = None,
     query_text: str,
     context_json: Optional[Dict[str, Any]] = None,
     filters_json: Optional[Dict[str, Any]] = None,
@@ -146,6 +147,10 @@ def direct_rank_prod(
     The ranking results are persisted in the `rank_results` table with
     provenance and breakdowns for post‑hoc analysis.
     """
+    workspace_id = workspace_id or tenant_id
+    if workspace_id is None:
+        raise ValueError("workspace_id is required")
+
     context_json = context_json or {}
     filters_json = filters_json or {}
     rank_params_json = rank_params_json or {}
@@ -153,7 +158,7 @@ def direct_rank_prod(
     # Build a stable params hash keyed on the query and filters
     s = "|".join(
         [
-            str(tenant_id),
+            str(workspace_id),
             RETRIEVAL_PIPELINE_VERSION,
             query_text,
             json.dumps(context_json or {}, sort_keys=True, separators=(",", ":")),
@@ -167,7 +172,7 @@ def direct_rank_prod(
     with engine.begin() as tx:
         candidate_set_id = CandidateSetRepo.insert_or_get_candidate_set(
             tx,
-            tenant_id=tenant_id,
+            workspace_id=workspace_id,
             seed_type="direct_query",
             seed_json={"query_text": query_text},
             params_hash=params_hash,
@@ -175,7 +180,7 @@ def direct_rank_prod(
         logger.info(f"Candidate set ID: {candidate_set_id}")
         # If candidate set is empty, generate candidates
         existing_rows = CandidateSetRepo.load_work_ids_and_provenance(
-            tx, tenant_id, candidate_set_id
+            tx, workspace_id, candidate_set_id
         )
         logger.info(f"Existing rows in candidate set: {len(existing_rows)}")
         query_expansion = None
@@ -198,7 +203,7 @@ def direct_rank_prod(
         if not existing_rows:
             candidates, query_expansion = generate_candidates_direct(
                 tx,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
                 query_text=query_text,
                 context_json=context_json,
                 filters_json=filters_json,
@@ -211,7 +216,7 @@ def direct_rank_prod(
     # Build a rank job using a separate params hash for ranking (ties
     # ranking to candidate_set_id plus parameters)
     params_hash_rank = _stable_rank_hash(
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
         candidate_set_id=candidate_set_id,
         context_json=context_json,
         filters_json=filters_json,
@@ -220,7 +225,7 @@ def direct_rank_prod(
     with engine.begin() as tx:
         rank_job_id, created_new, status = RankRepo.insert_pending_or_get_existing(
             tx,
-            tenant_id=tenant_id,
+            workspace_id=workspace_id,
             rank_type="direct_prod",
             candidate_set_id=candidate_set_id,
             context_json=context_json,
@@ -229,7 +234,7 @@ def direct_rank_prod(
             params_hash=params_hash_rank,
         )
         if not created_new and status == "completed":
-            loaded = RankRepo.load_results(tx, tenant_id, rank_job_id)
+            loaded = RankRepo.load_results(tx, workspace_id, rank_job_id)
             # The RankRepo.load_results returns "items" list format
             # We need to re-categorize these items for the response
             # This is faster than re-running the entire pipeline
@@ -360,7 +365,7 @@ def direct_rank_prod(
             # Recursively call to create a new job
             return direct_rank_prod(
                 engine,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
                 query_text=query_text,
                 context_json=context_json,
                 filters_json=filters_json,
@@ -372,7 +377,7 @@ def direct_rank_prod(
         with engine.begin() as conn:
             # Load candidate IDs and provenance for scoring
             rows = CandidateSetRepo.load_work_ids_and_provenance(
-                conn, tenant_id, candidate_set_id
+                conn, workspace_id, candidate_set_id
             )
             work_ids = [r["work_id"] for r in rows]
             provenance_map: Dict[str, list] = {r["work_id"]: r.get("provenance", []) for r in rows}

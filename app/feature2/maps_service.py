@@ -12,19 +12,19 @@ from sqlalchemy.engine import Engine
 from app.feature2.repos import GraphDraftRepo, MapRepo
 from app.feature2.work_topic_store import WorkStore, TopicHierarchyStore, WorkForMap, LabelStore
 from app.settings.access_links import resolve_access_link
-from app.settings.store import load_tenant_settings
+from app.settings.store import load_workspace_settings
 
 from collections import Counter
 
 MAX_SYNC_NODES = 3000
 MAX_SYNC_EDGES = 20000
 
-def _stable_params_hash(*, tenant_id: UUID, graph_draft_id: UUID, layout_mode: str, connector_score_mode: str, grouping_policy_version: int) -> str:
-    s = f"{tenant_id}|{graph_draft_id}|{layout_mode}|{connector_score_mode}|gpv:{grouping_policy_version}"
+def _stable_params_hash(*, workspace_id: UUID, graph_draft_id: UUID, layout_mode: str, connector_score_mode: str, grouping_policy_version: int) -> str:
+    s = f"{workspace_id}|{graph_draft_id}|{layout_mode}|{connector_score_mode}|gpv:{grouping_policy_version}"
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
-def _advisory_lock_key(tenant_id: UUID, params_hash: str) -> int:
-    b = hashlib.sha256(f"{tenant_id}|{params_hash}".encode("utf-8")).digest()
+def _advisory_lock_key(workspace_id: UUID, params_hash: str) -> int:
+    b = hashlib.sha256(f"{workspace_id}|{params_hash}".encode("utf-8")).digest()
     # fit into signed bigint range by masking to 63 bits
     return int.from_bytes(b[:8], "big", signed=False) & ((1 << 63) - 1)
 
@@ -113,14 +113,19 @@ def _compute_degree_connector_scores(node_ids: list[str], edges: list[tuple[str,
 def build_map(
     engine: Engine,
     *,
-    tenant_id: UUID,
+    workspace_id: UUID | None = None,
+    tenant_id: UUID | None = None,
     graph_draft_id: UUID,
     connector_score_mode: str = "degree",
     layout_mode: str = "none",
     grouping_policy_version: int = 1,
 ) -> dict[str, Any]:
+    workspace_id = workspace_id or tenant_id
+    if workspace_id is None:
+        raise ValueError("workspace_id is required")
+
     params_hash = _stable_params_hash(
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
         graph_draft_id=graph_draft_id,
         layout_mode=layout_mode,
         connector_score_mode=connector_score_mode,
@@ -129,11 +134,11 @@ def build_map(
 
     # Step 0: cheap idempotency check
     with engine.connect() as conn:
-        existing = MapRepo.find_existing_map_id(conn, tenant_id, params_hash)
+        existing = MapRepo.find_existing_map_id(conn, workspace_id, params_hash)
         if existing:
             row = conn.execute(
-                text("SELECT default_grouping, allowed_groupings, stats_json FROM maps WHERE map_id=:m AND tenant_id=:t"),
-                {"m": existing, "t": tenant_id},
+                text("SELECT default_grouping, allowed_groupings, stats_json FROM maps WHERE map_id=:m AND workspace_id=:w"),
+                {"m": existing, "w": workspace_id},
             ).mappings().first()
             return {
                 "map_id": existing,
@@ -142,18 +147,18 @@ def build_map(
                 "stats": row["stats_json"],
             }
 
-    lock_key = _advisory_lock_key(tenant_id, params_hash)
+    lock_key = _advisory_lock_key(workspace_id, params_hash)
 
     # Single-builder concurrency safety (session-level lock held during compute)
     with engine.connect() as conn:
         _acquire_advisory_lock(conn, lock_key)
         try:
             # Re-check after lock (prevents thundering herd duplicates)
-            existing = MapRepo.find_existing_map_id(conn, tenant_id, params_hash)
+            existing = MapRepo.find_existing_map_id(conn, workspace_id, params_hash)
             if existing:
                 row = conn.execute(
-                    text("SELECT default_grouping, allowed_groupings, stats_json FROM maps WHERE map_id=:m AND tenant_id=:t"),
-                    {"m": existing, "t": tenant_id},
+                    text("SELECT default_grouping, allowed_groupings, stats_json FROM maps WHERE map_id=:m AND workspace_id=:w"),
+                    {"m": existing, "w": workspace_id},
                 ).mappings().first()
                 return {
                     "map_id": existing,
@@ -163,7 +168,7 @@ def build_map(
                 }
 
             # Step 1: load + validate GraphDraft
-            gd = GraphDraftRepo.load(conn, tenant_id, graph_draft_id)
+            gd = GraphDraftRepo.load(conn, workspace_id, graph_draft_id)
 
             if not gd.node_work_ids:
                 raise ValueError("graph_draft_empty")
@@ -277,7 +282,7 @@ def build_map(
                     MapRepo.insert_map_header(
                         tx,
                         map_id=map_id,
-                        tenant_id=tenant_id,
+                        workspace_id=workspace_id,
                         graph_draft_id=graph_draft_id,
                         default_grouping=default_grouping,
                         allowed_groupings=allowed_groupings,
@@ -287,12 +292,12 @@ def build_map(
                     )
                 except Exception:
                     # If conflict, return the winner map_id and do not insert nodes/edges
-                    winner = MapRepo.find_existing_map_id(tx, tenant_id, params_hash)
+                    winner = MapRepo.find_existing_map_id(tx, workspace_id, params_hash)
                     if not winner:
                         raise
                     row = tx.execute(
-                        text("SELECT default_grouping, allowed_groupings, stats_json FROM maps WHERE map_id=:m AND tenant_id=:t"),
-                        {"m": winner, "t": tenant_id},
+                        text("SELECT default_grouping, allowed_groupings, stats_json FROM maps WHERE map_id=:m AND workspace_id=:w"),
+                        {"m": winner, "w": workspace_id},
                     ).mappings().first()
                     return {
                         "map_id": winner,
@@ -338,7 +343,8 @@ def build_map(
 def get_map_render_payload(
     engine: Engine,
     *,
-    tenant_id: UUID,
+    workspace_id: UUID | None = None,
+    tenant_id: UUID | None = None,
     map_id: UUID,
     group_by: Optional[str] = None,
 ) -> dict[str, Any]:
@@ -347,9 +353,13 @@ def get_map_render_payload(
     Loads stored map + nodes + edges and returns a stable render payload.
     """
 
+    workspace_id = workspace_id or tenant_id
+    if workspace_id is None:
+        raise ValueError("workspace_id is required")
+
     with engine.connect() as conn:
         # 1) Load map header (enforce tenant ownership)
-        hdr = MapRepo.load_map_header(conn, tenant_id=tenant_id, map_id=map_id)
+        hdr = MapRepo.load_map_header(conn, workspace_id=workspace_id, map_id=map_id)
 
         # 2) Load nodes + edges
         node_rows = MapRepo.load_map_nodes(conn, map_id=map_id)
@@ -367,11 +377,11 @@ def get_map_render_payload(
         work_ids = [n["work_id"] for n in node_rows]
         previews = WorkStore.load_previews_many(conn, work_ids)
 
-        # 4b) Load tenant settings for access link resolution
-        tenant_settings = load_tenant_settings(conn, tenant_id)
-        proxy_prefix = tenant_settings.get("institutional_proxy_prefix")
-        libkey_api_key = tenant_settings.get("libkey_api_key")
-        libkey_library_id = tenant_settings.get("libkey_library_id")
+        # 4b) Load workspace settings for access link resolution
+        workspace_settings = load_workspace_settings(conn, workspace_id)
+        proxy_prefix = workspace_settings.get("institutional_proxy_prefix")
+        libkey_api_key = workspace_settings.get("libkey_api_key")
+        libkey_library_id = workspace_settings.get("libkey_library_id")
 
         # 5) Build nodes[]
         nodes_out: list[dict[str, Any]] = []

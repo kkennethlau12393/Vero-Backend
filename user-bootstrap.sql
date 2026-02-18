@@ -94,6 +94,18 @@ CREATE TABLE IF NOT EXISTS public.users (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.workspace_members (
+    workspace_id uuid NOT NULL REFERENCES public.workspaces(workspace_id) ON DELETE CASCADE,
+    user_id uuid NOT NULL REFERENCES public.users(user_id) ON DELETE CASCADE,
+    role text NOT NULL DEFAULT 'member',
+    status text NOT NULL DEFAULT 'active',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (workspace_id, user_id),
+    CONSTRAINT workspace_members_role_check CHECK (role = ANY (ARRAY['owner', 'admin', 'member'])),
+    CONSTRAINT workspace_members_status_check CHECK (status = ANY (ARRAY['active', 'invited', 'suspended']))
+);
+
 ALTER TABLE public.users
     ADD COLUMN IF NOT EXISTS first_name text,
     ADD COLUMN IF NOT EXISTS last_name text,
@@ -105,6 +117,12 @@ CREATE INDEX IF NOT EXISTS idx_users_workspace_id
 
 CREATE INDEX IF NOT EXISTS idx_workspaces_owner_user_id
     ON public.workspaces (owner_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id
+    ON public.workspace_members (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_role
+    ON public.workspace_members (workspace_id, role);
 
 -- ---------------------------------------------------------------------
 -- Utility functions/triggers
@@ -138,6 +156,23 @@ BEGIN
     ) THEN
         CREATE TRIGGER trg_workspaces_set_updated_at
             BEFORE UPDATE ON public.workspaces
+            FOR EACH ROW
+            EXECUTE FUNCTION public.set_updated_at();
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'workspace_members'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'trg_workspace_members_set_updated_at'
+    ) THEN
+        CREATE TRIGGER trg_workspace_members_set_updated_at
+            BEFORE UPDATE ON public.workspace_members
             FOR EACH ROW
             EXECUTE FUNCTION public.set_updated_at();
     END IF;
@@ -238,6 +273,12 @@ BEGIN
           last_name = COALESCE(public.users.last_name, EXCLUDED.last_name),
           avatar_url = COALESCE(public.users.avatar_url, EXCLUDED.avatar_url),
           profile_picture_url = COALESCE(public.users.profile_picture_url, EXCLUDED.profile_picture_url);
+
+    INSERT INTO public.workspace_members (workspace_id, user_id, role, status)
+    VALUES (v_workspace_id, NEW.id, 'owner', 'active')
+    ON CONFLICT (workspace_id, user_id) DO UPDATE
+      SET role = 'owner',
+          status = 'active';
 
     RETURN NEW;
 END;
@@ -343,8 +384,22 @@ BEGIN
               last_name = COALESCE(public.users.last_name, EXCLUDED.last_name),
               avatar_url = COALESCE(public.users.avatar_url, EXCLUDED.avatar_url),
               profile_picture_url = COALESCE(public.users.profile_picture_url, EXCLUDED.profile_picture_url);
+
+        INSERT INTO public.workspace_members (workspace_id, user_id, role, status)
+        VALUES (v_workspace_id, r.id, 'owner', 'active')
+        ON CONFLICT (workspace_id, user_id) DO UPDATE
+          SET role = 'owner',
+              status = 'active';
     END LOOP;
 END $$;
+
+-- Backfill owner memberships for existing user/workspace rows.
+INSERT INTO public.workspace_members (workspace_id, user_id, role, status)
+SELECT u.workspace_id, u.user_id, 'owner', 'active'
+FROM public.users u
+ON CONFLICT (workspace_id, user_id) DO UPDATE
+  SET role = 'owner',
+      status = 'active';
 
 -- Bootstrap helper: create workspace + profile row for current auth user.
 -- This is safe for first login/signup flows.
@@ -387,6 +442,12 @@ BEGIN
           display_name = COALESCE(public.users.display_name, EXCLUDED.display_name)
     RETURNING workspace_id INTO v_workspace_id;
 
+    INSERT INTO public.workspace_members (workspace_id, user_id, role, status)
+    VALUES (v_workspace_id, v_user_id, 'owner', 'active')
+    ON CONFLICT (workspace_id, user_id) DO UPDATE
+      SET role = 'owner',
+          status = 'active';
+
     RETURN v_workspace_id;
 END;
 $fn$;
@@ -399,6 +460,7 @@ GRANT EXECUTE ON FUNCTION public.bootstrap_workspace(text, text) TO authenticate
 -- ---------------------------------------------------------------------
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.workspaces ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.workspace_members ENABLE ROW LEVEL SECURITY;
 
 -- users: each authenticated user can only see/manage their own row.
 DROP POLICY IF EXISTS users_select_own ON public.users;
@@ -468,8 +530,90 @@ FOR DELETE
 TO authenticated
 USING ((SELECT auth.uid()) IS NOT NULL AND owner_user_id = (SELECT auth.uid()));
 
+-- workspace_members: active members can view members in their workspace.
+DROP POLICY IF EXISTS workspace_members_select_visible ON public.workspace_members;
+CREATE POLICY workspace_members_select_visible
+ON public.workspace_members
+FOR SELECT
+TO authenticated
+USING (
+    (SELECT auth.uid()) IS NOT NULL
+    AND workspace_id IN (
+        SELECT wm.workspace_id
+        FROM public.workspace_members wm
+        WHERE wm.user_id = (SELECT auth.uid())
+          AND wm.status = 'active'
+    )
+);
+
+-- Only owner/admin can add members.
+DROP POLICY IF EXISTS workspace_members_insert_admin ON public.workspace_members;
+CREATE POLICY workspace_members_insert_admin
+ON public.workspace_members
+FOR INSERT
+TO authenticated
+WITH CHECK (
+    (SELECT auth.uid()) IS NOT NULL
+    AND EXISTS (
+        SELECT 1
+        FROM public.workspace_members wm
+        WHERE wm.workspace_id = workspace_members.workspace_id
+          AND wm.user_id = (SELECT auth.uid())
+          AND wm.status = 'active'
+          AND wm.role IN ('owner', 'admin')
+    )
+);
+
+-- Only owner/admin can update members in their workspace.
+DROP POLICY IF EXISTS workspace_members_update_admin ON public.workspace_members;
+CREATE POLICY workspace_members_update_admin
+ON public.workspace_members
+FOR UPDATE
+TO authenticated
+USING (
+    (SELECT auth.uid()) IS NOT NULL
+    AND EXISTS (
+        SELECT 1
+        FROM public.workspace_members wm
+        WHERE wm.workspace_id = workspace_members.workspace_id
+          AND wm.user_id = (SELECT auth.uid())
+          AND wm.status = 'active'
+          AND wm.role IN ('owner', 'admin')
+    )
+)
+WITH CHECK (
+    (SELECT auth.uid()) IS NOT NULL
+    AND EXISTS (
+        SELECT 1
+        FROM public.workspace_members wm
+        WHERE wm.workspace_id = workspace_members.workspace_id
+          AND wm.user_id = (SELECT auth.uid())
+          AND wm.status = 'active'
+          AND wm.role IN ('owner', 'admin')
+    )
+);
+
+-- Only owner/admin can remove members from their workspace.
+DROP POLICY IF EXISTS workspace_members_delete_admin ON public.workspace_members;
+CREATE POLICY workspace_members_delete_admin
+ON public.workspace_members
+FOR DELETE
+TO authenticated
+USING (
+    (SELECT auth.uid()) IS NOT NULL
+    AND EXISTS (
+        SELECT 1
+        FROM public.workspace_members wm
+        WHERE wm.workspace_id = workspace_members.workspace_id
+          AND wm.user_id = (SELECT auth.uid())
+          AND wm.status = 'active'
+          AND wm.role IN ('owner', 'admin')
+    )
+);
+
 -- Explicit grants for Supabase client roles.
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.users TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.workspaces TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.workspace_members TO authenticated;
 
 COMMIT;

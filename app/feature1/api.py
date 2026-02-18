@@ -63,7 +63,7 @@ def build_citation_map_endpoint(
     try:
         return build_citation_map(
             engine,
-            tenant_id=workspace_id,
+            workspace_id=workspace_id,
             request=req,
         )
     except ValueError as e:
@@ -124,7 +124,7 @@ async def build_citation_map_from_pdf(
                     total_nodes=total_nodes,
                     create_graph_draft=create_graph_draft,
                 )
-                return build_citation_map(engine, tenant_id=workspace_id, request=req)
+                return build_citation_map(engine, workspace_id=workspace_id, request=req)
             except ValueError:
                 # ArXiv DOI not found in OpenAlex/S2 — fall back to title
                 if not title:
@@ -145,7 +145,7 @@ async def build_citation_map_from_pdf(
             total_nodes=total_nodes,
             create_graph_draft=create_graph_draft,
         )
-        return build_citation_map(engine, tenant_id=workspace_id, request=req)
+        return build_citation_map(engine, workspace_id=workspace_id, request=req)
 
     except HTTPException:
         raise

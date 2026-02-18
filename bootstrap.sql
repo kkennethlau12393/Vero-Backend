@@ -36,21 +36,21 @@ END $$;
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.candidate_sets (
     candidate_set_id uuid PRIMARY KEY,
-    tenant_id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     seed_type text,
     seed_json jsonb NOT NULL DEFAULT '{}'::jsonb,
     params_hash text NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_candidate_sets_tenant_params_hash
-    ON public.candidate_sets (tenant_id, params_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_candidate_sets_workspace_params_hash
+    ON public.candidate_sets (workspace_id, params_hash);
 
-CREATE INDEX IF NOT EXISTS idx_candidate_sets_tenant
-    ON public.candidate_sets (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_candidate_sets_workspace
+    ON public.candidate_sets (workspace_id);
 
-CREATE INDEX IF NOT EXISTS idx_candidate_sets_tenant_seed_type_created
-    ON public.candidate_sets (tenant_id, seed_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_candidate_sets_workspace_seed_type_created
+    ON public.candidate_sets (workspace_id, seed_type, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS public.candidate_set_items (
     candidate_set_id uuid NOT NULL,
@@ -71,12 +71,27 @@ DO $$ BEGIN
     FOREIGN KEY (candidate_set_id) REFERENCES public.candidate_sets(candidate_set_id) ON DELETE CASCADE;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'workspaces'
+  ) THEN
+    BEGIN
+      ALTER TABLE public.candidate_sets
+        ADD CONSTRAINT candidate_sets_workspace_id_fkey
+        FOREIGN KEY (workspace_id) REFERENCES public.workspaces(workspace_id) ON DELETE CASCADE;
+    EXCEPTION WHEN duplicate_object THEN NULL; END;
+  END IF;
+END $$;
+
 -- ---------------------------------------------------------------------
 -- Graph drafts (maps pipeline)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.graph_drafts (
     graph_draft_id uuid PRIMARY KEY,
-    tenant_id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
     candidate_set_id uuid,
     created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -100,6 +115,21 @@ DO $$ BEGIN
     FOREIGN KEY (candidate_set_id) REFERENCES public.candidate_sets(candidate_set_id) ON DELETE SET NULL;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'workspaces'
+  ) THEN
+    BEGIN
+      ALTER TABLE public.graph_drafts
+        ADD CONSTRAINT graph_drafts_workspace_id_fkey
+        FOREIGN KEY (workspace_id) REFERENCES public.workspaces(workspace_id) ON DELETE CASCADE;
+    EXCEPTION WHEN duplicate_object THEN NULL; END;
+  END IF;
+END $$;
+
 DO $$ BEGIN
   ALTER TABLE public.graph_draft_nodes
     ADD CONSTRAINT graph_draft_nodes_graph_draft_id_fkey
@@ -117,7 +147,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.maps (
     map_id uuid PRIMARY KEY,
-    tenant_id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
     graph_draft_id uuid NOT NULL,
     default_grouping text NOT NULL CHECK (default_grouping = ANY (ARRAY['topic','subfield'])),
     allowed_groupings jsonb NOT NULL,
@@ -129,14 +159,14 @@ CREATE TABLE IF NOT EXISTS public.maps (
     version integer
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS maps_tenant_params_hash_uniq
-    ON public.maps (tenant_id, params_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS maps_workspace_params_hash_uniq
+    ON public.maps (workspace_id, params_hash);
 
-CREATE INDEX IF NOT EXISTS maps_tenant_created_desc_idx
-    ON public.maps (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS maps_workspace_created_desc_idx
+    ON public.maps (workspace_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS maps_tenant_graph_draft_idx
-    ON public.maps (tenant_id, graph_draft_id);
+CREATE INDEX IF NOT EXISTS maps_workspace_graph_draft_idx
+    ON public.maps (workspace_id, graph_draft_id);
 
 CREATE TABLE IF NOT EXISTS public.map_nodes (
     map_id uuid NOT NULL,
@@ -177,6 +207,21 @@ DO $$ BEGIN
     ADD CONSTRAINT maps_graph_draft_id_fkey
     FOREIGN KEY (graph_draft_id) REFERENCES public.graph_drafts(graph_draft_id) ON DELETE CASCADE;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'workspaces'
+  ) THEN
+    BEGIN
+      ALTER TABLE public.maps
+        ADD CONSTRAINT maps_workspace_id_fkey
+        FOREIGN KEY (workspace_id) REFERENCES public.workspaces(workspace_id) ON DELETE CASCADE;
+    EXCEPTION WHEN duplicate_object THEN NULL; END;
+  END IF;
+END $$;
 
 DO $$ BEGIN
   ALTER TABLE public.map_nodes
@@ -238,7 +283,7 @@ CREATE INDEX IF NOT EXISTS idx_openalex_topics_field
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.rank_jobs (
     rank_job_id uuid PRIMARY KEY,
-    tenant_id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
     rank_type text NOT NULL,
     candidate_set_id uuid NOT NULL,
     context_json jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -252,14 +297,14 @@ CREATE TABLE IF NOT EXISTS public.rank_jobs (
     error_json jsonb
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_rank_jobs_tenant_rank_type_params_hash_uq
-    ON public.rank_jobs (tenant_id, rank_type, params_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rank_jobs_workspace_rank_type_params_hash_uq
+    ON public.rank_jobs (workspace_id, rank_type, params_hash);
 
-CREATE INDEX IF NOT EXISTS idx_rank_jobs_tenant_candidate_set
-    ON public.rank_jobs (tenant_id, candidate_set_id);
+CREATE INDEX IF NOT EXISTS idx_rank_jobs_workspace_candidate_set
+    ON public.rank_jobs (workspace_id, candidate_set_id);
 
-CREATE INDEX IF NOT EXISTS idx_rank_jobs_tenant_status_created
-    ON public.rank_jobs (tenant_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rank_jobs_workspace_status_created
+    ON public.rank_jobs (workspace_id, status, created_at DESC);
 
 DO $$ BEGIN
   ALTER TABLE public.rank_jobs
@@ -272,6 +317,21 @@ DO $$ BEGIN
     ADD CONSTRAINT rank_jobs_candidate_set_id_fkey
     FOREIGN KEY (candidate_set_id) REFERENCES public.candidate_sets(candidate_set_id) ON DELETE CASCADE;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'workspaces'
+  ) THEN
+    BEGIN
+      ALTER TABLE public.rank_jobs
+        ADD CONSTRAINT rank_jobs_workspace_id_fkey
+        FOREIGN KEY (workspace_id) REFERENCES public.workspaces(workspace_id) ON DELETE CASCADE;
+    EXCEPTION WHEN duplicate_object THEN NULL; END;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.rank_results (
     rank_job_id uuid NOT NULL,
@@ -535,7 +595,7 @@ CREATE INDEX IF NOT EXISTS idx_methodology_fingerprint_created
 -- Comparison result cache (per set of papers)
 CREATE TABLE IF NOT EXISTS public.methodology_comparison_cache (
     comparison_hash text PRIMARY KEY,
-    tenant_id text NOT NULL,
+    workspace_id uuid NOT NULL,
     work_ids text[] NOT NULL,
     result_json jsonb NOT NULL,
     model_version text NOT NULL,
@@ -596,7 +656,7 @@ CREATE INDEX IF NOT EXISTS idx_gap_feature_usage_map_type
 CREATE TABLE IF NOT EXISTS public.gap_analysis_results (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     map_id uuid NOT NULL REFERENCES public.maps(map_id) ON DELETE CASCADE,
-    tenant_id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
     gaps jsonb NOT NULL DEFAULT '[]'::jsonb,
     data_sources_used text[] NOT NULL DEFAULT '{}',
     coverage_pct double precision NOT NULL,
@@ -608,8 +668,8 @@ CREATE TABLE IF NOT EXISTS public.gap_analysis_results (
 CREATE INDEX IF NOT EXISTS idx_gap_analysis_results_map
     ON public.gap_analysis_results (map_id);
 
-CREATE INDEX IF NOT EXISTS idx_gap_analysis_results_tenant
-    ON public.gap_analysis_results (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_gap_analysis_results_workspace
+    ON public.gap_analysis_results (workspace_id);
 
 CREATE INDEX IF NOT EXISTS idx_gap_analysis_results_created
     ON public.gap_analysis_results (created_at DESC);
@@ -618,7 +678,7 @@ CREATE INDEX IF NOT EXISTS idx_gap_analysis_results_created
 CREATE TABLE IF NOT EXISTS public.gap_analysis_jobs (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     map_id uuid NOT NULL REFERENCES public.maps(map_id) ON DELETE CASCADE,
-    tenant_id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
     status text NOT NULL DEFAULT 'pending',
     progress double precision NOT NULL DEFAULT 0,
     error_message text,
@@ -631,11 +691,32 @@ CREATE TABLE IF NOT EXISTS public.gap_analysis_jobs (
 CREATE INDEX IF NOT EXISTS idx_gap_analysis_jobs_map
     ON public.gap_analysis_jobs (map_id);
 
-CREATE INDEX IF NOT EXISTS idx_gap_analysis_jobs_tenant
-    ON public.gap_analysis_jobs (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_gap_analysis_jobs_workspace
+    ON public.gap_analysis_jobs (workspace_id);
 
 CREATE INDEX IF NOT EXISTS idx_gap_analysis_jobs_status
     ON public.gap_analysis_jobs (status);
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'workspaces'
+  ) THEN
+    BEGIN
+      ALTER TABLE public.gap_analysis_results
+        ADD CONSTRAINT gap_analysis_results_workspace_id_fkey
+        FOREIGN KEY (workspace_id) REFERENCES public.workspaces(workspace_id) ON DELETE CASCADE;
+    EXCEPTION WHEN duplicate_object THEN NULL; END;
+
+    BEGIN
+      ALTER TABLE public.gap_analysis_jobs
+        ADD CONSTRAINT gap_analysis_jobs_workspace_id_fkey
+        FOREIGN KEY (workspace_id) REFERENCES public.workspaces(workspace_id) ON DELETE CASCADE;
+    EXCEPTION WHEN duplicate_object THEN NULL; END;
+  END IF;
+END $$;
 
 DO $$ BEGIN
   ALTER TABLE public.gap_analysis_jobs

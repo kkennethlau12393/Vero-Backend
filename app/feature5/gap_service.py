@@ -966,7 +966,8 @@ def _deduplicate_gap_cards(cards: List[GapCard]) -> List[GapCard]:
 def run_gap_analysis(
     engine: Engine,
     map_id: UUID,
-    tenant_id: UUID,
+    workspace_id: UUID | None = None,
+    tenant_id: UUID | None = None,
 ) -> GapAnalysisResponse:
     """
     Run full gap analysis pipeline.
@@ -980,11 +981,15 @@ def run_gap_analysis(
     Args:
         engine: Database engine
         map_id: Map to analyze
-        tenant_id: Tenant ID
+        workspace_id: Workspace ID
 
     Returns:
         GapAnalysisResponse with gap cards
     """
+    workspace_id = workspace_id or tenant_id
+    if workspace_id is None:
+        raise ValueError("workspace_id is required")
+
     # Check unlock status
     status = get_gap_analysis_status(engine, map_id)
     if not status.unlocked:
@@ -1118,16 +1123,16 @@ def run_gap_analysis(
         conn.execute(
             text("""
                 INSERT INTO gap_analysis_results
-                (id, map_id, tenant_id, gaps, data_sources_used, coverage_pct,
+                (id, map_id, workspace_id, gaps, data_sources_used, coverage_pct,
                  total_candidates_detected, candidates_validated)
                 VALUES
-                (:id, :map_id, :tenant_id, :gaps, :data_sources_used, :coverage_pct,
+                (:id, :map_id, :workspace_id, :gaps, :data_sources_used, :coverage_pct,
                  :total_candidates_detected, :candidates_validated)
             """),
             {
                 "id": result_id,
                 "map_id": map_id,
-                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
                 "gaps": json.dumps([c.model_dump() for c in final_cards]),
                 "data_sources_used": available_sources,
                 "coverage_pct": status.coverage_pct,
@@ -1150,6 +1155,7 @@ def run_gap_analysis(
 def get_cached_gap_analysis(
     engine: Engine,
     map_id: UUID,
+    workspace_id: Optional[UUID] = None,
     tenant_id: Optional[UUID] = None,
 ) -> Optional[GapAnalysisResponse]:
     """Get cached gap analysis results if available and not stale."""
@@ -1163,9 +1169,10 @@ def get_cached_gap_analysis(
             WHERE map_id = :map_id
             AND created_at > NOW() - INTERVAL '1 hour' * :ttl_hours
         """
-        if tenant_id is not None:
-            query += " AND tenant_id = :tenant_id"
-            params["tenant_id"] = tenant_id
+        workspace_id = workspace_id or tenant_id
+        if workspace_id is not None:
+            query += " AND workspace_id = :workspace_id"
+            params["workspace_id"] = workspace_id
 
         query += " ORDER BY created_at DESC LIMIT 1"
 

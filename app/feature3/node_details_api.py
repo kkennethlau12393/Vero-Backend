@@ -55,7 +55,7 @@ def get_node_details_endpoint(
     try:
         return get_node_details(
             engine,
-            tenant_id=workspace_id,
+            workspace_id=workspace_id,
             map_id=map_id,
             work_id=work_id,
             include_timeline=include_timeline,

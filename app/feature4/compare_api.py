@@ -43,7 +43,7 @@ def compare_methodologies_endpoint(
     try:
         result = compare_methodologies(
             engine=engine,
-            tenant_id=workspace_id,
+            workspace_id=workspace_id,
             map_id=map_id,
             work_ids=req.work_ids,
         )

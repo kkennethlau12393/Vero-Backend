@@ -1799,7 +1799,7 @@ def _retrieve_topic_pool(conn: Connection, topic_id: str, k: int) -> List[Tuple[
 def generate_candidates_direct(
     conn: Connection,
     *,
-    tenant_id: Any,
+    workspace_id: Any,
     query_text: str,
     context_json: Optional[Dict[str, Any]] = None,
     filters_json: Optional[Dict[str, Any]] = None,
@@ -1818,9 +1818,9 @@ def generate_candidates_direct(
     ----------
     conn : Connection
         Active SQLAlchemy connection.
-    tenant_id : Any
-        Tenant ID used for candidate set insertion (not used yet, but kept for
-        future tenant‑scoped logic).
+    workspace_id : Any
+        Workspace ID used for candidate set insertion (not used yet, but kept for
+        future workspace-scoped logic).
     query_text : str
         The user query used for retrieval.
     context_json : dict, optional
@@ -2700,7 +2700,7 @@ def generate_candidates_direct(
 def generate_candidates_direct_legacy(
     conn: Connection,
     *,
-    tenant_id: Any,
+    workspace_id: Any,
     query_text: str,
     context_json: Optional[Dict[str, Any]] = None,
     filters_json: Optional[Dict[str, Any]] = None,

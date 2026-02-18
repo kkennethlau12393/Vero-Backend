@@ -28,7 +28,7 @@ def build_map_endpoint(
     try:
         result = build_map(
             engine,
-            tenant_id=workspace_id,
+            workspace_id=workspace_id,
             graph_draft_id=req.graph_draft_id,
             connector_score_mode=req.connector_score_mode,
             layout_mode=req.layout_mode,
@@ -65,7 +65,7 @@ def get_map_endpoint(
     try:
         return get_map_render_payload(
             engine,
-            tenant_id=workspace_id,
+            workspace_id=workspace_id,
             map_id=map_id,
             group_by=group_by,
         )
