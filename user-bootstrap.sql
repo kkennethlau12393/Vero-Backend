@@ -3,7 +3,6 @@
 -- Current model: one user owns exactly one workspace.
 -- Future-ready: can evolve to many-to-many collaboration with a workspace_members table.
 
-\set ON_ERROR_STOP on
 BEGIN;
 
 SET statement_timeout = 0;
