@@ -323,3 +323,91 @@ def assemble_ranked_results(
             }
         results.append(item)
     return results
+
+
+# ---------------------------------------------------------------------------
+# User-facing scoring rubric
+# ---------------------------------------------------------------------------
+
+# Stars mapping: 0-10 score → 1-5 stars
+def _score_to_stars(score: float) -> int:
+    if score >= 8.0:
+        return 5
+    if score >= 6.0:
+        return 4
+    if score >= 4.0:
+        return 3
+    if score >= 2.0:
+        return 2
+    return 1
+
+
+# Labels for relevance/influence/textual_match dimensions
+_STANDARD_LABELS = {5: "Excellent", 4: "Strong", 3: "Moderate", 2: "Low", 1: "Minimal"}
+# Labels for recency dimension (context-aware: low ≠ bad, it means "classic")
+_RECENCY_LABELS = {5: "Very Recent", 4: "Recent", 3: "Moderate", 2: "Established", 1: "Classic"}
+# Labels for overall
+_OVERALL_LABELS = {5: "Excellent", 4: "Strong", 3: "Good", 2: "Fair", 1: "Low"}
+
+
+def _make_dimension(score_10: float, labels: Dict[str, str]) -> Dict[str, Any]:
+    """Build a single scoring dimension dict."""
+    stars = _score_to_stars(score_10)
+    return {
+        "score": round(score_10, 1),
+        "stars": stars,
+        "label": labels[stars],
+    }
+
+
+def build_user_scoring(
+    llm_norm: Dict[str, float],
+    impact_norm: Dict[str, float],
+    lex_norm: Dict[str, float],
+    recency_norm: Dict[str, float],
+    combined_scores: Dict[str, float],
+) -> Dict[str, Dict[str, Any]]:
+    """Convert normalized scores (0-1) to user-facing 0-10 rubric with stars and labels.
+
+    Pure computation — no API calls. Maps existing pipeline values to a
+    user-friendly quantitative rubric.
+
+    Parameters
+    ----------
+    llm_norm : dict work_id → float (0-1)
+        LLM relevance score (normalized).
+    impact_norm : dict work_id → float (0-1)
+        Impact/influence score (normalized).
+    lex_norm : dict work_id → float (0-1)
+        Lexical/textual match score (normalized).
+    recency_norm : dict work_id → float (0-1)
+        Recency score (normalized).
+    combined_scores : dict work_id → float (0-1)
+        Final weighted combined score.
+
+    Returns
+    -------
+    dict work_id → scoring dict with "overall" and "dimensions"
+    """
+    result: Dict[str, Dict[str, Any]] = {}
+
+    all_ids = set(combined_scores.keys())
+
+    for wid in all_ids:
+        relevance_10 = llm_norm.get(wid, 0.0) * 10.0
+        influence_10 = impact_norm.get(wid, 0.0) * 10.0
+        textual_10 = lex_norm.get(wid, 0.0) * 10.0
+        recency_10 = recency_norm.get(wid, 0.0) * 10.0
+        overall_10 = combined_scores.get(wid, 0.0) * 10.0
+
+        result[wid] = {
+            "overall": _make_dimension(overall_10, _OVERALL_LABELS),
+            "dimensions": {
+                "relevance": _make_dimension(relevance_10, _STANDARD_LABELS),
+                "influence": _make_dimension(influence_10, _STANDARD_LABELS),
+                "textual_match": _make_dimension(textual_10, _STANDARD_LABELS),
+                "recency": _make_dimension(recency_10, _RECENCY_LABELS),
+            },
+        }
+
+    return result

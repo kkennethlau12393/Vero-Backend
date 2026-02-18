@@ -440,6 +440,24 @@ CREATE INDEX IF NOT EXISTS idx_llm_relevance_cache_created
     ON public.llm_relevance_cache (created_at DESC);
 
 -- ---------------------------------------------------------------------
+-- LLM evaluation paragraph cache (per paper per query)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.llm_evaluation_cache (
+    paper_id text NOT NULL,
+    query_hash text NOT NULL,
+    evaluation_text text NOT NULL,
+    model_version text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (paper_id, query_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_evaluation_cache_query
+    ON public.llm_evaluation_cache (query_hash);
+
+CREATE INDEX IF NOT EXISTS idx_llm_evaluation_cache_created
+    ON public.llm_evaluation_cache (created_at DESC);
+
+-- ---------------------------------------------------------------------
 -- Query classification cache (LLM-based query type detection)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.query_classification_cache (

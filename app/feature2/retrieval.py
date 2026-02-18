@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -65,8 +66,12 @@ S2_HIGHLY_CITED_LIMIT = 100  # Highly-cited papers from S2 (sorted by citations,
 
 # ArXiv configuration
 # Co-equal source for preprints and ML papers
+# Rate limit: 1 request every 3 seconds, single connection (per ArXiv ToS)
 ARXIV_ENABLED = True
 ARXIV_LIMIT = 500  # Papers from ArXiv
+ARXIV_REQUEST_INTERVAL = 3.0  # Minimum seconds between ArXiv API calls
+_arxiv_last_request_time = 0.0  # Module-level timestamp of last ArXiv request
+_arxiv_lock = threading.Lock()  # Serialize all ArXiv requests
 
 # CrossRef configuration (general scholarly works via DOI)
 CROSSREF_ENABLED = True
@@ -101,7 +106,7 @@ from .query_expansion import expand_query, QueryExpansion, ExpandedConcept, norm
 DEFAULT_K_LEXICAL = 200
 DEFAULT_K_TOPIC = 200
 DEFAULT_LIMIT_POOL = 3000
-PIPELINE_VERSION = "openalex_v2"
+PIPELINE_VERSION = "openalex_v3"
 
 
 # ============================================================================
@@ -1017,90 +1022,188 @@ def _search_openalex_by_title(title: str, k: int = 10) -> List[Tuple[str, float]
     return []
 
 
+def _arxiv_rate_limit_wait():
+    """Enforce ArXiv rate limit: 1 request every 3 seconds, single connection.
+
+    Uses a module-level lock + timestamp to serialize all ArXiv requests
+    regardless of which thread is calling.
+    """
+    global _arxiv_last_request_time
+    with _arxiv_lock:
+        now = time.monotonic()
+        elapsed = now - _arxiv_last_request_time
+        if elapsed < ARXIV_REQUEST_INTERVAL:
+            wait_time = ARXIV_REQUEST_INTERVAL - elapsed
+            time.sleep(wait_time)
+        _arxiv_last_request_time = time.monotonic()
+
+
+def _parse_arxiv_response(content: bytes) -> List[Tuple[str, Dict[str, Any]]]:
+    """Parse ArXiv Atom XML response into (arxiv_id, metadata) tuples."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(content)
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+
+    out: List[Tuple[str, Dict[str, Any]]] = []
+    for entry in root.findall("atom:entry", ns):
+        id_elem = entry.find("atom:id", ns)
+        if id_elem is None or id_elem.text is None:
+            continue
+
+        arxiv_url = id_elem.text
+        arxiv_id = arxiv_url.split("/abs/")[-1].split("v")[0] if "/abs/" in arxiv_url else None
+        if not arxiv_id:
+            continue
+
+        title_elem = entry.find("atom:title", ns)
+        title = title_elem.text.strip().replace("\n", " ") if title_elem is not None and title_elem.text else ""
+
+        published_elem = entry.find("atom:published", ns)
+        year = None
+        if published_elem is not None and published_elem.text:
+            try:
+                year = int(published_elem.text[:4])
+            except (ValueError, TypeError):
+                pass
+
+        authors = []
+        for author in entry.findall("atom:author", ns):
+            name_elem = author.find("atom:name", ns)
+            if name_elem is not None and name_elem.text:
+                authors.append(name_elem.text)
+
+        out.append((arxiv_id, {
+            "title": title,
+            "year": year,
+            "citations": 0,
+            "authors": authors,
+            "arxiv_id": arxiv_id,
+        }))
+    return out
+
+
+def _arxiv_api_call(url: str) -> bytes:
+    """Make a single ArXiv API call with rate limiting and proper 429 handling.
+
+    Enforces the 3-second interval, retries on 429/5xx with exponential backoff.
+    """
+    import xml.etree.ElementTree as ET
+
+    for attempt in range(MAX_RETRIES):
+        _arxiv_rate_limit_wait()
+        try:
+            resp = requests.get(url, timeout=30)
+
+            # Handle rate limiting explicitly
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", 10))
+                logger.warning(f"ArXiv 429 rate limited, waiting {retry_after}s (attempt {attempt + 1})")
+                time.sleep(retry_after)
+                continue
+
+            # Handle server errors with backoff
+            if resp.status_code >= 500:
+                backoff = ARXIV_REQUEST_INTERVAL * (2 ** attempt)
+                logger.warning(f"ArXiv {resp.status_code}, retrying in {backoff}s (attempt {attempt + 1})")
+                time.sleep(backoff)
+                continue
+
+            resp.raise_for_status()
+            return resp.content
+
+        except requests.exceptions.Timeout:
+            backoff = ARXIV_REQUEST_INTERVAL * (2 ** attempt)
+            logger.warning(f"ArXiv timeout, retrying in {backoff}s (attempt {attempt + 1})")
+            time.sleep(backoff)
+        except requests.exceptions.RequestException as e:
+            if attempt < MAX_RETRIES - 1:
+                backoff = ARXIV_REQUEST_INTERVAL * (2 ** attempt)
+                logger.warning(f"ArXiv request error: {e}, retrying in {backoff}s")
+                time.sleep(backoff)
+            else:
+                raise
+
+    raise requests.exceptions.RequestException(f"ArXiv API failed after {MAX_RETRIES} attempts")
+
+
 def _search_arxiv(query: str, k: int = ARXIV_LIMIT) -> List[Tuple[str, Dict[str, Any]]]:
     """Search ArXiv for papers, returning paper metadata.
 
     ArXiv is a co-equal source specializing in preprints and ML papers.
+    Respects ArXiv rate limit (1 req / 3s) via _arxiv_rate_limit_wait().
 
     Returns list of (arxiv_id, metadata_dict) tuples.
     """
     if not query or not ARXIV_ENABLED:
         return []
 
-    import xml.etree.ElementTree as ET
-
-    base_url = "https://export.arxiv.org/api/query"
-    # Replace spaces with AND for better matching
-    # Note: We must build the URL manually because requests URL-encodes '+' to '%2B',
-    # which breaks the ArXiv API's AND query syntax
     from urllib.parse import quote
+    base_url = "https://export.arxiv.org/api/query"
     words = query.split()[:5]
     search_terms = [f"all:{quote(word)}" for word in words]
     search_query = "+AND+".join(search_terms)
     url = f"{base_url}?search_query={search_query}&max_results={k}&sortBy=relevance"
 
-    for attempt in range(MAX_RETRIES):
-        try:
-            resp = requests.get(url, timeout=15)
-            resp.raise_for_status()
+    try:
+        content = _arxiv_api_call(url)
+        return _parse_arxiv_response(content)
+    except Exception as e:
+        logger.warning(f"ArXiv search failed: {e}")
+        return []
 
-            root = ET.fromstring(resp.content)
-            ns = {"atom": "http://www.w3.org/2005/Atom"}
 
-            out: List[Tuple[str, Dict[str, Any]]] = []
-            for entry in root.findall("atom:entry", ns):
-                id_elem = entry.find("atom:id", ns)
-                if id_elem is None or id_elem.text is None:
-                    continue
+def _search_arxiv_combined(
+    queries: List[str],
+    k: int = ARXIV_LIMIT,
+    field: str = "all",
+) -> List[Tuple[str, Dict[str, Any]]]:
+    """Search ArXiv with multiple queries combined into a SINGLE API call using OR.
 
-                arxiv_url = id_elem.text
-                arxiv_id = arxiv_url.split("/abs/")[-1].split("v")[0] if "/abs/" in arxiv_url else None
-                if not arxiv_id:
-                    continue
+    Instead of firing N parallel requests (which violates ArXiv's rate limit),
+    this combines queries with OR operators into one request.
 
-                title_elem = entry.find("atom:title", ns)
-                title = title_elem.text.strip().replace("\n", " ") if title_elem is not None and title_elem.text else ""
+    Args:
+        queries: List of search queries to combine with OR
+        k: Maximum results to return
+        field: ArXiv search field — "all" for general, "ti" for title-only
 
-                published_elem = entry.find("atom:published", ns)
-                year = None
-                if published_elem is not None and published_elem.text:
-                    try:
-                        year = int(published_elem.text[:4])
-                    except (ValueError, TypeError):
-                        pass
+    Returns list of (arxiv_id, metadata_dict) tuples.
+    """
+    if not queries or not ARXIV_ENABLED:
+        return []
 
-                authors = []
-                for author in entry.findall("atom:author", ns):
-                    name_elem = author.find("atom:name", ns)
-                    if name_elem is not None and name_elem.text:
-                        authors.append(name_elem.text)
+    from urllib.parse import quote
 
-                out.append((arxiv_id, {
-                    "title": title,
-                    "year": year,
-                    "citations": 0,
-                    "authors": authors,
-                    "arxiv_id": arxiv_id,
-                }))
+    base_url = "https://export.arxiv.org/api/query"
 
-            # S2 enrichment disabled due to aggressive rate limiting
-            # ArXiv papers will use internal reference counting instead
-            return out
+    # Build OR-combined query: (ti:"query one") OR (ti:"query two") OR ...
+    or_parts = []
+    for q in queries:
+        q = q.strip()
+        if not q:
+            continue
+        if field == "ti":
+            # Title search: use quoted phrase for exact matching
+            or_parts.append(f'ti:%22{quote(q)}%22')
+        else:
+            # General search: AND individual words within each query
+            words = q.split()[:5]
+            terms = [f"all:{quote(w)}" for w in words]
+            or_parts.append(f'({"+AND+".join(terms)})')
 
-        except requests.exceptions.RequestException as e:
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
-                continue
-            logger.warning(f"ArXiv search failed: {e}")
-            return []
-        except ET.ParseError as e:
-            logger.warning(f"ArXiv XML parse error: {e}")
-            return []
-        except Exception as e:
-            logger.warning(f"ArXiv search error: {e}")
-            return []
+    if not or_parts:
+        return []
 
-    return []
+    search_query = "+OR+".join(or_parts)
+    url = f"{base_url}?search_query={search_query}&max_results={k}&sortBy=relevance"
+
+    try:
+        content = _arxiv_api_call(url)
+        return _parse_arxiv_response(content)
+    except Exception as e:
+        logger.warning(f"ArXiv combined search failed: {e}")
+        return []
 
 
 def _enrich_arxiv_with_crossref(
@@ -1902,7 +2005,6 @@ def generate_candidates_direct(
     # PARALLELIZATION: Run all OpenAlex searches concurrently
     # This dramatically reduces retrieval time from O(n_queries * latency) to O(latency)
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    import threading
 
     # Thread-safe lock for candidate_map updates
     candidate_map_lock = threading.Lock()
@@ -1989,16 +2091,20 @@ def generate_candidates_direct(
         except Exception as e:
             logger.warning(f"S2 highly-cited search failed: {e}")
 
-    def search_arxiv_and_store(q: str):
-        """Execute ArXiv search and store results thread-safely."""
+    def search_arxiv_combined_and_store(queries: List[str], field: str = "all"):
+        """Execute ArXiv combined search (multiple queries OR'd) and store results.
+
+        Combines queries into a SINGLE API call to respect ArXiv rate limits
+        (1 request / 3 seconds per ArXiv ToS).
+        """
         try:
-            results = _search_arxiv(q, ARXIV_LIMIT)
+            results = _search_arxiv_combined(queries, ARXIV_LIMIT, field=field)
             if results:
-                logger.info(f"ArXiv: {len(results)} results for '{q[:50]}'")
+                logger.info(f"ArXiv combined ({field}): {len(results)} results for {len(queries)} queries")
                 with arxiv_lock:
                     arxiv_papers.extend(results)
         except Exception as e:
-            logger.warning(f"ArXiv search failed: {e}")
+            logger.warning(f"ArXiv combined search failed: {e}")
 
     def search_crossref_and_store(q: str):
         """Execute CrossRef search and store results thread-safely."""
@@ -2111,15 +2217,21 @@ def generate_candidates_direct(
                 logger.info(f"S2 combined highly-cited query: {s2_highly_cited_query[:80]}...")
                 futures.append(executor.submit(search_s2_highly_cited_and_store, s2_highly_cited_query))
 
-                # Still search foundational works in OpenAlex/ArXiv (no rate limit issues)
+                # Search foundational works in OpenAlex (parallel, no rate limit issues)
                 for fw_title in foundational_titles[:5]:
                     futures.append(executor.submit(search_and_store, fw_title, 1.0, "foundational_work", False))
-                    if ARXIV_ENABLED:
-                        futures.append(executor.submit(search_arxiv_and_store, fw_title))
+
+            # ArXiv: combine ALL queries into at most 2 API calls (respects 1 req/3s rate limit)
+            # Call 1: expanded queries (original + synonyms + related terms) via general search
+            # Call 2: foundational titles via title-specific search
             if ARXIV_ENABLED:
-                # ArXiv can handle multiple queries (no rate limit issues like S2)
-                for q in arxiv_s2_queries:
-                    futures.append(executor.submit(search_arxiv_and_store, q))
+                futures.append(executor.submit(
+                    search_arxiv_combined_and_store, arxiv_s2_queries, "all"
+                ))
+                if SEMANTIC_SCHOLAR_ENABLED and foundational_titles:
+                    futures.append(executor.submit(
+                        search_arxiv_combined_and_store, foundational_titles[:5], "ti"
+                    ))
 
         # Run CrossRef, PubMed, DBLP searches (original query only, parallel)
         # These provide additional coverage across different domains
