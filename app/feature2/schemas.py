@@ -100,6 +100,8 @@ class RankedItem(BaseModel):
     score_breakdown: dict[str, Any]
     preview: dict[str, Any]
     provenance: list[Any]
+    evaluation: Optional[str] = None
+    scoring: Optional[dict[str, Any]] = None
 
 class QueryClassificationResponse(BaseModel):
     type: str

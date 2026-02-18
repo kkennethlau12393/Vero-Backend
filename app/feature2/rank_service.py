@@ -43,8 +43,9 @@ from .features import (
     compute_age,
     compute_llm_relevance_feature,
 )
-from .rerank import build_reasons, build_reasons_with_categories, assemble_ranked_results
+from .rerank import build_reasons, build_reasons_with_categories, assemble_ranked_results, build_user_scoring
 from .llm_relevance import score_papers, score_wave
+from .llm_evaluation import generate_evaluations
 from .convergence import (
     WAVE_SIZE, MAX_WAVES, evaluate_convergence, WaveResult, ConvergenceState,
 )
@@ -77,7 +78,11 @@ from .methodological_alignment import (
 # v83: Tool paper detection (cap at methodology), textbook category,
 #      foundational sort by LLM relevance then citations
 # v84: LLM prompt v27 - adjacent-phenomena specificity, cause-effect topic constraint
-RANKING_VERSION = "rank-v84"
+# v85: Added LLM evaluation paragraphs + user-facing scoring rubric per ranked item
+# v86: ArXiv rate limit compliance — combined queries (10 calls → 2), proper 429 handling
+# v87: Evaluation prompt v2 — stronger evaluative framing, BAD/GOOD contrast, temp 0.5
+# v88: Evaluation model swap — Llama 3.3 70B for better evaluative writing
+RANKING_VERSION = "rank-v88"
 
 
 def _stable_rank_hash(
@@ -308,6 +313,8 @@ def direct_rank_prod(
                             "score_breakdown": item.get("score_breakdown", {}),
                             "preview": item.get("preview", {}),
                             "provenance": item.get("provenance", []),
+                            "evaluation": item.get("score_breakdown", {}).get("evaluation"),
+                            "scoring": item.get("score_breakdown", {}).get("scoring"),
                         }
 
                     return {
@@ -819,6 +826,33 @@ def direct_rank_prod(
                 query_text=query_text,
             )
 
+            # Generate user-facing scoring rubric (pure computation, zero cost)
+            combined_scores = {item["work_id"]: item["score"] for item in ranked_items}
+            user_scoring = build_user_scoring(
+                llm_norm=llm_norm,
+                impact_norm=impact_norm,
+                lex_norm=lex_norm,
+                recency_norm=recency_norm,
+                combined_scores=combined_scores,
+            )
+            for item in ranked_items:
+                wid = item["work_id"]
+                if "breakdown" in item:
+                    item["breakdown"]["scoring"] = user_scoring.get(wid)
+
+            # Generate LLM evaluation paragraphs (cached, ~2-3s on fresh path)
+            evaluations = generate_evaluations(
+                conn=conn,
+                query_text=query_text,
+                query_hash=query_hash,
+                paper_items=ranked_items,
+                works=works,
+            )
+            for item in ranked_items:
+                wid = item["work_id"]
+                if "breakdown" in item:
+                    item["breakdown"]["evaluation"] = evaluations.get(wid)
+
             # Prepare result rows for persistence (all items together)
             result_rows: list[Dict[str, Any]] = []
             for idx, item in enumerate(ranked_items):
@@ -865,6 +899,8 @@ def direct_rank_prod(
                 "score_breakdown": item.get("breakdown", {}),
                 "preview": item.get("preview", {}),
                 "provenance": item.get("provenance", []),
+                "evaluation": item.get("breakdown", {}).get("evaluation"),
+                "scoring": item.get("breakdown", {}).get("scoring"),
             }
 
         # Check if skip_categorization is set (for drill-down: flat list only)
