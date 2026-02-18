@@ -1250,12 +1250,16 @@ def get_node_details(
     tenant_id: UUID,
     map_id: UUID,
     work_id: str,
+    include_novelty: bool = False,
     include_timeline: bool = False,
 ) -> NodeDetailsResponse:
     """
     Get detailed pop-up information for a node in the citation map.
 
     This is the main entry point for Feature 3.
+
+    When include_novelty=False (default), returns lightweight metadata only
+    (no LLM call). When True, runs the full novelty assessment pipeline.
     """
     with engine.connect() as conn:
         # Verify map exists and belongs to tenant
@@ -1350,6 +1354,34 @@ def get_node_details(
 
         # Load connected works (from map edges)
         connected_works = load_connected_works(conn, map_id, work_id)
+
+        # Lightweight metadata-only response (no LLM call)
+        if not include_novelty:
+            basic_summary = _generate_summary_from_abstract(
+                work_data["abstract"], work_data["title"]
+            )
+            basic_keywords = _extract_keywords_from_abstract(work_data["abstract"])
+
+            return NodeDetailsResponse(
+                work_id=work_data["work_id"],
+                title=work_data["title"],
+                year=work_data["year"],
+                authors=work_data["authors"],
+                venue=work_data["venue"],
+                cited_by_count=work_data["cited_by_count"],
+                abstract=work_data["abstract"],
+                summary=basic_summary,
+                keywords=basic_keywords,
+                novelty_assessment=None,
+                connected_works=connected_works,
+                timeline=None,
+                primary_topic_id=work_data.get("primary_topic_id"),
+                topic_display_name=topic_display_name,
+                access_status=access_info["access_status"],
+                pdf_url=access_info["pdf_url"],
+                doi_url=access_info["doi_url"],
+                oa_status=work_data.get("oa_status"),
+            )
 
         # Check cache first (but skip if enrichment happened - regenerate assessment)
         cached = None
