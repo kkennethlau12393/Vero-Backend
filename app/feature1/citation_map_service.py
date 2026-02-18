@@ -65,6 +65,35 @@ ARXIV_LIMIT = 100
 SEMANTIC_SCHOLAR_DELAY = 1.0
 OPENALEX_TIMEOUT = 15
 
+# S2 retry configuration
+S2_MAX_RETRIES = 3
+S2_RETRY_BASE_DELAY = 1.0  # seconds — S2 rate limit is 1 RPS for batch/search, 10 RPS for others
+
+
+def _s2_get_with_retry(
+    url: str,
+    params: Optional[Dict[str, Any]] = None,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: int = 30,
+    max_retries: int = S2_MAX_RETRIES,
+) -> requests.Response:
+    """Make a GET request to S2 API with exponential backoff on 429.
+
+    Returns the response object. Raises on non-retryable errors.
+    On exhausted retries, returns the last 429 response (caller decides what to do).
+    """
+    last_resp = None
+    for attempt in range(max_retries + 1):
+        resp = requests.get(url, params=params, headers=headers, timeout=timeout)
+        if resp.status_code != 429:
+            return resp
+        last_resp = resp
+        if attempt < max_retries:
+            delay = S2_RETRY_BASE_DELAY * (2 ** attempt)  # 1s, 2s, 4s
+            logger.info(f"S2 rate limited (429), retry {attempt + 1}/{max_retries} after {delay}s: {url[:80]}")
+            time.sleep(delay)
+    return last_resp  # Return last 429 response if all retries exhausted
+
 
 # ============================================================================
 # Text normalization
@@ -538,7 +567,7 @@ def _lookup_s2_paper_by_doi(doi: str) -> Optional[Dict[str, Any]]:
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}"
         params = {"fields": "paperId,title,year,citationCount,externalIds"}
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
+        resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=15)
 
         if resp.status_code == 404:
             logger.debug(f"S2 paper not found for DOI:{doi}")
@@ -679,7 +708,7 @@ def _fetch_citing_papers_s2(identifier: str, limit: int = 50, id_type: str = "DO
             "fields": "paperId,title,year,citationCount,externalIds",
             "limit": min(limit, 1000),
         }
-        resp = requests.get(url, params=params, headers=headers, timeout=30)
+        resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=30)
 
         if resp.status_code == 404:
             logger.debug(f"S2 citations not found for {id_type}:{identifier}")
@@ -744,7 +773,7 @@ def _fetch_references_s2(identifier: str, limit: int = 50, id_type: str = "DOI")
             "fields": "paperId,title,year,citationCount,externalIds",
             "limit": min(limit, 1000),
         }
-        resp = requests.get(url, params=params, headers=headers, timeout=30)
+        resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=30)
 
         if resp.status_code == 404:
             logger.debug(f"S2 references not found for {id_type}:{identifier}")
@@ -802,7 +831,7 @@ def _backfill_title_from_s2(doi: Optional[str]) -> Optional[str]:
         clean_doi = doi.replace("https://doi.org/", "")
         url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{clean_doi}"
         params = {"fields": "title"}
-        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=10)
         if resp.status_code == 200:
             title = resp.json().get("title")
             if title:
@@ -1023,10 +1052,7 @@ def _fetch_s2_paper_details(s2_id: str, work_id: str) -> Optional[Dict[str, Any]
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
         params = {"fields": "paperId,title,year,citationCount,abstract,externalIds"}
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
-        if resp.status_code == 429:
-            time.sleep(SEMANTIC_SCHOLAR_DELAY)
-            resp = requests.get(url, params=params, headers=headers, timeout=15)
+        resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=15)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -1056,7 +1082,7 @@ def _fetch_arxiv_paper_details(arxiv_id: str, work_id: str) -> Optional[Dict[str
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}"
         params = {"fields": "paperId,title,year,citationCount,abstract,externalIds"}
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
+        resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
             return {
@@ -1313,6 +1339,91 @@ def _merge_s2_citations(
     return result
 
 
+def _batch_resolve_s2_ids(papers_to_resolve: List[Dict[str, Any]]) -> Dict[str, str]:
+    """Batch-resolve S2 paper IDs for multiple papers using POST /paper/batch.
+
+    Takes a list of dicts with "work_id", "doi", "title" keys.
+    Returns a dict mapping work_id -> S2 paper ID.
+
+    Uses S2's batch endpoint (POST /paper/batch, up to 500 papers, 1 RPS)
+    to resolve DOIs to S2 paper IDs in a single call instead of N individual calls.
+    """
+    if not papers_to_resolve:
+        return {}
+
+    headers = {"Content-Type": "application/json"}
+    if SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+
+    result: Dict[str, str] = {}
+
+    # Separate papers by identifier type
+    doi_papers = []  # (work_id, doi)
+    title_papers = []  # (work_id, title) — fallback for papers without DOI
+
+    for p in papers_to_resolve:
+        wid = p["work_id"]
+        # S2: papers already have their S2 ID
+        if wid.startswith("S2:"):
+            result[wid] = wid[3:]
+            continue
+
+        doi = p.get("doi")
+        if doi:
+            clean_doi = doi.replace("https://doi.org/", "")
+            doi_papers.append((wid, clean_doi))
+        elif p.get("title"):
+            title_papers.append((wid, p["title"]))
+
+    # Batch resolve DOIs -> S2 paper IDs via POST /paper/batch
+    if doi_papers:
+        batch_ids = [f"DOI:{doi}" for _, doi in doi_papers]
+
+        try:
+            url = "https://api.semanticscholar.org/graph/v1/paper/batch"
+            payload = {"ids": batch_ids}
+            params = {"fields": "paperId"}
+
+            # POST with retry on 429
+            last_resp = None
+            for attempt in range(S2_MAX_RETRIES + 1):
+                resp = requests.post(url, json=payload, params=params, headers=headers, timeout=30)
+                if resp.status_code != 429:
+                    break
+                last_resp = resp
+                if attempt < S2_MAX_RETRIES:
+                    delay = S2_RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.info(f"S2 batch rate limited (429), retry {attempt + 1}/{S2_MAX_RETRIES} after {delay}s")
+                    time.sleep(delay)
+            else:
+                resp = last_resp
+
+            if resp.status_code == 200:
+                data = resp.json()
+                # Response is a list in the same order as input IDs
+                # Entries can be null if paper not found
+                for i, paper_data in enumerate(data):
+                    if paper_data and isinstance(paper_data, dict):
+                        s2_id = paper_data.get("paperId")
+                        if s2_id:
+                            wid = doi_papers[i][0]
+                            result[wid] = s2_id
+            else:
+                logger.warning(f"S2 batch resolve failed: HTTP {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"S2 batch resolve error: {e}")
+
+    # Fallback: title search for papers without DOI (individual calls — unavoidable)
+    for wid, title in title_papers:
+        if wid not in result:
+            s2_id = _get_s2_paper_id(title=title)
+            if s2_id:
+                result[wid] = s2_id
+
+    logger.info(f"S2 batch resolve: {len(papers_to_resolve)} papers -> {len(result)} S2 IDs resolved")
+    return result
+
+
 def _expand_citation_network(
     seed_work_id: str,
     total_limit: int = 30,
@@ -1373,7 +1484,7 @@ def _expand_citation_network(
         if SEMANTIC_SCHOLAR_API_KEY:
             _s2_hdrs["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
         try:
-            _ax_resp = requests.get(
+            _ax_resp = _s2_get_with_retry(
                 f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}",
                 params={"fields": "paperId"}, headers=_s2_hdrs, timeout=10,
             )
@@ -1436,6 +1547,31 @@ def _expand_citation_network(
     # Only expand from top N hop-1 papers to limit API calls
     top_hop1 = hop1_papers[:min(10, len(hop1_papers))]
 
+    # Batch-resolve S2 paper IDs for all hop-1 papers at once
+    # This replaces N individual _get_s2_paper_id calls with 1 batch call
+    hop1_dois = {}  # wid -> doi (for W papers)
+    papers_to_resolve = []
+    for wid, paper_data in top_hop1:
+        if wid.startswith("S2:"):
+            # Already have S2 ID
+            papers_to_resolve.append({"work_id": wid})
+        elif wid.startswith("W"):
+            doi = _get_doi_for_work(wid)
+            hop1_dois[wid] = doi
+            papers_to_resolve.append({
+                "work_id": wid,
+                "doi": doi,
+                "title": paper_data.get("title"),
+            })
+        else:
+            papers_to_resolve.append({
+                "work_id": wid,
+                "title": paper_data.get("title"),
+            })
+
+    # Single batch call to resolve all S2 IDs
+    hop1_s2_ids = _batch_resolve_s2_ids(papers_to_resolve)
+
     for wid, paper_data in top_hop1:
         h2_citing = []
         h2_refs = []
@@ -1445,16 +1581,9 @@ def _expand_citation_network(
             h2_citing = fetch_citing_papers(wid, limit=hop2_fetch, fetch_limit=hop2_fetch)
             h2_refs = fetch_references(wid, limit=hop2_fetch, fetch_limit=hop2_fetch)
 
-        # Source 2: S2 — all sources are equal peers, always try S2
-        hop1_doi = _get_doi_for_work(wid) if wid.startswith("W") else None
-        hop1_title = paper_data.get("title")
-        hop1_s2_id = None
-
-        # For S2: papers, extract the ID directly
-        if wid.startswith("S2:"):
-            hop1_s2_id = wid[3:]
-        elif hop1_doi or hop1_title:
-            hop1_s2_id = _get_s2_paper_id(doi=hop1_doi, title=hop1_title)
+        # Source 2: S2 — use pre-resolved S2 ID from batch
+        hop1_s2_id = hop1_s2_ids.get(wid)
+        hop1_doi = hop1_dois.get(wid)
 
         h2_s2_id = hop1_s2_id or hop1_doi
         h2_s2_type = "S2" if hop1_s2_id else "DOI"
@@ -1846,11 +1975,7 @@ def _search_s2_by_title(title: str, limit: int = 5) -> List[Dict[str, Any]]:
             "fields": "paperId,title,year,citationCount,externalIds",
             "limit": limit,
         }
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
-
-        if resp.status_code == 429:
-            time.sleep(1)
-            resp = requests.get(url, params=params, headers=headers, timeout=15)
+        resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=15)
 
         resp.raise_for_status()
         data = resp.json()
@@ -1897,7 +2022,7 @@ def _lookup_openalex_by_arxiv(arxiv_id: str) -> Optional[Dict[str, Any]]:
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}"
         params = {"fields": "paperId,title,year,citationCount,externalIds"}
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
+        resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=15)
         if resp.status_code == 200:
             s2_paper = resp.json()
             external_ids = s2_paper.get("externalIds") or {}
@@ -2334,7 +2459,7 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
                 s2_headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
             try:
                 url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
-                resp = requests.get(url, params={"fields": "abstract"}, headers=s2_headers, timeout=10)
+                resp = _s2_get_with_retry(url, params={"fields": "abstract"}, headers=s2_headers, timeout=10)
                 if resp.status_code == 200:
                     abstract = resp.json().get("abstract")
                     if abstract:
@@ -2350,7 +2475,7 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
                 s2_headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
             try:
                 url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}"
-                resp = requests.get(url, params={"fields": "abstract"}, headers=s2_headers, timeout=10)
+                resp = _s2_get_with_retry(url, params={"fields": "abstract"}, headers=s2_headers, timeout=10)
                 if resp.status_code == 200:
                     abstract = resp.json().get("abstract")
                     if abstract:
