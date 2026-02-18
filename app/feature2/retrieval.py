@@ -101,7 +101,7 @@ from .query_expansion import expand_query, QueryExpansion, ExpandedConcept, norm
 DEFAULT_K_LEXICAL = 200
 DEFAULT_K_TOPIC = 200
 DEFAULT_LIMIT_POOL = 3000
-PIPELINE_VERSION = "openalex_v1"
+PIPELINE_VERSION = "openalex_v2"
 
 
 # ============================================================================

@@ -31,7 +31,7 @@ MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 0.5
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-PROMPT_VERSION = "qe_structured_v2"
+PROMPT_VERSION = "qe_structured_v3"
 
 # Regex to strip question prefixes for consistent query processing
 # Three groups: (1) question words, (2) optional auxiliary verbs, (3) optional articles
@@ -84,13 +84,15 @@ class QueryExpansion:
 
 
 def compute_query_hash(query_text: str) -> str:
-    """Compute SHA-256 hash of normalized query text.
+    """Compute SHA-256 hash of normalized query text + prompt version.
 
     Applies question prefix normalization so that question-style and
-    topic-style queries produce the same hash.
+    topic-style queries produce the same hash. Includes PROMPT_VERSION
+    so cache auto-invalidates when the expansion prompt changes.
     """
     normalized = normalize_query_for_expansion(query_text).lower()
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    key = f"{PROMPT_VERSION}:{normalized}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 def _tokenize_query(query_text: str) -> List[str]:
@@ -186,7 +188,7 @@ For each key concept:
 1. Rate its IMPORTANCE (0.0-1.0) - how critical is this concept to answering the research question?
 2. List SYNONYMS (direct terminology alternatives, be generous - these are safe for search)
 3. List RELATED TERMS (conceptually related but may drift topic, be conservative - max 2-3)
-4. List FOUNDATIONAL_WORKS: acronyms, specific names, or exact titles of seminal/foundational papers that researchers commonly cite when discussing this concept. Include the full title if it's a well-known paper (e.g., "Attention Is All You Need" for transformers). This helps find original papers that started a research area.
+4. List FOUNDATIONAL_WORKS: the FULL TITLES of seminal/foundational papers that researchers commonly cite when discussing this concept. These titles are used to search academic databases, so they MUST be the actual published paper titles. This helps find original papers that started a research area.
 
 Return JSON:
 {{
@@ -196,22 +198,27 @@ Return JSON:
       "importance": 0.9,
       "synonyms": ["syn1", "syn2", ...],
       "related": ["rel1", "rel2"],
-      "foundational_works": ["DDPM", "Denoising Diffusion Probabilistic Models"]
+      "foundational_works": ["Denoising Diffusion Probabilistic Models", "Score-Based Generative Modeling through Stochastic Differential Equations"]
     }}
   ]
 }}
 
-IMPORTANT for foundational_works:
-- Do NOT include annotations like "(DDPM)" or "(Ho et al., 2020)" - just the paper title or acronym
-- Each entry should be a CLEAN, SEARCHABLE string
-- BAD: "Denoising Diffusion Probabilistic Models (DDPM)"
-- GOOD: "Denoising Diffusion Probabilistic Models" (separate) and "DDPM" (separate)
+CRITICAL RULES for foundational_works:
+- ALWAYS use the FULL PUBLISHED TITLE of the paper, not acronyms or short names
+- These are searched via academic title search — acronyms like "BERT" or "DQN" return nothing
+- Do NOT include annotations like "(DDPM)" or "(Ho et al., 2020)" — just the clean paper title
+- Each entry should be a CLEAN, SEARCHABLE paper title
+- Aim for 3-6 foundational works per concept — be thorough
+- BAD: "DDPM", "CapsNet", "PPO", "BERT", "GloVe", "DQN", "Word2Vec"
+- GOOD: "Denoising Diffusion Probabilistic Models", "Dynamic Routing Between Capsules", "Proximal Policy Optimization Algorithms", "BERT Pre-training of Deep Bidirectional Transformers for Language Understanding", "GloVe Global Vectors for Word Representation", "Playing Atari with Deep Reinforcement Learning", "Efficient Estimation of Word Representations in Vector Space"
 
-Examples of foundational_works:
-- "diffusion models" -> ["DDPM", "Denoising Diffusion Probabilistic Models", "score-based generative models"]
-- "transformer architecture" -> ["Attention Is All You Need", "BERT", "GPT"]
-- "reinforcement learning" -> ["Q-learning", "policy gradient", "DQN"]
-- "word embeddings" -> ["Word2Vec", "GloVe"]
+Examples of foundational_works (use FULL TITLES like these):
+- "diffusion models" -> ["Denoising Diffusion Probabilistic Models", "Score-Based Generative Modeling through Stochastic Differential Equations", "Deep Unsupervised Learning using Nonequilibrium Thermodynamics"]
+- "transformer architecture" -> ["Attention Is All You Need", "BERT Pre-training of Deep Bidirectional Transformers for Language Understanding", "Language Models are Few-Shot Learners"]
+- "reinforcement learning" -> ["Playing Atari with Deep Reinforcement Learning", "Proximal Policy Optimization Algorithms", "Human-level control through deep reinforcement learning", "Policy Gradient Methods for Reinforcement Learning with Function Approximation"]
+- "capsule networks" -> ["Dynamic Routing Between Capsules", "Matrix Capsules with EM Routing", "Transforming Auto-Encoders"]
+- "transfer learning" -> ["How transferable are features in deep neural networks", "A Survey on Transfer Learning", "Domain Adaptation for Object Recognition"]
+- "LLM alignment" -> ["Training language models to follow instructions with human feedback", "Learning to summarize from human feedback", "Constitutional AI Harmlessness from AI Feedback"]
 
 Query: {query_text}"""
 
