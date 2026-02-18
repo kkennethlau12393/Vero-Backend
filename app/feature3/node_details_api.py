@@ -38,6 +38,7 @@ def get_engine() -> Engine:
 def get_node_details_endpoint(
     map_id: UUID,
     work_id: str,
+    include_novelty: bool = False,
     include_timeline: bool = False,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
@@ -45,10 +46,12 @@ def get_node_details_endpoint(
     """
     Get detailed pop-up information for a node in the citation map.
 
-    Returns metadata (title, year, authors, etc.), an LLM-generated summary,
-    extracted keywords, novelty assessment, and connected works.
+    By default returns lightweight metadata only (title, year, authors, venue,
+    abstract, connected works, access info). No LLM call.
 
     Args:
+        include_novelty: If True, runs the LLM-based novelty assessment
+            (summary, keywords, grounding papers). Triggered by user action.
         include_timeline: If True, includes a temporal timeline showing
             references, landmarks, and citing papers grouped by era.
     """
@@ -58,6 +61,7 @@ def get_node_details_endpoint(
             tenant_id=tenant_id,
             map_id=map_id,
             work_id=work_id,
+            include_novelty=include_novelty,
             include_timeline=include_timeline,
         )
     except PermissionError as e:
