@@ -558,10 +558,10 @@ CREATE INDEX IF NOT EXISTS idx_paper_full_text_fetched
     ON public.paper_full_text_cache (fetched_at DESC);
 
 -- ==========================================================================
--- Tenant settings (institutional access configuration)
+-- Workspace settings (institutional access configuration)
 -- ==========================================================================
-CREATE TABLE IF NOT EXISTS public.tenant_settings (
-    tenant_id uuid PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS public.workspace_settings (
+    workspace_id uuid PRIMARY KEY,
     institutional_proxy_prefix text,  -- e.g. 'https://proxy.university.edu/login?url='
     libkey_api_key text,              -- Optional Third Iron LibKey API key
     libkey_library_id text,           -- Optional LibKey library ID

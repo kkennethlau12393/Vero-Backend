@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.engine import Engine
 
-from app.auth.tenant import get_tenant_id
+from app.auth.tenant import get_workspace_id
 from app.db import make_engine
 from app.feature1.citation_map_service import build_citation_map
 from app.feature1.pdf_parser import extract_metadata_from_pdf
@@ -27,7 +27,7 @@ def get_engine() -> Engine:
 def build_citation_map_endpoint(
     req: CitationMapRequest,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ):
     """
     Build a citation graph around a seed paper.
@@ -63,7 +63,7 @@ def build_citation_map_endpoint(
     try:
         return build_citation_map(
             engine,
-            tenant_id=tenant_id,
+            tenant_id=workspace_id,
             request=req,
         )
     except ValueError as e:
@@ -81,7 +81,7 @@ async def build_citation_map_from_pdf(
     total_nodes: int | None = None,
     create_graph_draft: bool = True,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ):
     """
     Build a citation graph from an uploaded PDF file.
@@ -124,7 +124,7 @@ async def build_citation_map_from_pdf(
                     total_nodes=total_nodes,
                     create_graph_draft=create_graph_draft,
                 )
-                return build_citation_map(engine, tenant_id=tenant_id, request=req)
+                return build_citation_map(engine, tenant_id=workspace_id, request=req)
             except ValueError:
                 # ArXiv DOI not found in OpenAlex/S2 — fall back to title
                 if not title:
@@ -145,7 +145,7 @@ async def build_citation_map_from_pdf(
             total_nodes=total_nodes,
             create_graph_draft=create_graph_draft,
         )
-        return build_citation_map(engine, tenant_id=tenant_id, request=req)
+        return build_citation_map(engine, tenant_id=workspace_id, request=req)
 
     except HTTPException:
         raise

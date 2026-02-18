@@ -6,7 +6,7 @@ from uuid import UUID
 from app.db import make_engine
 from app.feature2.schemas import BuildMapRequest, BuildMapResponse, MapRenderResponse
 from app.feature2.maps_service import build_map, get_map_render_payload
-from app.auth.tenant import get_tenant_id  # <-- keep this import
+from app.auth.tenant import get_workspace_id
 
 from functools import lru_cache
 from typing import Optional
@@ -23,12 +23,12 @@ def get_engine() -> Engine:
 def build_map_endpoint(
     req: BuildMapRequest,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ):
     try:
         result = build_map(
             engine,
-            tenant_id=tenant_id,
+            tenant_id=workspace_id,
             graph_draft_id=req.graph_draft_id,
             connector_score_mode=req.connector_score_mode,
             layout_mode=req.layout_mode,
@@ -60,12 +60,12 @@ def get_map_endpoint(
     map_id: UUID,
     group_by: Optional[str] = None,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ):
     try:
         return get_map_render_payload(
             engine,
-            tenant_id=tenant_id,
+            tenant_id=workspace_id,
             map_id=map_id,
             group_by=group_by,
         )

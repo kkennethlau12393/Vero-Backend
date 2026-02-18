@@ -15,7 +15,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.engine import Engine
 
-from app.auth.tenant import get_tenant_id
+from app.auth.tenant import get_workspace_id
 from app.db import make_engine
 from app.feature3.node_details_service import get_node_details
 from app.feature3.schemas import NodeDetailsResponse
@@ -40,7 +40,7 @@ def get_node_details_endpoint(
     work_id: str,
     include_timeline: bool = False,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ):
     """
     Get detailed pop-up information for a node in the citation map.
@@ -55,7 +55,7 @@ def get_node_details_endpoint(
     try:
         return get_node_details(
             engine,
-            tenant_id=tenant_id,
+            tenant_id=workspace_id,
             map_id=map_id,
             work_id=work_id,
             include_timeline=include_timeline,

@@ -49,13 +49,24 @@ def results_dir() -> Path:
 
 
 @pytest.fixture(scope="session")
-def dev_tenant_id() -> UUID:
-    return UUID(os.getenv("DEV_TENANT_ID", "00000000-0000-0000-0000-000000000001"))
+def dev_workspace_id() -> UUID:
+    return UUID(
+        os.getenv(
+            "DEV_WORKSPACE_ID",
+            os.getenv("DEV_TENANT_ID", "00000000-0000-0000-0000-000000000001"),
+        )
+    )
 
 
 @pytest.fixture(scope="session")
-def auth_headers(dev_tenant_id) -> dict[str, str]:
-    return {"X-Tenant-Id": str(dev_tenant_id)}
+def dev_tenant_id(dev_workspace_id: UUID) -> UUID:
+    """Legacy alias fixture for compatibility during migration."""
+    return dev_workspace_id
+
+
+@pytest.fixture(scope="session")
+def auth_headers(dev_workspace_id) -> dict[str, str]:
+    return {"X-Workspace-Id": str(dev_workspace_id)}
 
 
 @pytest.fixture(scope="session")

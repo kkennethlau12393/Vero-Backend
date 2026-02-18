@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from sqlalchemy.engine import Engine
 
 from app.db import make_engine
-from app.auth.tenant import get_tenant_id
+from app.auth.tenant import get_workspace_id
 from app.feature2.schemas import (
     BreakthroughAnalysis,
     BreakthroughPaper,
@@ -91,7 +91,7 @@ class DirectQueryRankRequest(BaseModel):
 def direct_rank_endpoint(
     req: DirectQueryRankRequest,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ):
     """Handle a direct ranking request using the production pipeline.
 
@@ -124,7 +124,7 @@ def direct_rank_endpoint(
         # Invoke the production ranking pipeline
         result = direct_rank_prod(
             engine,
-            tenant_id=tenant_id,
+            tenant_id=workspace_id,
             query_text=query_text,
             context_json=context_json,
             filters_json=filters_json,
@@ -176,7 +176,7 @@ DRILL_DOWN_LLM_CAP = 30  # Balance speed and coverage
 def drill_down_endpoint(
     req: DrillDownRequest,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ):
     """Lightweight ranking for subtopic drill-down.
 
@@ -214,7 +214,7 @@ def drill_down_endpoint(
 
         result = direct_rank_prod(
             engine,
-            tenant_id=tenant_id,
+            tenant_id=workspace_id,
             query_text=req.query_text,
             context_json={},
             filters_json={},
@@ -245,7 +245,7 @@ def drill_down_endpoint(
 def generate_subtopics_endpoint(
     rank_job_id: UUID,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ):
     """
     Generate subtopics for a broad query's ranked results.
@@ -317,7 +317,7 @@ def get_temporal_map_endpoint(
     subtopic_id: Optional[str] = None,
     include_analytics: bool = False,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ):
     """
     Get a temporal map of ranked results grouped by era (decade).

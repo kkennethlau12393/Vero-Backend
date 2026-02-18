@@ -10,7 +10,7 @@ from uuid import UUID
 import pytest
 from dotenv import load_dotenv
 
-# Load .env from repo root so DATABASE_URL / DEV_TENANT_ID are available
+# Load .env from repo root so DATABASE_URL / DEV_WORKSPACE_ID are available
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env", override=True)
 
 
@@ -46,15 +46,24 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
 # Auth helpers
 # ---------------------------------------------------------------------------
 @pytest.fixture()
-def dev_tenant_id() -> UUID:
-    val = os.getenv("DEV_TENANT_ID", "00000000-0000-0000-0000-000000000001")
+def dev_workspace_id() -> UUID:
+    val = os.getenv(
+        "DEV_WORKSPACE_ID",
+        os.getenv("DEV_TENANT_ID", "00000000-0000-0000-0000-000000000001"),
+    )
     return UUID(val)
 
 
 @pytest.fixture()
-def auth_headers(dev_tenant_id: UUID) -> dict[str, str]:
+def dev_tenant_id(dev_workspace_id: UUID) -> UUID:
+    """Legacy alias fixture for compatibility during migration."""
+    return dev_workspace_id
+
+
+@pytest.fixture()
+def auth_headers(dev_workspace_id: UUID) -> dict[str, str]:
     """Headers that satisfy the dev auth stub."""
-    return {"X-Tenant-Id": str(dev_tenant_id)}
+    return {"X-Workspace-Id": str(dev_workspace_id)}
 
 
 # ---------------------------------------------------------------------------

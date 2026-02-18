@@ -13,7 +13,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.engine import Engine
 
-from app.auth.tenant import get_tenant_id
+from app.auth.tenant import get_workspace_id
 from app.db import make_engine
 from app.feature4.compare_service import compare_methodologies
 from app.feature4.schemas import MethodologyCompareRequest, MethodologyComparisonResponse
@@ -37,13 +37,13 @@ def compare_methodologies_endpoint(
     map_id: str,
     req: MethodologyCompareRequest,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ):
     """Compare methodologies of 2-4 papers from a citation map."""
     try:
         result = compare_methodologies(
             engine=engine,
-            tenant_id=tenant_id,
+            tenant_id=workspace_id,
             map_id=map_id,
             work_ids=req.work_ids,
         )

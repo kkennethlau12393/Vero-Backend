@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from app.auth.tenant import get_tenant_id
+from app.auth.tenant import get_workspace_id
 from app.db import make_engine
 from app.feature5.coverage_tracker import get_gap_analysis_status, track_feature_usage
 from app.feature5.gap_service import get_cached_gap_analysis, run_gap_analysis
@@ -28,12 +28,12 @@ def get_engine() -> Engine:
     return make_engine()
 
 
-def verify_map_ownership(engine: Engine, map_id: UUID, tenant_id: UUID) -> None:
-    """Verify that the map belongs to the requesting tenant."""
+def verify_map_ownership(engine: Engine, map_id: UUID, workspace_id: UUID) -> None:
+    """Verify that the map belongs to the requesting workspace."""
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT map_id FROM maps WHERE map_id = :map_id AND tenant_id = :tenant_id"),
-            {"map_id": map_id, "tenant_id": tenant_id},
+            text("SELECT map_id FROM maps WHERE map_id = :map_id AND tenant_id = :workspace_id"),
+            {"map_id": map_id, "workspace_id": workspace_id},
         ).first()
         if not row:
             raise HTTPException(status_code=404, detail="Map not found")
@@ -43,7 +43,7 @@ def verify_map_ownership(engine: Engine, map_id: UUID, tenant_id: UUID) -> None:
 def get_gap_analysis_status_endpoint(
     map_id: UUID,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ) -> GapAnalysisStatus:
     """
     Check if gap analysis is unlocked for a map.
@@ -52,7 +52,7 @@ def get_gap_analysis_status_endpoint(
     The gap analysis button should be enabled when unlocked=true.
     """
     try:
-        verify_map_ownership(engine, map_id, tenant_id)
+        verify_map_ownership(engine, map_id, workspace_id)
         status = get_gap_analysis_status(engine, map_id)
         return status
     except HTTPException:
@@ -67,7 +67,7 @@ def run_gap_analysis_endpoint(
     map_id: UUID,
     force_refresh: bool = False,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ) -> GapAnalysisResponse:
     """
     Run gap analysis on a map.
@@ -87,7 +87,7 @@ def run_gap_analysis_endpoint(
         GapAnalysisResponse with detected and validated research gaps
     """
     try:
-        verify_map_ownership(engine, map_id, tenant_id)
+        verify_map_ownership(engine, map_id, workspace_id)
 
         # Check if unlocked
         status = get_gap_analysis_status(engine, map_id)
@@ -97,16 +97,16 @@ def run_gap_analysis_endpoint(
                 detail=f"Gap analysis not unlocked. {status.message}",
             )
 
-        # Check for cached results (with tenant filtering)
+        # Check for cached results (with workspace filtering)
         if not force_refresh:
-            cached = get_cached_gap_analysis(engine, map_id, tenant_id=tenant_id)
+            cached = get_cached_gap_analysis(engine, map_id, tenant_id=workspace_id)
             if cached:
                 logger.info(f"Returning cached gap analysis for map {map_id}")
                 return cached
 
         # Run full analysis
         logger.info(f"Running gap analysis for map {map_id}")
-        result = run_gap_analysis(engine, map_id, tenant_id)
+        result = run_gap_analysis(engine, map_id, workspace_id)
         return result
 
     except HTTPException:
@@ -122,7 +122,7 @@ def run_gap_analysis_endpoint(
 def get_gap_analysis_results_endpoint(
     map_id: UUID,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ) -> Optional[GapAnalysisResponse]:
     """
     Get cached gap analysis results for a map.
@@ -130,8 +130,8 @@ def get_gap_analysis_results_endpoint(
     Returns None if no analysis has been run yet.
     """
     try:
-        verify_map_ownership(engine, map_id, tenant_id)
-        return get_cached_gap_analysis(engine, map_id, tenant_id=tenant_id)
+        verify_map_ownership(engine, map_id, workspace_id)
+        return get_cached_gap_analysis(engine, map_id, tenant_id=workspace_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -145,7 +145,7 @@ def track_feature_usage_endpoint(
     feature_type: str,
     work_id: Optional[str] = None,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
+    workspace_id: UUID = Depends(get_workspace_id),
 ) -> dict:
     """
     Track feature usage for coverage calculation.
@@ -185,7 +185,7 @@ def track_feature_usage_endpoint(
         )
 
     try:
-        verify_map_ownership(engine, map_id, tenant_id)
+        verify_map_ownership(engine, map_id, workspace_id)
 
         with engine.connect() as conn:
             track_feature_usage(
