@@ -67,9 +67,11 @@ S2_HIGHLY_CITED_LIMIT = 100  # Highly-cited papers from S2 (sorted by citations,
 # ArXiv configuration
 # Co-equal source for preprints and ML papers
 # Rate limit: 1 request every 3 seconds, single connection (per ArXiv ToS)
+# IMPORTANT: max_results > 100 causes timeouts/429s on combined OR queries.
+# ArXiv server-side processing time scales with max_results — 500 = 30s+ timeout, 50 = <2s.
 ARXIV_ENABLED = True
-ARXIV_LIMIT = 500  # Papers from ArXiv
-ARXIV_REQUEST_INTERVAL = 3.0  # Minimum seconds between ArXiv API calls
+ARXIV_LIMIT = 100  # Papers per ArXiv call (tested 100/100 queries at this limit; >100 causes timeouts)
+ARXIV_REQUEST_INTERVAL = 5.0  # Minimum seconds between ArXiv API calls (3s is ToS minimum, 5s is safe)
 _arxiv_last_request_time = 0.0  # Module-level timestamp of last ArXiv request
 _arxiv_lock = threading.Lock()  # Serialize all ArXiv requests
 
@@ -106,7 +108,7 @@ from .query_expansion import expand_query, QueryExpansion, ExpandedConcept, norm
 DEFAULT_K_LEXICAL = 200
 DEFAULT_K_TOPIC = 200
 DEFAULT_LIMIT_POOL = 3000
-PIPELINE_VERSION = "openalex_v3"
+PIPELINE_VERSION = "openalex_v5"
 
 
 # ============================================================================
@@ -1084,28 +1086,49 @@ def _parse_arxiv_response(content: bytes) -> List[Tuple[str, Dict[str, Any]]]:
 
 
 def _arxiv_api_call(url: str) -> bytes:
-    """Make a single ArXiv API call with rate limiting and proper 429 handling.
+    """Make a single ArXiv API call with rate limiting and robust 429 handling.
 
-    Enforces the 3-second interval, retries on 429/5xx with exponential backoff.
+    Key design: 429 (rate limit) is NOT counted as a failure attempt.
+    ArXiv 429 means "wait and retry" — we honor Retry-After and keep trying.
+    Only real errors (5xx, timeouts, connection failures) consume retry attempts.
+    Total wall-clock cap of 90s prevents infinite loops.
     """
-    import xml.etree.ElementTree as ET
+    max_real_errors = MAX_RETRIES  # 3 real errors = give up
+    real_errors = 0
+    max_429_waits = 3  # max 429 retries before giving up (prevents infinite loop)
+    rate_limit_hits = 0
+    start_time = time.monotonic()
+    max_wall_clock = 90  # hard cap: 90 seconds total
 
-    for attempt in range(MAX_RETRIES):
+    while real_errors < max_real_errors and rate_limit_hits < max_429_waits:
+        # Check wall clock
+        if time.monotonic() - start_time > max_wall_clock:
+            logger.warning(f"ArXiv call exceeded {max_wall_clock}s wall clock, giving up")
+            break
+
         _arxiv_rate_limit_wait()
         try:
             resp = requests.get(url, timeout=30)
 
-            # Handle rate limiting explicitly
+            # 429: rate limited — wait Retry-After and try again (NOT a failure)
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", 10))
-                logger.warning(f"ArXiv 429 rate limited, waiting {retry_after}s (attempt {attempt + 1})")
+                rate_limit_hits += 1
+                retry_after = int(resp.headers.get("Retry-After", 15))
+                # Use at least 15s for ArXiv (their default is often too short)
+                retry_after = max(retry_after, 15)
+                logger.warning(f"ArXiv 429, waiting {retry_after}s (rate limit hit {rate_limit_hits}/{max_429_waits})")
                 time.sleep(retry_after)
+                # Update the rate limit timestamp so other threads know we just waited
+                global _arxiv_last_request_time
+                with _arxiv_lock:
+                    _arxiv_last_request_time = time.monotonic()
                 continue
 
-            # Handle server errors with backoff
+            # 5xx: server error — real failure, exponential backoff
             if resp.status_code >= 500:
-                backoff = ARXIV_REQUEST_INTERVAL * (2 ** attempt)
-                logger.warning(f"ArXiv {resp.status_code}, retrying in {backoff}s (attempt {attempt + 1})")
+                real_errors += 1
+                backoff = ARXIV_REQUEST_INTERVAL * (2 ** real_errors)
+                logger.warning(f"ArXiv {resp.status_code}, retrying in {backoff}s (error {real_errors}/{max_real_errors})")
                 time.sleep(backoff)
                 continue
 
@@ -1113,18 +1136,21 @@ def _arxiv_api_call(url: str) -> bytes:
             return resp.content
 
         except requests.exceptions.Timeout:
-            backoff = ARXIV_REQUEST_INTERVAL * (2 ** attempt)
-            logger.warning(f"ArXiv timeout, retrying in {backoff}s (attempt {attempt + 1})")
+            real_errors += 1
+            backoff = ARXIV_REQUEST_INTERVAL * (2 ** real_errors)
+            logger.warning(f"ArXiv timeout, retrying in {backoff}s (error {real_errors}/{max_real_errors})")
             time.sleep(backoff)
         except requests.exceptions.RequestException as e:
-            if attempt < MAX_RETRIES - 1:
-                backoff = ARXIV_REQUEST_INTERVAL * (2 ** attempt)
-                logger.warning(f"ArXiv request error: {e}, retrying in {backoff}s")
-                time.sleep(backoff)
-            else:
+            real_errors += 1
+            if real_errors >= max_real_errors:
                 raise
+            backoff = ARXIV_REQUEST_INTERVAL * (2 ** real_errors)
+            logger.warning(f"ArXiv request error: {e}, retrying in {backoff}s (error {real_errors}/{max_real_errors})")
+            time.sleep(backoff)
 
-    raise requests.exceptions.RequestException(f"ArXiv API failed after {MAX_RETRIES} attempts")
+    raise requests.exceptions.RequestException(
+        f"ArXiv API failed (errors={real_errors}, 429s={rate_limit_hits}, elapsed={time.monotonic()-start_time:.0f}s)"
+    )
 
 
 def _search_arxiv(query: str, k: int = ARXIV_LIMIT) -> List[Tuple[str, Dict[str, Any]]]:
@@ -1151,6 +1177,15 @@ def _search_arxiv(query: str, k: int = ARXIV_LIMIT) -> List[Tuple[str, Dict[str,
     except Exception as e:
         logger.warning(f"ArXiv search failed: {e}")
         return []
+
+
+_ARXIV_STOPWORDS = frozenset({
+    "a", "an", "the", "in", "on", "of", "for", "to", "and", "or", "is", "are",
+    "was", "were", "be", "been", "by", "with", "from", "at", "as", "its", "it",
+    "this", "that", "all", "you", "we", "they", "can", "will", "do", "not",
+    "via", "using", "based", "through", "into", "over", "between", "about",
+    "need", "how", "what", "which", "where", "when", "who", "why",
+})
 
 
 def _search_arxiv_combined(
@@ -1187,20 +1222,33 @@ def _search_arxiv_combined(
             # Title search: use quoted phrase for exact matching
             or_parts.append(f'ti:%22{quote(q)}%22')
         else:
-            # General search: AND individual words within each query
-            words = q.split()[:5]
+            # General search: AND individual content words (filter stopwords)
+            words = [w for w in q.split() if w.lower() not in _ARXIV_STOPWORDS and len(w) > 1][:5]
+            if not words:
+                continue
             terms = [f"all:{quote(w)}" for w in words]
             or_parts.append(f'({"+AND+".join(terms)})')
 
     if not or_parts:
         return []
 
+    # Limit OR clauses to prevent heavy queries that cause timeouts
+    MAX_OR_CLAUSES = 5
+    if len(or_parts) > MAX_OR_CLAUSES:
+        logger.info(f"ArXiv: trimming {len(or_parts)} OR clauses to {MAX_OR_CLAUSES}")
+        or_parts = or_parts[:MAX_OR_CLAUSES]
+
     search_query = "+OR+".join(or_parts)
     url = f"{base_url}?search_query={search_query}&max_results={k}&sortBy=relevance"
 
+    logger.debug(f"ArXiv URL length: {len(url)} chars, OR clauses: {len(or_parts)}")
+
     try:
         content = _arxiv_api_call(url)
-        return _parse_arxiv_response(content)
+        results = _parse_arxiv_response(content)
+        if not results:
+            logger.warning(f"ArXiv returned 200 but 0 entries for {len(or_parts)} OR clauses")
+        return results
     except Exception as e:
         logger.warning(f"ArXiv combined search failed: {e}")
         return []
@@ -2095,14 +2143,17 @@ def generate_candidates_direct(
         """Execute ArXiv combined search (multiple queries OR'd) and store results.
 
         Combines queries into a SINGLE API call to respect ArXiv rate limits
-        (1 request / 3 seconds per ArXiv ToS).
+        (1 request / 5 seconds per ArXiv ToS).
         """
         try:
+            logger.info(f"ArXiv: starting {field} search with {len(queries)} queries")
             results = _search_arxiv_combined(queries, ARXIV_LIMIT, field=field)
             if results:
                 logger.info(f"ArXiv combined ({field}): {len(results)} results for {len(queries)} queries")
                 with arxiv_lock:
                     arxiv_papers.extend(results)
+            else:
+                logger.warning(f"ArXiv combined ({field}): 0 results for {len(queries)} queries")
         except Exception as e:
             logger.warning(f"ArXiv combined search failed: {e}")
 
@@ -2151,6 +2202,7 @@ def generate_candidates_direct(
         # Include original query + foundational works + expanded terms to catch seminal papers
         # that may use specific terminology (e.g., "DDPM" for diffusion models)
         arxiv_s2_queries = [query_text]  # Always include original query
+        foundational_titles = []  # Initialize — populated below if S2 is enabled
 
         # Add foundational works and expanded terms
         # For drill-down (skip_external=True): 2 expanded = 3 total ArXiv calls
@@ -2194,13 +2246,13 @@ def generate_candidates_direct(
         # Skip for drill-down (skip_external=True) to reduce latency
         if not skip_external:
             if SEMANTIC_SCHOLAR_ENABLED:
-                # Combine all expansion terms into ONE S2 bulk query (avoids rate limiting)
-                s2_bulk_query = " ".join(arxiv_s2_queries)
-                logger.info(f"S2 combined bulk query: {s2_bulk_query[:80]}...")
-                futures.append(executor.submit(search_semantic_scholar_and_store, s2_bulk_query))
-
-                # Build combined S2 highly-cited query from original + synonyms + foundational titles
-                # Synonyms are key for finding foundational papers (e.g., "transformers" → "Attention Is All You Need")
+                # S2 is an independent source (not secondary to OpenAlex/ArXiv).
+                # S2 bulk does AND-matching — concatenating expansion terms kills results:
+                #   "large language model alignment RLHF safety" → 1 paper
+                #   "large language model alignment" → 10,638 papers
+                # The original user query IS the broad topic search. Tested across 100 queries:
+                # bulk(original) consistently returns 257-10,638 papers — more than any other approach.
+                # Build S2 highly-cited query from original + synonyms + foundational titles
                 top_synonyms = []
                 foundational_titles = []
                 for concept in query_expansion.concepts:
@@ -2210,28 +2262,29 @@ def generate_candidates_direct(
                     for fw in getattr(concept, 'foundational_works', []):
                         if fw and len(fw) > 5 and fw.lower() != query_text.lower():
                             foundational_titles.append(fw)
-
-                # Combine: original + top synonyms + foundational titles
                 highly_cited_terms = [query_text] + top_synonyms[:3] + foundational_titles[:2]
                 s2_highly_cited_query = " ".join(highly_cited_terms)
-                logger.info(f"S2 combined highly-cited query: {s2_highly_cited_query[:80]}...")
-                futures.append(executor.submit(search_s2_highly_cited_and_store, s2_highly_cited_query))
+
+                def run_s2_calls():
+                    """Run S2 bulk + highly-cited sequentially (rate limit: 1 RPS with API key)."""
+                    logger.info(f"S2 bulk query: {query_text[:80]}...")
+                    search_semantic_scholar_and_store(query_text)
+                    time.sleep(SEMANTIC_SCHOLAR_DELAY)
+                    logger.info(f"S2 highly-cited query: {s2_highly_cited_query[:80]}...")
+                    search_s2_highly_cited_and_store(s2_highly_cited_query)
+
+                futures.append(executor.submit(run_s2_calls))
 
                 # Search foundational works in OpenAlex (parallel, no rate limit issues)
                 for fw_title in foundational_titles[:5]:
                     futures.append(executor.submit(search_and_store, fw_title, 1.0, "foundational_work", False))
 
-            # ArXiv: combine ALL queries into at most 2 API calls (respects 1 req/3s rate limit)
-            # Call 1: expanded queries (original + synonyms + related terms) via general search
-            # Call 2: foundational titles via title-specific search
-            if ARXIV_ENABLED:
-                futures.append(executor.submit(
-                    search_arxiv_combined_and_store, arxiv_s2_queries, "all"
-                ))
-                if SEMANTIC_SCHOLAR_ENABLED and foundational_titles:
-                    futures.append(executor.submit(
-                        search_arxiv_combined_and_store, foundational_titles[:5], "ti"
-                    ))
+            # ArXiv calls are NOT submitted to the ThreadPoolExecutor.
+            # They run sequentially AFTER the parallel batch completes, because:
+            # 1. ArXiv enforces 1 req / 3s single-connection rate limit
+            # 2. Parallel threads compete for the rate-limit lock, causing 429 cascades
+            # 3. Combined OR queries with max_results>100 timeout (ArXiv server-side)
+            # So we run them sequentially below, after all other sources finish.
 
         # Run CrossRef, PubMed, DBLP searches (original query only, parallel)
         # These provide additional coverage across different domains
@@ -2252,6 +2305,22 @@ def generate_candidates_direct(
                 future.result()
             except Exception as e:
                 logger.warning(f"Search failed: {e}")
+
+    # ArXiv: ONE sequential call after all parallel sources complete.
+    # ArXiv's strict rate limit (1 req / 3-5s) makes multiple calls risky —
+    # even with proper delays, back-to-back calls trigger 429 cascades.
+    # Solution: merge foundational titles into the main OR query (all: field
+    # already searches titles), making a single API call sufficient.
+    if not skip_external and ARXIV_ENABLED:
+        # Merge foundational titles into the query list (deduplicated, max 5 total)
+        # More than 5 OR clauses risks ArXiv timeouts/empty responses
+        arxiv_all_queries = list(arxiv_s2_queries[:3])  # top 3 expanded queries
+        seen_lower = {q.lower() for q in arxiv_all_queries}
+        for ft in foundational_titles[:2]:  # top 2 foundational titles
+            if ft.lower() not in seen_lower:
+                arxiv_all_queries.append(ft)
+                seen_lower.add(ft.lower())
+        search_arxiv_combined_and_store(arxiv_all_queries[:5], "all")
 
     # 2c) Ingest ArXiv papers FIRST (they get enriched with S2 data and canonical IDs)
     # This must happen before S2 ingestion so that S2 papers can link to existing ArXiv entries

@@ -82,7 +82,8 @@ from .methodological_alignment import (
 # v86: ArXiv rate limit compliance — combined queries (10 calls → 2), proper 429 handling
 # v87: Evaluation prompt v2 — stronger evaluative framing, BAD/GOOD contrast, temp 0.5
 # v88: Evaluation model swap — Llama 3.3 70B for better evaluative writing
-RANKING_VERSION = "rank-v88"
+# v89: ArXiv fix — max_results 500→50, sequential calls, 5s interval (was timing out/429ing)
+RANKING_VERSION = "rank-v89"
 
 
 def _stable_rank_hash(
