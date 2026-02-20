@@ -142,6 +142,35 @@ def title_word_overlap(title1: str, title2: str) -> float:
     return len(intersection) / len(union)
 
 
+# Stop words that inflate overlap between unrelated paper titles
+_TITLE_STOP_WORDS = frozenset({
+    "a", "an", "the", "in", "of", "and", "or", "to", "for", "with",
+    "on", "by", "from", "as", "at", "is", "are", "was", "were", "be",
+    "its", "their", "this", "that", "via", "using", "based", "new",
+})
+
+
+def content_word_overlap(title1: str, title2: str) -> float:
+    """
+    Calculate Jaccard similarity using only content words (no stop words).
+
+    More accurate than title_word_overlap for detecting topical relevance
+    because stop words like "in", "a", "the" don't indicate shared topic.
+
+    Returns: 0.0-1.0 (1.0 = identical content word sets)
+    """
+    words1 = set(normalize_title(title1).split()) - _TITLE_STOP_WORDS
+    words2 = set(normalize_title(title2).split()) - _TITLE_STOP_WORDS
+
+    if not words1 or not words2:
+        return 0.0
+
+    intersection = words1 & words2
+    union = words1 | words2
+
+    return len(intersection) / len(union)
+
+
 def title_similarity(title1: str, title2: str) -> float:
     """
     Calculate similarity between two titles using multiple methods.

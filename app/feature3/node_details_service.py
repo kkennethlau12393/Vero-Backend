@@ -25,6 +25,7 @@ from app.feature3.abstract_enrichment import ensure_valid_abstract
 from app.feature3.grounding_supplement import supplement_grounding_papers, get_field_from_topic_id
 from app.feature3.methodology import get_methodology, is_methodology_mismatch
 from app.feature3.json_utils import extract_json_from_llm_response
+from app.feature3.paper_identity import title_word_overlap, content_word_overlap
 from app.feature3.landmark_retrieval import get_topic_landmarks
 from app.feature3.node_timeline import build_node_timeline
 from app.feature3.reference_store import get_referenced_works
@@ -53,7 +54,7 @@ MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Bump this when model OR prompt changes to auto-invalidate cached assessments
-ASSESSMENT_VERSION = "maverick-v4"
+ASSESSMENT_VERSION = "maverick-v9"
 
 
 def get_cached_details(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
@@ -464,7 +465,7 @@ Key question: Did the field fundamentally change how it operates AFTER this pape
             ref_year = ref.get("year") or "?"
             ref_category = ref.get("category", "")
             category_label = f" [{ref_category}]" if ref_category else ""
-            ref_abstract = _truncate_text(ref.get("abstract") or "", 100)
+            ref_abstract = _truncate_text(ref.get("abstract") or "", 350)
             refs_lines.append(
                 f"{i}. [{ref.get('work_id')}]{category_label} {ref_title} ({ref_year})"
             )
@@ -486,7 +487,7 @@ Key question: Did the field fundamentally change how it operates AFTER this pape
             lm_cites = lm.get("cited_by_count") or 0
             lm_category = lm.get("category", "")
             category_label = f" [{lm_category}]" if lm_category else ""
-            lm_abstract = _truncate_text(lm.get("abstract") or "", 100)
+            lm_abstract = _truncate_text(lm.get("abstract") or "", 350)
             landmark_lines.append(
                 f"{i}. [{lm.get('work_id')}]{category_label} {lm_title} ({lm_year}, {lm_cites:,} citations)"
             )
@@ -723,7 +724,7 @@ def generate_node_details_llm(
                     continue
                 break
 
-            return _validate_llm_response(result, referenced_works, landmarks, target_work_id)
+            return _validate_llm_response(result, referenced_works, landmarks, target_work_id, target_title=title)
         except Exception as e:
             logger.warning(f"LLM call exception: {e}")
             error_str = str(e).lower()
@@ -885,7 +886,19 @@ def _filter_cross_domain_papers(
             )
             return True
 
-        # OpenAlex papers without topic_id - keep them (might be very old papers)
+        # OpenAlex papers without topic_id (often very old papers)
+        # Use content-word overlap as fallback — if no overlap, likely unrelated
+        # Uses stop-word-free overlap so "in", "a", "the" don't create false matches
+        paper_title = paper.get("title", "")
+        if target_title and paper_title:
+            overlap = content_word_overlap(target_title, paper_title)
+            if overlap < 0.05:  # Near-zero content overlap = unrelated field
+                logger.info(
+                    f"Excluding unrelated old paper (overlap={overlap:.2f}): "
+                    f"'{paper_title[:50]}...' vs target '{target_title[:50]}...'"
+                )
+                return True
+
         return False
 
     # First pass: strict subfield filtering
@@ -903,10 +916,14 @@ def _filter_cross_domain_papers(
             key=lambda x: x.get("cited_by_count", 0),
             reverse=True
         )
-        # Only keep OpenAlex refs (work_id starts with W), exclude S2/ArXiv
-        openalex_refs = [r for r in sorted_refs if r.get("work_id", "").startswith("W")]
+        # Only keep OpenAlex refs with SOME keyword overlap to target
+        # (prevents re-adding clearly unrelated papers like Brownian Motion)
+        openalex_refs = [
+            r for r in sorted_refs
+            if r.get("work_id", "").startswith("W")
+            and (not target_title or content_word_overlap(target_title, r.get("title", "")) >= 0.05)
+        ]
         if openalex_refs:
-            # Take top MIN_REFS_AFTER_FILTER regardless of field
             filtered_refs = openalex_refs[:max(MIN_REFS_AFTER_FILTER, len(filtered_refs))]
             logger.info(
                 f"Cross-domain fallback: strict filter left {len([r for r in referenced_works if not is_cross_domain(r)])} refs, "
@@ -931,6 +948,7 @@ def _validate_llm_response(
     referenced_works: List[Dict[str, Any]],
     landmarks: List[Dict[str, Any]],
     target_work_id: Optional[str] = None,
+    target_title: str = "",
 ) -> Dict[str, Any]:
     """Validate and normalize the LLM response.
 
@@ -1066,6 +1084,51 @@ def _validate_llm_response(
             f"Have {len(grounding_papers)}, filtered_refs={len(filtered_refs)}, filtered_landmarks={len(filtered_landmarks)}. "
             f"Accepting fewer to avoid cross-domain contamination."
         )
+
+    # POST-ASSEMBLY FILTER: Remove grounding papers with boilerplate relevance
+    # that have no real connection to the target paper.
+    # Uses content_word_overlap (stop words removed) for accurate topical comparison.
+    # Two tiers:
+    #   - Zero content overlap + boilerplate → ALWAYS remove (clearly wrong, e.g., Brownian Motion)
+    #   - Low content overlap + boilerplate → remove only if above minimum count
+    if target_title:
+        clearly_irrelevant = []
+        borderline_boilerplate = []
+        real_papers = []
+        for gp in grounding_papers:
+            relevance = gp.get("relevance", "")
+            gp_title = gp.get("title", "")
+            is_boilerplate = (
+                relevance.startswith("Cited by this paper for its contribution:")
+                or relevance.startswith("Contributed key advances (")
+                or relevance.startswith("Introduced early methods (")
+            )
+            if is_boilerplate:
+                overlap = content_word_overlap(target_title, gp_title) if gp_title else 0
+                if overlap < 0.05:
+                    # Zero content overlap + boilerplate = clearly wrong field, always remove
+                    clearly_irrelevant.append(gp)
+                    logger.info(
+                        f"Removing clearly irrelevant grounding paper (content_overlap={overlap:.3f}): "
+                        f"'{gp_title[:60]}'"
+                    )
+                    continue
+                elif overlap < 0.10:
+                    # Low content overlap + boilerplate = borderline, remove if above minimum
+                    borderline_boilerplate.append(gp)
+                    continue
+            real_papers.append(gp)
+
+        # Always remove clearly irrelevant (even if it drops below minimum)
+        grounding_papers = real_papers + borderline_boilerplate
+
+        # Remove borderline boilerplate if we'd still have enough
+        if len(real_papers) >= MIN_GROUNDING:
+            grounding_papers = real_papers
+            if borderline_boilerplate:
+                logger.info(f"Also removed {len(borderline_boilerplate)} borderline boilerplate papers")
+        if clearly_irrelevant:
+            logger.info(f"Removed {len(clearly_irrelevant)} clearly irrelevant grounding papers")
 
     # Handle None values for pioneering works (LLM may return null for whats_new/compared_to_prior_work)
     novelty_assessment = {

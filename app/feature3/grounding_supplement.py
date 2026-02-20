@@ -878,7 +878,10 @@ def search_semantic_scholar_by_keywords(
     fields_of_study: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Search Semantic Scholar for highly-cited papers by keywords.
+    Search Semantic Scholar using bulk endpoint with retry logic.
+
+    Uses the same bulk endpoint as Feature 1/2 retrieval for better results
+    and proper pagination. Falls back to regular endpoint on 400 errors.
 
     Args:
         search_terms: Keywords to search for
@@ -893,91 +896,181 @@ def search_semantic_scholar_by_keywords(
     if not search_terms or len(search_terms) < 5:
         return []
 
-    S2_RATE_LIMITER.wait()
+    headers = {}
+    s2_api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
+    if s2_api_key:
+        headers["x-api-key"] = s2_api_key
 
+    # Use bulk endpoint (same as F1/F2) — better pagination and results
+    url = "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
+    params = {
+        "query": search_terms[:200],
+        "fields": "title,abstract,year,citationCount,externalIds,s2FieldsOfStudy",
+        "limit": min(1000, limit * 3),
+    }
+    if fields_of_study:
+        params["fieldsOfStudy"] = ",".join(fields_of_study)
+
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            S2_RATE_LIMITER.wait()
+            resp = requests.get(url, params=params, headers=headers, timeout=EXTERNAL_API_TIMEOUT)
+
+            # 400 = query too broad for bulk, fall back to regular endpoint
+            if resp.status_code == 400:
+                logger.info("S2 bulk returned 400, falling back to regular search")
+                return _search_s2_regular(
+                    search_terms, before_year, existing_titles, limit, fields_of_study, headers
+                )
+
+            # 429 = rate limited, retry with exponential backoff (like F1/F2)
+            if resp.status_code == 429:
+                if attempt < MAX_RETRIES:
+                    backoff = 2 ** (attempt + 1)
+                    logger.info(f"S2 bulk rate limited (429), retry {attempt+1}/{MAX_RETRIES} after {backoff}s")
+                    time.sleep(backoff)
+                    continue
+                logger.warning("S2 bulk rate limited, all retries exhausted")
+                return []
+
+            resp.raise_for_status()
+            data = resp.json()
+
+            return _filter_s2_results(
+                data.get("data", []), before_year, existing_titles, limit, fields_of_study
+            )
+
+        except requests.exceptions.RequestException as e:
+            if attempt < MAX_RETRIES:
+                backoff = RETRY_BACKOFF * (2 ** attempt)
+                logger.warning(f"S2 bulk search error: {e}, retrying in {backoff}s")
+                time.sleep(backoff)
+                continue
+            logger.warning(f"S2 bulk search failed after retries: {e}")
+            return []
+        except Exception as e:
+            logger.warning(f"S2 bulk search unexpected error: {e}")
+            return []
+
+    return []
+
+
+def _search_s2_regular(
+    search_terms: str,
+    before_year: int,
+    existing_titles: set,
+    limit: int = 5,
+    fields_of_study: Optional[List[str]] = None,
+    headers: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    """Fallback to regular S2 search endpoint when bulk returns 400."""
     try:
+        S2_RATE_LIMITER.wait()
         url = "https://api.semanticscholar.org/graph/v1/paper/search"
         params = {
             "query": search_terms[:100],
-            "limit": limit * 3,  # Request more to filter
+            "limit": min(100, limit * 3),
             "fields": "title,abstract,year,citationCount,externalIds,s2FieldsOfStudy",
-            "year": f"-{before_year - 1}",  # Papers up to before_year - 1
+            "year": f"-{before_year - 1}",
         }
         if fields_of_study:
             params["fieldsOfStudy"] = ",".join(fields_of_study)
 
-        # Use API key if available (reduces rate limiting)
-        headers = {}
-        s2_api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
-        if s2_api_key:
-            headers["x-api-key"] = s2_api_key
-
-        resp = requests.get(url, params=params, headers=headers, timeout=EXTERNAL_API_TIMEOUT)
+        resp = requests.get(url, params=params, headers=headers or {}, timeout=EXTERNAL_API_TIMEOUT)
         if resp.status_code == 429:
-            logger.warning("Semantic Scholar rate limited (429)")
+            logger.warning("S2 regular search rate limited (429)")
             return []
         resp.raise_for_status()
 
         data = resp.json()
-        papers = []
-
-        for paper in data.get("data", []):
-            if len(papers) >= limit:
-                break
-
-            paper_title = paper.get("title", "")
-            if not paper_title or paper_title.lower() in existing_titles:
-                continue
-
-            # Require some citations for landmarks (lowered threshold for older papers)
-            citation_count = paper.get("citationCount", 0)
-            if citation_count < 30:
-                continue
-
-            # CRITICAL: Validate paper's actual field matches requested fields
-            # S2 API filter does keyword matching, not strict field membership
-            if fields_of_study:
-                paper_fields = paper.get("s2FieldsOfStudy", [])
-                paper_field_names = {f.get("category", "").lower() for f in paper_fields if f.get("category")}
-                requested_lower = {f.lower() for f in fields_of_study}
-                # Require at least one requested field to match
-                if not paper_field_names.intersection(requested_lower):
-                    logger.debug(
-                        f"Skipping S2 paper '{paper_title[:40]}...' - "
-                        f"fields {paper_field_names} don't match {requested_lower}"
-                    )
-                    continue
-
-            # Get OpenAlex-style work_id from external IDs if available
-            external_ids = paper.get("externalIds", {})
-            work_id = None
-
-            # Try to get DOI and construct OpenAlex-style ID
-            doi = external_ids.get("DOI")
-            if doi:
-                # We'll need to resolve this to OpenAlex work_id later
-                work_id = f"S2:{paper.get('paperId', '')}"  # Temporary S2 ID
-            else:
-                work_id = f"S2:{paper.get('paperId', '')}"
-
-            papers.append({
-                "work_id": work_id,
-                "title": paper_title,
-                "year": paper.get("year"),
-                "cited_by_count": citation_count,
-                "abstract": paper.get("abstract"),
-                "relationship": "field_landmark",
-                "why_relevant": "Highly-cited foundational paper (via Semantic Scholar)",
-                "doi": doi,  # Store for potential OpenAlex resolution
-            })
-            existing_titles.add(paper_title.lower())
-
-        logger.info(f"Semantic Scholar search found {len(papers)} highly-cited papers")
-        return papers
-
+        return _filter_s2_results(
+            data.get("data", []), before_year, existing_titles, limit, fields_of_study
+        )
     except Exception as e:
-        logger.warning(f"Semantic Scholar search error: {e}")
+        logger.warning(f"S2 regular search error: {e}")
         return []
+
+
+def _filter_s2_results(
+    raw_papers: List[Dict[str, Any]],
+    before_year: int,
+    existing_titles: set,
+    limit: int,
+    fields_of_study: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Filter and format S2 API results into grounding paper format."""
+    papers = []
+
+    for paper in raw_papers:
+        if len(papers) >= limit:
+            break
+
+        paper_title = paper.get("title", "")
+        if not paper_title or paper_title.lower() in existing_titles:
+            continue
+
+        citation_count = paper.get("citationCount", 0)
+        if citation_count < 30:
+            continue
+
+        paper_year = paper.get("year")
+        if paper_year and paper_year >= before_year:
+            continue
+
+        # Validate paper's actual field matches requested fields
+        if fields_of_study:
+            paper_fields = paper.get("s2FieldsOfStudy", [])
+            paper_field_names = {f.get("category", "").lower() for f in paper_fields if f.get("category")}
+            requested_lower = {f.lower() for f in fields_of_study}
+            if not paper_field_names.intersection(requested_lower):
+                logger.debug(
+                    f"Skipping S2 paper '{paper_title[:40]}...' - "
+                    f"fields {paper_field_names} don't match {requested_lower}"
+                )
+                continue
+
+        # Extract OpenAlex ID from externalIds (like F1 pattern)
+        external_ids = paper.get("externalIds", {}) or {}
+        openalex_id = external_ids.get("OpenAlex")
+        doi = external_ids.get("DOI")
+        paper_id = paper.get("paperId", "")
+
+        work_id = openalex_id if openalex_id else f"S2:{paper_id}"
+
+        papers.append({
+            "work_id": work_id,
+            "title": paper_title,
+            "year": paper_year,
+            "cited_by_count": citation_count,
+            "abstract": paper.get("abstract"),
+            "relationship": "field_landmark",
+            "why_relevant": "Highly-cited foundational paper (via Semantic Scholar)",
+            "doi": doi,
+        })
+        existing_titles.add(paper_title.lower())
+
+    logger.info(f"Semantic Scholar search found {len(papers)} highly-cited papers")
+    return papers
+
+
+def _map_s2_fields_to_arxiv_category(fields_of_study: Optional[List[str]]) -> Optional[str]:
+    """Map S2 field names to ArXiv category prefixes for filtering."""
+    if not fields_of_study:
+        return None
+    mapping = {
+        "computer science": "cs",
+        "mathematics": "math",
+        "physics": "physics",
+        "statistics": "stat",
+        "quantitative biology": "q-bio",
+        "quantitative finance": "q-fin",
+        "electrical engineering": "eess",
+    }
+    for field in fields_of_study:
+        cat = mapping.get(field.lower())
+        if cat:
+            return cat
+    return None
 
 
 def search_arxiv_by_keywords(
@@ -988,7 +1081,7 @@ def search_arxiv_by_keywords(
     category: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Search ArXiv for papers by keywords.
+    Search ArXiv for papers by keywords with 429 retry handling.
 
     Best for: CS, Physics, Math, Statistics papers.
 
@@ -997,85 +1090,101 @@ def search_arxiv_by_keywords(
         before_year: Only return papers published before this year
         existing_titles: Titles to exclude
         limit: Maximum papers to return
-        category: Optional ArXiv category (e.g., "cs.LG", "stat.ML")
+        category: Optional ArXiv category (e.g., "cs.LG", "cs", "stat.ML")
     """
     if not search_terms or len(search_terms) < 5:
         return []
 
-    ARXIV_RATE_LIMITER.wait()
+    import re
 
-    try:
-        import re
+    # Build search query with category filter
+    search_query = f"all:{search_terms}"
+    if category:
+        search_query = f"cat:{category} AND {search_query}"
 
-        # Build search query
-        search_query = f"all:{search_terms}"
-        if category:
-            search_query = f"cat:{category} AND {search_query}"
+    url = "https://export.arxiv.org/api/query"
+    params = {
+        "search_query": search_query,
+        "max_results": min(50, limit * 3),  # Cap at 50 to avoid ArXiv timeouts (F2 lesson)
+        "sortBy": "relevance",
+    }
 
-        url = "https://export.arxiv.org/api/query"
-        params = {
-            "search_query": search_query,
-            "max_results": limit * 3,
-            "sortBy": "relevance",
-        }
+    # Retry loop with 429 handling (like F2 pattern)
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            ARXIV_RATE_LIMITER.wait()
+            resp = requests.get(url, params=params, timeout=EXTERNAL_API_TIMEOUT)
 
-        resp = requests.get(url, params=params, timeout=EXTERNAL_API_TIMEOUT)
-        resp.raise_for_status()
+            # 429: rate limited — wait and retry (ArXiv frequently returns these)
+            if resp.status_code == 429:
+                if attempt < MAX_RETRIES:
+                    retry_after = int(resp.headers.get("Retry-After", 15))
+                    retry_after = max(retry_after, 10)  # At least 10s for ArXiv
+                    logger.warning(f"ArXiv 429, waiting {retry_after}s (attempt {attempt+1}/{MAX_RETRIES})")
+                    time.sleep(retry_after)
+                    continue
+                logger.warning("ArXiv rate limited, all retries exhausted")
+                return []
 
-        content = resp.text
-        papers = []
+            resp.raise_for_status()
 
-        # Parse Atom XML response
-        entries = re.findall(r'<entry>(.*?)</entry>', content, re.DOTALL)
+            content = resp.text
+            papers = []
+            entries = re.findall(r'<entry>(.*?)</entry>', content, re.DOTALL)
 
-        for entry in entries:
-            if len(papers) >= limit:
-                break
+            for entry in entries:
+                if len(papers) >= limit:
+                    break
 
-            # Extract title
-            title_match = re.search(r'<title[^>]*>(.*?)</title>', entry, re.DOTALL)
-            if not title_match:
+                title_match = re.search(r'<title[^>]*>(.*?)</title>', entry, re.DOTALL)
+                if not title_match:
+                    continue
+                paper_title = title_match.group(1).strip()
+                paper_title = re.sub(r'\s+', ' ', paper_title)
+
+                if paper_title.lower() in existing_titles:
+                    continue
+
+                published_match = re.search(r'<published>(\d{4})', entry)
+                year = int(published_match.group(1)) if published_match else None
+
+                if year and year >= before_year:
+                    continue
+
+                abstract_match = re.search(r'<summary[^>]*>(.*?)</summary>', entry, re.DOTALL)
+                abstract = abstract_match.group(1).strip() if abstract_match else None
+
+                id_match = re.search(r'<id>https?://arxiv\.org/abs/([^<]+)</id>', entry)
+                arxiv_id = id_match.group(1) if id_match else None
+
+                papers.append({
+                    "work_id": f"ArXiv:{arxiv_id}" if arxiv_id else "ArXiv:unknown",
+                    "title": paper_title,
+                    "year": year,
+                    "cited_by_count": 0,  # ArXiv doesn't provide citation counts
+                    "abstract": abstract,
+                    "relationship": "field_landmark",
+                    "why_relevant": "Related foundational paper (via ArXiv)",
+                    "arxiv_id": arxiv_id,
+                })
+                existing_titles.add(paper_title.lower())
+
+            logger.info(f"ArXiv search found {len(papers)} papers")
+            return papers
+
+        except requests.exceptions.RequestException as e:
+            if attempt < MAX_RETRIES:
+                backoff = RETRY_BACKOFF * (2 ** attempt)
+                logger.warning(f"ArXiv search error: {e}, retrying in {backoff}s")
+                time.sleep(backoff)
                 continue
-            paper_title = title_match.group(1).strip()
-            paper_title = re.sub(r'\s+', ' ', paper_title)  # Normalize whitespace
+            logger.warning(f"ArXiv search failed after retries: {e}")
+            return []
+        except Exception as e:
+            logger.warning(f"ArXiv search error: {e}")
+            return []
 
-            if paper_title.lower() in existing_titles:
-                continue
-
-            # Extract year from published date
-            published_match = re.search(r'<published>(\d{4})', entry)
-            year = int(published_match.group(1)) if published_match else None
-
-            # Filter by year
-            if year and year >= before_year:
-                continue
-
-            # Extract abstract
-            abstract_match = re.search(r'<summary[^>]*>(.*?)</summary>', entry, re.DOTALL)
-            abstract = abstract_match.group(1).strip() if abstract_match else None
-
-            # Extract arxiv ID
-            id_match = re.search(r'<id>https?://arxiv\.org/abs/([^<]+)</id>', entry)
-            arxiv_id = id_match.group(1) if id_match else None
-
-            papers.append({
-                "work_id": f"ArXiv:{arxiv_id}" if arxiv_id else f"ArXiv:unknown",
-                "title": paper_title,
-                "year": year,
-                "cited_by_count": 0,  # ArXiv doesn't provide citation counts
-                "abstract": abstract,
-                "relationship": "field_landmark",
-                "why_relevant": "Related foundational paper (via ArXiv)",
-                "arxiv_id": arxiv_id,
-            })
-            existing_titles.add(paper_title.lower())
-
-        logger.info(f"ArXiv search found {len(papers)} papers")
-        return papers
-
-    except Exception as e:
-        logger.warning(f"ArXiv search error: {e}")
-        return []
+    return []
 
 
 def resolve_paper_to_openalex(
@@ -1195,14 +1304,17 @@ def fetch_papers_multi_source(
             logger.warning(f"Semantic Scholar search error: {e}")
 
     def search_arxiv():
-        """Search ArXiv (for technical topics)."""
+        """Search ArXiv (for technical topics) with category filter."""
         try:
             local_titles = existing_titles.copy()
+            # Derive ArXiv category from S2 fields (e.g., Computer Science → "cs")
+            arxiv_cat = _map_s2_fields_to_arxiv_category(fields_of_study)
             results = search_arxiv_by_keywords(
                 search_terms=search_terms,
                 before_year=before_year,
                 existing_titles=local_titles,
                 limit=limit,
+                category=arxiv_cat,
             )
             if results:
                 with arxiv_lock:
