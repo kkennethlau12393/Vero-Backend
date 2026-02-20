@@ -22,6 +22,65 @@ import math
 from collections import defaultdict
 
 
+def reciprocal_rank_fusion(
+    *rank_lists: Dict[str, float],
+    k: int = 60,
+) -> Dict[str, float]:
+    """Combine multiple ranked lists using Reciprocal Rank Fusion.
+
+    RRF(paper) = Σ 1/(k + rank_i(paper)) for each ranker i.
+
+    Papers must be consistently good across all signals to rank high.
+    If one ranker ranks a paper #1 but others rank it #50+, RRF demotes it.
+    No single ranker can dominate — natural protection against LLM errors.
+
+    Parameters
+    ----------
+    rank_lists : variable number of Dict[str, float]
+        Each dict maps paper_id to a raw score from one ranker.
+        Scores are only used for ordering (converted to ranks internally).
+    k : int
+        Smoothing constant (default 60, standard in literature).
+        Higher k reduces the influence of top-ranked items.
+
+    Returns
+    -------
+    Dict[str, float]
+        Combined RRF scores for all papers across all rankers.
+    """
+    if not rank_lists:
+        return {}
+
+    all_paper_ids: set = set()
+    for scores in rank_lists:
+        all_paper_ids.update(scores.keys())
+
+    if not all_paper_ids:
+        return {}
+
+    num_rankers = len(rank_lists)
+    total_papers = len(all_paper_ids)
+
+    # For each ranker, sort papers by score descending and assign ranks
+    ranker_ranks: List[Dict[str, int]] = []
+    for scores in rank_lists:
+        sorted_papers = sorted(scores.keys(), key=lambda p: -scores.get(p, 0.0))
+        ranks = {pid: rank for rank, pid in enumerate(sorted_papers, start=1)}
+        ranker_ranks.append(ranks)
+
+    # Compute RRF score for each paper
+    rrf_scores: Dict[str, float] = {}
+    for pid in all_paper_ids:
+        rrf = 0.0
+        for ranks in ranker_ranks:
+            # Papers not in a ranker's list get worst rank
+            rank = ranks.get(pid, total_papers + 1)
+            rrf += 1.0 / (k + rank)
+        rrf_scores[pid] = rrf
+
+    return rrf_scores
+
+
 def mmr_diversify(
     scored: List[Tuple[str, float]],
     embeddings: Dict[str, List[float]],
@@ -239,6 +298,7 @@ def assemble_ranked_results(
     years: Optional[Dict[str, int]] = None,
     subfields: Optional[Dict[str, str]] = None,
     impact_scores: Optional[Dict[str, float]] = None,
+    precomputed_scores: Optional[Dict[str, float]] = None,
 ) -> List[Dict[str, Any]]:
     """Combine features into final scores, diversify and produce ranking items.
 
@@ -247,9 +307,10 @@ def assemble_ranked_results(
     candidate_ids : list of str
         Work IDs in the candidate pool.
     features : dict of feature_name -> dict work_id -> value
-        Normalised feature values.
+        Normalised feature values (used for breakdown display).
     weights : dict of feature_name -> float
         Weight for each feature; missing keys default to 0.
+        Ignored when precomputed_scores is provided.
     k : int
         Number of results to return.
     tfidf_vectors : dict work_id -> TF-IDF vector (sparse dict)
@@ -266,6 +327,9 @@ def assemble_ranked_results(
         Used for paradigm diversity in MMR (spread across sub-topics).
     impact_scores : dict work_id -> normalized impact score, optional
         High-impact papers get reduced diversity penalties.
+    precomputed_scores : dict work_id -> float, optional
+        Pre-computed combined scores (e.g. from RRF). If provided, skips
+        the weighted sum computation and uses these directly.
 
     Returns
     -------
@@ -274,19 +338,23 @@ def assemble_ranked_results(
     """
     from .tfidf_similarity import mmr_diversify_tfidf, dedupe_by_title_similarity
 
-    # Compute raw combined score (weighted sum of features)
+    # Use precomputed scores (RRF) or fall back to weighted sum
     combined: Dict[str, float] = {}
-    for wid in candidate_ids:
-        score = 0.0
-        for fname, fvals in features.items():
-            weight = weights.get(fname, 0.0)
-            score += weight * fvals.get(wid, 0.0)
-        combined[wid] = score
+    if precomputed_scores is not None:
+        for wid in candidate_ids:
+            combined[wid] = precomputed_scores.get(wid, 0.0)
+    else:
+        for wid in candidate_ids:
+            score = 0.0
+            for fname, fvals in features.items():
+                weight = weights.get(fname, 0.0)
+                score += weight * fvals.get(wid, 0.0)
+            combined[wid] = score
     # Sort by combined score then by work_id for determinism
     ordered = sorted(combined.items(), key=lambda kv: (-kv[1], kv[0]))
     # Dedupe similar titles before MMR (keeps highest-scored per title cluster)
     titles = {wid: p.title for wid, p in previews.items() if p and p.title}
-    ordered = dedupe_by_title_similarity(ordered, titles, threshold=0.5)
+    ordered = dedupe_by_title_similarity(ordered, titles, threshold=0.4)
     # Apply diversification using TF-IDF similarity with temporal and paradigm diversity
     diversified_ids = mmr_diversify_tfidf(
         ordered,
