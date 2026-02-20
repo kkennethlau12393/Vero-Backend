@@ -11,17 +11,18 @@ tests/
 ├── fixtures/                # saved API/LLM responses for mocking
 │   ├── groq_responses/      # saved Groq LLM scoring responses
 │   ├── api_responses/       # saved OpenAlex/S2/ArXiv responses
-│   └── seed_data.py         # factory functions for test papers
+│   ├── seed_data.py         # factory functions for test papers (F1/F2)
+│   ├── citation_map_responses.py  # F1 mock responses
+│   └── novelty_responses.py       # F3 mock responses + factory functions
 ├── unit/                    # pure logic, no DB, no network (<5s)
 ├── integration/             # uses dev DB, mocks external APIs (~30s)
-├── quality/                 # ranking regression tests (~1-2min)
-│   └── golden/              # snapshot baselines
+├── quality/                 # regression tests (~1-2min)
+│   └── golden/              # snapshot baselines (F2 + F3)
 └── live/                    # REAL API tests — burns credits! (~5-15min)
     ├── conftest.py          # live-only fixtures, no mocks, real DB + APIs
     ├── results/             # saved JSON results for manual review
-    ├── test_retrieval_quality.py   # Stage-1 retrieval volume & diversity
-    ├── test_prompt_quality.py      # LLM scoring tier accuracy
-    └── test_ranking_e2e.py         # Full /v1/rank endpoint benchmarks
+    ├── novelty_assessment_rubric.md  # F3 100-point scoring rubric
+    └── TESTED_QUERIES.md    # benchmark query/paper tracker
 ```
 
 ### Rules
@@ -50,6 +51,13 @@ tests/
 - `tests/live/test_ranking_e2e.py`, `test_retrieval_quality.py`, `test_prompt_quality.py`, `test_new_queries_batch.py`
 - `tests/fixtures/groq_responses/`, `tests/fixtures/api_responses/`, `tests/fixtures/seed_data.py`
 
+**Feature 3 (Novelty Assessment):**
+- `tests/unit/test_paper_identity.py`, `test_json_utils.py`, `test_methodology.py`, `test_node_timeline.py`, `test_paper_impact.py`, `test_node_details_logic.py`, `test_abstract_validation.py`, `test_grounding_needs.py`
+- `tests/integration/test_node_details.py`, `test_novelty_pipeline.py`
+- `tests/quality/test_novelty_quality.py`
+- `tests/live/test_novelty_e2e.py`, `test_novelty_grounding.py`
+- `tests/fixtures/novelty_responses.py`
+
 **If a test file already exists for a feature, use it. Do not create alternatives, copies, or "v2" files. Keep the codebase clean.**
 
 ### Running Tests — Feature 2 (Ranking)
@@ -73,6 +81,23 @@ pytest tests/quality/test_citation_map_quality.py -v   # before shipping (~30s)
 pytest tests/live/test_citation_map_e2e.py -v -s --timeout=300          # full e2e
 pytest tests/live/test_seed_selection_quality.py -v -s --timeout=300     # seed quality
 pytest tests/live/test_citation_map_e2e.py -k "transformers" -v -s      # single query
+```
+
+### Running Tests — Feature 3 (Novelty Assessment)
+```bash
+# Unit tests (~0.3s)
+pytest tests/unit/test_paper_identity.py tests/unit/test_json_utils.py tests/unit/test_methodology.py tests/unit/test_node_timeline.py tests/unit/test_paper_impact.py tests/unit/test_node_details_logic.py tests/unit/test_abstract_validation.py tests/unit/test_grounding_needs.py -x -v
+
+# Integration tests (~20s)
+pytest tests/integration/test_node_details.py tests/integration/test_novelty_pipeline.py -x -v
+
+# Quality tests (~15s)
+pytest tests/quality/test_novelty_quality.py -v
+
+# Live tests — BURNS API CREDITS
+pytest tests/live/test_novelty_e2e.py -v -s --timeout=300
+pytest tests/live/test_novelty_grounding.py -v -s --timeout=300
+pytest tests/live/test_novelty_e2e.py -k "attention" -v -s   # single paper
 ```
 
 ### Running All Tests (except live)
@@ -275,6 +300,61 @@ pytest tests/live/test_citation_map_e2e.py -v -s
 
 **Cost**: ~62 test cases × 2-3 API calls = ~150-200 calls per commit. Time: ~15-20 min (5-10 min for tests + 10 min for manual LLM scoring). Essential for quality.
 
+## Novelty Assessment Output Quality Scoring (Feature 3)
+
+After any live test run or novelty pipeline change, score results using `tests/live/novelty_assessment_rubric.md` (100 points total).
+
+### Automated Scoring (35 pts) — computed programmatically on every test run:
+- **Schema Completeness** (5 pts) — all required fields present in response
+- **Grounding Count** (5 pts) — 5-7 grounding papers included
+- **Grounding Mix** (5 pts) — mix of cited_reference + field_landmark, min 3 landmarks
+- **Banned Verb Absence** (5 pts) — no banned verbs in summary/whats_new/explanation/relevance
+- **Novelty Level Valid** (5 pts) — level is one of low/medium/high/pioneering
+- **Work ID Citations** (10 pts) — novelty_explanation cites at least 2 work_ids [W...]
+
+### LLM-Judged Scoring (65 pts) — use your own knowledge/judgement to evaluate:
+- **Novelty Accuracy** (20 pts) — is the novelty level correct for this paper?
+- **Summary Quality** (15 pts) — definitive, contribution-focused, no hedging
+- **Grounding Relevance** (15 pts) — are grounding papers topically relevant, not noise?
+- **Explanation Specificity** (10 pts) — technical claims with cited work_ids, not generic
+- **Structural Completeness** (5 pts) — whats_new, compared_to_prior_work, explanation all meaningful
+
+### When to Score
+- After changing the novelty LLM prompt or decision tree (Q0-Q3)
+- After changing `ASSESSMENT_VERSION` (cache invalidation)
+- After changing grounding supplement logic or cross-domain filtering
+- Before shipping a new version
+
+### Feature 3 Unique Testing Aspects
+
+These differ from F1/F2 and are important to understand:
+
+1. **Dual rubric system**: 10-point grading spec (`docs/novelty_assessment_grading_spec.md`) for iteration + 100-point rubric (`tests/live/novelty_assessment_rubric.md`) for regression testing
+2. **Iteration tracker**: `.claude/novelty_iteration_tracker.md` tracks consecutive passes against the 10-point spec
+3. **Banned verb enforcement**: Post-LLM scrubbing of hedging verbs (explores, discusses, examines, etc.) — unit tested in `test_node_details_logic.py`
+4. **Grounding paper constraints**: 5-7 papers, mix of cited_reference + field_landmark, min 3 landmarks, no self-citation
+5. **Cross-domain filtering**: Methodology-based filtering (6 categories: neural_network, ensemble_tree, kernel_svm, graph_network, optimization, bayesian) prevents irrelevant papers
+6. **Q0-Q3 decision tree**: Novelty classification follows sequential questions (review? → software? → new framework? → improvement?)
+7. **LLM cache versioning**: `ASSESSMENT_VERSION = "maverick-v4"` — bumping invalidates all cached assessments
+8. **Hybrid mocking**: Feature 3 uses `requests` (6 modules) + `httpx` (topic_lookup.py) + `OpenAI` client (3 modules). Integration tests use `unittest.mock.patch` for all three
+9. **Live test nodes from existing maps**: Live test benchmark papers can be found in existing citation maps or rank jobs — no need to create new maps
+
 ## Scoring & Iteration
 
 When iterating on a feature, score it against the relevant **grading rubric .md** file if one exists. Use Ralph Wiggum loops with the **test spec .md** for consistent iteration.
+
+### ⚠️ Eliminating Confirmation Bias in Scoring
+
+**CRITICAL: The agent performing a fix MUST NOT inflate scores after making changes.**
+
+When you make a fix and then rescore:
+- You are both the fixer and the judge. This creates confirmation bias.
+- LLM-based scoring is non-deterministic — the same results can score differently each time.
+- "Fix → rescore → report improvement" is not trustworthy unless the improvement is **objectively verifiable**.
+
+**Rules:**
+1. **Never claim a score improved unless the underlying data objectively changed** (e.g., a previously missing paper now appears, a duplicate was removed, a new category was populated).
+2. **Prompt engineering is not a reliable fix.** LLM prompt tweaks may appear to work on one run and fail on the next. Only count prompt changes as fixes if they pass **3 consecutive independent test runs** with consistent improvement.
+3. **Prefer deterministic fixes over LLM-based fixes.** Code-level guardrails (keyword overlap thresholds, title-based category detection, score capping) are reliable. LLM prompt changes are not.
+4. **When reporting scores after a change, explicitly flag which dimensions changed and why.** Don't just report a new total — show what moved and whether the movement is deterministic or could be noise.
+5. **If the user retests days later and scores drop, the "fix" didn't work.** Do not blame non-determinism — fix the actual problem with deterministic code.

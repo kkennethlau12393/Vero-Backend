@@ -103,6 +103,85 @@
 
 ---
 
+## Feature 3: Novelty Assessment Benchmark Papers
+
+### E2E Benchmark Papers (36)
+
+| ID | Work ID | Paper | Domain | Novelty Level | Type | Added |
+|---|---|---|---|---|---|---|
+| resnet | W2194775991 | Deep Residual Learning for Image Recognition | CV | pioneering | foundational | 2026-02-20 |
+| imagenet | W2108598243 | ImageNet: A large-scale hierarchical image database | CV | pioneering | foundational | 2026-02-19 |
+| faster_rcnn | W639708223 | Faster R-CNN | CV | pioneering | foundational | 2026-02-20 |
+| densenet | W2963446712 | Densely Connected Convolutional Networks | CV | high | foundational | 2026-02-20 |
+| rcnn | W2102605133 | Rich Feature Hierarchies for Object Detection | CV | high | foundational | 2026-02-20 |
+| mask_rcnn | W2963150697 | Mask R-CNN | CV | high | foundational | 2026-02-20 |
+| senet | W2752782242 | Squeeze-and-Excitation Networks | CV | high | foundational | 2026-02-20 |
+| cyclegan | W2962793481 | CycleGAN | CV | high | foundational | 2026-02-20 |
+| selective_search | W2088049833 | Selective Search for Object Recognition | CV | high | foundational | 2026-02-20 |
+| playing_atari_drl | W1757796397 | Playing Atari with Deep Reinforcement Learning | RL | pioneering | foundational | 2026-02-19 |
+| reinforce | W2119717200 | REINFORCE gradient-following algorithms | RL | pioneering | foundational | 2026-02-20 |
+| continuous_control_ddpg | W2963864421 | DDPG: Continuous control with deep RL | RL | high | foundational | 2026-02-19 |
+| dpg | W2165150801 | Deterministic policy gradient algorithms | RL | high | foundational | 2026-02-20 |
+| soft_actor_critic | W2781726626 | Soft Actor-Critic | RL | high | foundational | 2026-02-19 |
+| sac_applications | W2904246096 | Soft Actor-Critic Algorithms and Applications | RL | high | applied | 2026-02-20 |
+| evolution_strategies | W2596367596 | Evolution Strategies as Alternative to RL | RL | high | foundational | 2026-02-20 |
+| visuomotor_policies | W2964161785 | End-to-end training of deep visuomotor policies | robotics | high | foundational | 2026-02-20 |
+| domain_randomization | W2605102758 | Domain randomization for sim-to-real transfer | robotics | high | foundational | 2026-02-20 |
+| target_driven_nav | W2962887844 | Target-driven visual navigation using deep RL | robotics | high | foundational | 2026-02-20 |
+| robotic_grasps | W1999156278 | Deep learning for detecting robotic grasps | robotics | high | foundational | 2026-02-20 |
+| drl_robotic_manipulation | W2575705757 | DRL for robotic manipulation | robotics | high | applied | 2026-02-20 |
+| tactile_glove | W2947434510 | Learning the signatures of the human grasp | robotics | high | foundational | 2026-02-20 |
+| nn_robot_manipulators | W1517236425 | NN Control of Robot Manipulators | robotics | medium | handbook | 2026-02-20 |
+| deep_learning_overview | W2076063813 | Deep learning in neural networks: An overview | CS/ML | medium | review | 2026-02-19 |
+| drl_brief_survey | W3100789280 | Deep Reinforcement Learning: A Brief Survey | RL | medium | review | 2026-02-20 |
+| dnn_tutorial_survey | W2604319603 | Efficient Processing of DNNs: Tutorial and Survey | CS/ML | medium | review | 2026-02-20 |
+| cnn_classification_review | W2622826443 | Deep CNNs for Image Classification: Comprehensive Review | CV | medium | review | 2026-02-20 |
+| rl_robotics_survey | W1977655452 | Reinforcement learning in robotics: A survey | robotics | medium | review | 2026-02-20 |
+| dl_theory_survey | W2919358988 | A State-of-the-Art Survey on DL Theory | CS/ML | medium | review | 2026-02-20 |
+| dl_medical_imaging | W2777186991 | Deep Learning in Medical Image Analysis | medical | medium | review | 2026-02-20 |
+| drl_that_matters | W2754517384 | Deep Reinforcement Learning That Matters | RL | high | benchmark | 2026-02-20 |
+| drl_multiagent_review | W2908261578 | DRL for Multiagent Systems: Review | RL | medium | review | 2026-02-20 |
+| offline_rl_tutorial | W3022566517 | Offline RL: Tutorial, Review, and Perspectives | RL | medium | review | 2026-02-20 |
+| nn_control_survey_1992 | W1969705022 | Neural networks for control systems: A survey | control | medium | review | 2026-02-20 |
+| robotic_surgery | W2077544344 | Robotic Surgery | medical | medium | review | 2026-02-20 |
+| visuomotor_policies_v2 | W2155007355 | End-to-End Training of Deep Visuomotor Policies | robotics | high | foundational | 2026-02-20 |
+
+### Grounding Quality Benchmark Papers (12)
+
+| ID | Work ID | Paper | Focus | Added |
+|---|---|---|---|---|
+| resnet_grounding | W2194775991 | ResNet | CV grounding quality | 2026-02-20 |
+| imagenet_grounding | W2108598243 | ImageNet | CV grounding quality | 2026-02-19 |
+| faster_rcnn_grounding | W639708223 | Faster R-CNN | CV grounding quality | 2026-02-20 |
+| playing_atari_grounding | W1757796397 | Playing Atari | RL grounding quality | 2026-02-19 |
+| cyclegan_grounding | W2962793481 | CycleGAN | CV grounding quality | 2026-02-20 |
+| ddpg_grounding | W2963864421 | DDPG | RL grounding quality | 2026-02-20 |
+| sac_grounding | W2781726626 | SAC | RL grounding quality | 2026-02-20 |
+| visuomotor_grounding | W2964161785 | Visuomotor Policies | Robotics grounding | 2026-02-20 |
+| robotic_grasps_grounding | W1999156278 | Robotic Grasps | Robotics grounding | 2026-02-20 |
+| dl_overview_grounding | W2076063813 | DL Overview | Review grounding | 2026-02-20 |
+| rl_robotics_survey_grounding | W1977655452 | RL in Robotics Survey | Survey grounding | 2026-02-20 |
+| dl_medical_grounding | W2777186991 | DL Medical Imaging | Medical grounding | 2026-02-20 |
+
+### F3 Coverage Summary
+
+**Domains covered:** CV (9), RL (9), robotics (8), CS/ML (4), medical (2), control (1) — 6 domains
+**Novelty levels tested:** pioneering (5), high (18), medium (13) — 3 levels
+**Paper types:** foundational (22), review (11), applied (2), benchmark (1), handbook (1) — 5 types
+**Total unique F3 papers:** 36 (e2e) + 12 (grounding) = 48 test cases
+
+### F3 Gaps — not yet tested:
+- Biology / life sciences papers (CRISPR, AlphaFold)
+- Economics / social science papers
+- Statistics / methodology papers
+- Software tool papers (medium novelty via Q1)
+- Low novelty papers (incremental improvements)
+- Pioneering papers from non-CS domains
+- Papers with missing abstracts (fallback behavior)
+- Papers with no grounding data (assessment unavailable path)
+
+---
+
 ## How to use this file
 
 When generating new test queries, read this file first to:

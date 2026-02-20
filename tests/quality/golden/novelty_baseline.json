@@ -1,0 +1,30 @@
+{
+  "version": "maverick-v4",
+  "created": "2026-02-19",
+  "description": "Golden snapshot for novelty assessment output property invariants",
+  "invariants": {
+    "novelty_levels": ["low", "medium", "high", "pioneering"],
+    "confidence_levels": ["low", "medium", "high"],
+    "min_grounding_papers": 5,
+    "max_grounding_papers": 7,
+    "min_landmarks_in_grounding": 3,
+    "grounding_relationships": ["cited_reference", "field_landmark"],
+    "min_summary_chars": 50,
+    "min_keywords": 3,
+    "banned_verbs": ["explores", "discusses", "examines", "investigates", "assesses", "evaluates", "addresses", "studies", "analyzes", "reviews"]
+  },
+  "type_constraints": {
+    "review": {"max_novelty": "medium"},
+    "software": {"max_novelty": "medium"},
+    "textbook": {"max_novelty": "medium"},
+    "pioneering": {"allows_null_whats_new": true, "allows_null_compared_to": true}
+  },
+  "reference_outputs": {
+    "attention_is_all_you_need": {
+      "expected_novelty_level": "pioneering",
+      "acceptable_alternatives": ["high"],
+      "min_grounding_count": 5,
+      "expected_grounding_domains": ["CS/ML"]
+    }
+  }
+}
