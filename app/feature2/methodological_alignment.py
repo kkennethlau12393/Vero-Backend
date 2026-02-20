@@ -131,6 +131,50 @@ _TEXTBOOK_TITLE_CONTAINS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Title-based review/survey detection
+# ---------------------------------------------------------------------------
+# Deterministic title-pattern detection for papers that are clearly reviews,
+# surveys, or meta-analyses. The LLM may miss these if the abstract doesn't
+# emphasize the review nature. Title patterns are highly reliable.
+_REVIEW_TITLE_PATTERNS = [
+    "a survey of ",
+    "a survey on ",
+    "survey of ",
+    "survey on ",
+    "a review of ",
+    "a review on ",
+    "review of ",
+    "review on ",
+    "a comprehensive survey",
+    "a comprehensive review",
+    "a systematic review",
+    "systematic review of",
+    "systematic review on",
+    "meta-analysis of",
+    "meta-analysis on",
+    "a meta-analysis",
+    ": a survey",
+    ": a review",
+    ": a comprehensive",
+    ": a systematic",
+    "literature review",
+    "state-of-the-art review",
+    "state of the art review",
+    "tutorial on ",
+    "a tutorial on ",
+    ": a tutorial",
+]
+
+
+def is_review_by_title(title: str) -> bool:
+    """Detect review/survey papers by title patterns."""
+    if not title:
+        return False
+    title_lower = f" {title.lower().strip()} "
+    return any(pattern in title_lower for pattern in _REVIEW_TITLE_PATTERNS)
+
+
 def _is_textbook(title: str) -> bool:
     """Detect general textbooks by title patterns."""
     title_lower = title.lower().strip()
@@ -174,9 +218,10 @@ def check_all_domain_conflicts(query_text: str, title: str) -> bool:
     )
 
 
-# Minimum LLM relevance score - papers below this are filtered out
-# Only HIGH (0.75) and ESSENTIAL (0.95) pass; MEDIUM (0.50) means "supports topic" = tangential
-MIN_LLM_RELEVANCE_THRESHOLD = 0.60
+# Minimum LLM relevance score - papers below this are filtered out in categorization
+# With continuous 0-10 scoring (normalized to 0-1): 0.40 = 4/10 = "tangentially related"
+# RRF naturally demotes low-quality papers, so this threshold can be lower
+MIN_LLM_RELEVANCE_THRESHOLD = 0.40
 
 # Category limits - 5 categories
 DEFAULT_CATEGORY_LIMITS = {
@@ -315,10 +360,11 @@ def determine_output_category(
     is_highly_cited = citations >= thresholds.legendary  # Top 15%
 
     # Priority 1: Foundational - top 15% citations + old enough
-    # Require HIGH (0.75+) relevance. With tier scores at 0.50/0.75/0.95,
-    # a threshold of 0.70 effectively requires HIGH or ESSENTIAL.
-    # This prevents MEDIUM-scored off-domain famous papers from being foundational.
-    FOUNDATIONAL_MIN_RELEVANCE = 0.70
+    # With continuous 0-10 scoring: 0.65 = 6.5/10 = between "useful context" and
+    # "directly addresses". Papers scoring 5/10 ("useful context, not primarily about
+    # the query") should NOT be labeled foundational — that lets XGBoost/TensorFlow
+    # into foundational for specialized queries just because they're highly cited.
+    FOUNDATIONAL_MIN_RELEVANCE = 0.65
     if is_highly_cited and is_old_enough and llm_relevance >= FOUNDATIONAL_MIN_RELEVANCE:
         return "foundational"
 
@@ -426,6 +472,11 @@ def partition_results_by_category(
         relevance = llm_data.get("score", 0.0)
         paper_type = llm_data.get("paper_type", "other")
 
+        # Title-based review detection overrides LLM paper_type
+        # Catches reviews/surveys the LLM missed (title is highly reliable)
+        if paper_type != "review" and is_review_by_title(title):
+            paper_type = "review"
+
         # === TEXTBOOK CHECK ===
         # General textbooks get their own category, not mixed with research.
         if _is_textbook(title):
@@ -479,44 +530,18 @@ def partition_results_by_category(
         buckets[category].append(item)
 
     # Sort each bucket and truncate to limits
-    # - Foundational: by LLM relevance first (ESSENTIAL > HIGH), then citations
-    #   This ensures the most relevant papers are at the top, not just most-cited tools
-    # - Methodology/Reviews/Textbooks: by citations (highest first)
-    # - Applications: blended 65% citations + 35% recency (recent applications matter)
+    # ALL categories now sort by RRF score (item["score"]) — the combined relevance
+    # from 4 rankers (BM25, TF-IDF, citation impact, LLM). This ensures papers that
+    # are consistently good across all signals rank higher than papers with a single
+    # strength (e.g., high citations but low topical relevance).
     for category in buckets:
-        if category == "foundational" and buckets[category]:
-            # Sort by LLM relevance tier first, then citations within tier
+        if buckets[category]:
+            # Sort by RRF score (already computed and stored in item["score"])
+            # Papers with higher combined relevance across all 4 rankers rank first.
+            # This replaces the previous citation-only sorting which promoted off-topic
+            # highly-cited papers (e.g., CIFAR-10 for diffusion, MAML for policy gradient).
             buckets[category].sort(
-                key=lambda x: (
-                    llm_scores.get(x.get("work_id"), {}).get("score", 0),
-                    x.get("preview", {}).get("cited_by_count", 0) or 0,
-                ),
-                reverse=True,
-            )
-        elif category == "applications" and buckets[category]:
-            # Compute blended score for applications
-            apps = buckets[category]
-            citations_list = [x.get("preview", {}).get("cited_by_count", 0) or 0 for x in apps]
-            years_list = [x.get("preview", {}).get("year", 2000) or 2000 for x in apps]
-
-            # Min-max normalize
-            cite_min, cite_max = min(citations_list), max(citations_list)
-            year_min, year_max = min(years_list), max(years_list)
-            cite_range = cite_max - cite_min if cite_max > cite_min else 1
-            year_range = year_max - year_min if year_max > year_min else 1
-
-            def app_score(x):
-                cites = x.get("preview", {}).get("cited_by_count", 0) or 0
-                year = x.get("preview", {}).get("year", 2000) or 2000
-                cite_norm = (cites - cite_min) / cite_range
-                year_norm = (year - year_min) / year_range  # Higher year = more recent = higher score
-                return 0.65 * cite_norm + 0.35 * year_norm
-
-            apps.sort(key=app_score, reverse=True)
-        else:
-            # Other categories: sort by citations only
-            buckets[category].sort(
-                key=lambda x: x.get("preview", {}).get("cited_by_count", 0) or 0,
+                key=lambda x: x.get("score", 0),
                 reverse=True,
             )
         buckets[category] = buckets[category][:limits.get(category, 10)]

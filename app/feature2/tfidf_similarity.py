@@ -43,7 +43,7 @@ def jaccard_similarity(set_a: set, set_b: set) -> float:
 def dedupe_by_title_similarity(
     scored: List[Tuple[str, float]],
     titles: Dict[str, str],
-    threshold: float = 0.5,
+    threshold: float = 0.4,
 ) -> List[Tuple[str, float]]:
     """Remove papers with highly similar titles, keeping highest-scored.
 
@@ -56,6 +56,7 @@ def dedupe_by_title_similarity(
     threshold : float
         Jaccard similarity threshold. Papers with similarity >= threshold
         to any already-selected paper are considered duplicates.
+        Default 0.4 catches reformatted titles (e.g., IPCC AR4 variants).
 
     Returns
     -------
@@ -243,6 +244,61 @@ def cosine_similarity_tfidf(
         return 0.0
 
     return dot_product / (mag_a * mag_b)
+
+
+def compute_tfidf_query_similarity(
+    query_text: str,
+    works: Dict[str, WorkForMap],
+    paper_ids: List[str],
+) -> Dict[str, float]:
+    """Compute TF-IDF cosine similarity between query and each paper.
+
+    Embeds the query alongside all papers in the same TF-IDF space, then
+    computes cosine similarity between the query vector and each paper vector.
+    ~200ms for 1000 papers, no API calls.
+
+    Returns raw cosine similarity scores. Caller uses ranks for RRF.
+    """
+    if not paper_ids or not query_text:
+        return {}
+
+    # Tokenize all documents + query
+    all_docs: List[List[str]] = []
+    tokenized_docs: Dict[str, List[str]] = {}
+
+    # Query goes first (index 0)
+    query_tokens = tokenize_text(query_text)
+    all_docs.append(query_tokens)
+
+    for pid in paper_ids:
+        w = works.get(pid)
+        if not w:
+            tokenized_docs[pid] = []
+            all_docs.append([])
+            continue
+        title = w.title or ""
+        abstract = getattr(w, 'abstract', None) or ""
+        text = f"{title} {abstract}"
+        tokens = tokenize_text(text)
+        tokenized_docs[pid] = tokens
+        all_docs.append(tokens)
+
+    # Compute IDF across entire corpus (query + papers)
+    idf = compute_idf(all_docs)
+
+    # Build query TF-IDF vector
+    query_tf = compute_tf(query_tokens)
+    query_vec = {term: tf_val * idf.get(term, 1.0) for term, tf_val in query_tf.items()}
+
+    # Compute similarity for each paper
+    result: Dict[str, float] = {}
+    for pid in paper_ids:
+        tokens = tokenized_docs.get(pid, [])
+        tf = compute_tf(tokens)
+        paper_vec = {term: tf_val * idf.get(term, 1.0) for term, tf_val in tf.items()}
+        result[pid] = cosine_similarity_tfidf(query_vec, paper_vec)
+
+    return result
 
 
 def mmr_diversify_tfidf(

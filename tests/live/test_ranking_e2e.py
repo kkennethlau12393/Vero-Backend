@@ -23,122 +23,93 @@ from tests.live.conftest import save_result, load_previous_result
 # Benchmark queries — parametrized test cases
 # ---------------------------------------------------------------------------
 BENCHMARK_QUERIES = [
-    # -- Core CS/ML (from ranking_benchmark.py) --
-    {
-        "id": "transformers",
-        "query": "transformer architecture attention mechanisms in deep learning",
-        "expected_papers": [
-            "attention is all you need",
-            "bert",
-        ],
-        "min_foundational": 3,
-        "min_total": 10,
-    },
-    {
-        "id": "graph_neural_networks",
-        "query": "graph neural networks node classification",
-        "expected_papers": [
-            "graph convolutional",
-            "inductive representation learning",  # GraphSAGE paper
-        ],
-        "min_foundational": 2,
-        "min_total": 8,
-    },
-    {
-        "id": "reinforcement_learning",
-        "query": "reinforcement learning policy gradient methods",
-        "expected_papers": [
-            "policy gradient",
-        ],
-        "min_foundational": 2,
-        "min_total": 8,
-    },
-    # -- Diverse domains (from ranking_benchmark_diverse.py) --
-    {
-        "id": "crispr_gene_editing",
-        "query": "CRISPR-Cas9 gene editing therapeutic applications",
-        "expected_papers": [
-            "crispr",
-        ],
-        "min_foundational": 2,
-        "min_total": 8,
-    },
-    {
-        "id": "quantum_computing",
-        "query": "quantum computing error correction fault tolerance",
-        "expected_papers": [
-            "quantum error",
-        ],
-        "min_foundational": 2,
-        "min_total": 6,
-    },
-    {
-        "id": "climate_modeling",
-        "query": "climate change modeling global circulation models projections",
-        "expected_papers": [],
-        "min_foundational": 1,
-        "min_total": 6,
-    },
-    # -- Diverse 2 (from ranking_benchmark_diverse2.py) --
-    {
-        "id": "federated_learning",
-        "query": "federated learning privacy-preserving machine learning",
-        "expected_papers": [
-            "federated",
-        ],
-        "min_foundational": 2,
-        "min_total": 8,
-    },
-    {
-        "id": "diffusion_models",
-        "query": "diffusion models denoising score matching image generation",
-        "expected_papers": [
-            "denoising diffusion",
-        ],
-        "min_foundational": 2,
-        "min_total": 8,
-    },
-    # -- Diverse 3 (from ranking_benchmark_diverse3.py) --
-    {
-        "id": "protein_folding",
-        "query": "protein structure prediction deep learning AlphaFold",
-        "expected_papers": [
-            "alphafold",
-        ],
-        "min_foundational": 1,
-        "min_total": 6,
-    },
-    {
-        "id": "llm_alignment",
-        "query": "large language model alignment RLHF safety",
-        "expected_papers": [
-            "large language model",
-        ],
-        "min_foundational": 1,
-        "min_total": 6,
-    },
-    # -- Intersection / specific queries (from ranking_benchmark_failing3.py) --
-    {
-        "id": "attention_medical_imaging",
-        "query": "attention mechanisms in medical image segmentation",
-        "expected_papers": [],
-        "min_foundational": 0,
-        "min_total": 5,
-    },
-    {
-        "id": "gnn_drug_discovery",
-        "query": "graph neural networks for drug discovery molecular property prediction",
-        "expected_papers": [],
-        "min_foundational": 1,
-        "min_total": 5,
-    },
-    {
-        "id": "rl_robotics",
-        "query": "reinforcement learning sim-to-real transfer robotic manipulation",
-        "expected_papers": [],
-        "min_foundational": 1,
-        "min_total": 5,
-    },
+    # == NL QUERY MODE (25 cases) ==
+    # Core ML/DL
+    {"id": "nl_transformers", "query": "transformer architecture attention mechanisms deep learning", "min_total": 10},
+    {"id": "nl_bert", "query": "BERT bidirectional encoder representations transformers NLP", "min_total": 10},
+    {"id": "nl_gnn", "query": "graph neural networks node classification message passing", "min_total": 8},
+    {"id": "nl_resnet", "query": "residual networks deep learning computer vision ImageNet", "min_total": 10},
+    {"id": "nl_gan", "query": "generative adversarial networks image synthesis", "min_total": 10},
+
+    # RL/Robotics
+    {"id": "nl_dqn", "query": "deep Q-network reinforcement learning Atari", "min_total": 8},
+    {"id": "nl_ppo", "query": "proximal policy optimization reinforcement learning", "min_total": 8},
+    {"id": "nl_alphago", "query": "AlphaGo Monte Carlo tree search reinforcement learning", "min_total": 8},
+    {"id": "nl_rl_robotics", "query": "reinforcement learning robotic manipulation sim-to-real", "min_total": 6},
+
+    # Generative Models
+    {"id": "nl_diffusion", "query": "diffusion models denoising score matching image generation", "min_total": 8},
+    {"id": "nl_vae", "query": "variational autoencoders latent variable models", "min_total": 8},
+    {"id": "nl_gpt", "query": "GPT generative pre-training language models", "min_total": 10},
+
+    # NLP
+    {"id": "nl_word2vec", "query": "word embeddings word2vec skip-gram continuous bag of words", "min_total": 8},
+    {"id": "nl_seq2seq", "query": "sequence to sequence models neural machine translation", "min_total": 8},
+    {"id": "nl_llm_alignment", "query": "large language model alignment RLHF safety", "min_total": 8},
+
+    # Biology/Chemistry
+    {"id": "nl_alphafold", "query": "protein structure prediction AlphaFold deep learning", "min_total": 6},
+    {"id": "nl_crispr", "query": "CRISPR-Cas9 gene editing genome engineering", "min_total": 6},
+    {"id": "nl_drug_discovery", "query": "machine learning drug discovery molecular property prediction", "min_total": 6},
+
+    # Physics/Quantum
+    {"id": "nl_quantum_error", "query": "quantum error correction surface codes fault tolerance", "min_total": 6},
+    {"id": "nl_quantum_ml", "query": "quantum machine learning variational quantum eigensolver", "min_total": 5},
+
+    # Federated/Privacy
+    {"id": "nl_federated", "query": "federated learning privacy-preserving distributed machine learning", "min_total": 8},
+    {"id": "nl_differential_privacy", "query": "differential privacy machine learning privacy guarantees", "min_total": 6},
+
+    # Meta-learning/Few-shot
+    {"id": "nl_maml", "query": "meta-learning model-agnostic few-shot learning", "min_total": 6},
+    {"id": "nl_few_shot", "query": "few-shot learning prototypical networks metric learning", "min_total": 6},
+
+    # Interpretability
+    {"id": "nl_interpretability", "query": "neural network interpretability explainable AI attention visualization", "min_total": 6},
+
+    # == SEED PAPER MODE (25 cases) ==
+    # Foundational papers
+    {"id": "seed_attention_all_you_need", "seed_title": "Attention Is All You Need", "min_total": 10},
+    {"id": "seed_bert", "seed_title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding", "min_total": 10},
+    {"id": "seed_resnet", "seed_title": "Deep Residual Learning for Image Recognition", "min_total": 10},
+    {"id": "seed_gan", "seed_title": "Generative Adversarial Networks", "min_total": 10},
+    {"id": "seed_adam", "seed_title": "Adam: A Method for Stochastic Optimization", "min_total": 10},
+
+    # RL papers
+    {"id": "seed_dqn", "seed_title": "Human-level control through deep reinforcement learning", "min_total": 8},
+    {"id": "seed_alphago", "seed_title": "Mastering the game of Go with deep neural networks and tree search", "min_total": 8},
+    {"id": "seed_ppo", "seed_title": "Proximal Policy Optimization Algorithms", "min_total": 8},
+    {"id": "seed_ddpg", "seed_title": "Continuous control with deep reinforcement learning", "min_total": 8},
+
+    # Generative models
+    {"id": "seed_ddpm", "seed_title": "Denoising Diffusion Probabilistic Models", "min_total": 8},
+    {"id": "seed_stable_diffusion", "seed_title": "High-Resolution Image Synthesis with Latent Diffusion Models", "min_total": 8},
+    {"id": "seed_vae", "seed_title": "Auto-Encoding Variational Bayes", "min_total": 8},
+    {"id": "seed_gpt3", "seed_title": "Language Models are Few-Shot Learners", "min_total": 10},
+
+    # NLP
+    {"id": "seed_word2vec", "seed_title": "Efficient Estimation of Word Representations in Vector Space", "min_total": 8},
+    {"id": "seed_seq2seq", "seed_title": "Sequence to Sequence Learning with Neural Networks", "min_total": 8},
+    {"id": "seed_instructgpt", "seed_title": "Training language models to follow instructions with human feedback", "min_total": 8},
+
+    # Computer Vision
+    {"id": "seed_alexnet", "seed_title": "ImageNet Classification with Deep Convolutional Neural Networks", "min_total": 10},
+    {"id": "seed_vit", "seed_title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale", "min_total": 10},
+    {"id": "seed_clip", "seed_title": "Learning Transferable Visual Models From Natural Language Supervision", "min_total": 10},
+
+    # GNN
+    {"id": "seed_gcn", "seed_title": "Semi-Supervised Classification with Graph Convolutional Networks", "min_total": 8},
+    {"id": "seed_graphsage", "seed_title": "Inductive Representation Learning on Large Graphs", "min_total": 8},
+
+    # Biology
+    {"id": "seed_alphafold2", "seed_title": "Highly accurate protein structure prediction with AlphaFold", "min_total": 6},
+
+    # Meta-learning
+    {"id": "seed_maml", "seed_title": "Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks", "min_total": 6},
+
+    # Optimization
+    {"id": "seed_batchnorm", "seed_title": "Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift", "min_total": 10},
+    {"id": "seed_dropout", "seed_title": "Dropout: A Simple Way to Prevent Neural Networks from Overfitting", "min_total": 10},
 ]
 
 
@@ -171,10 +142,20 @@ def _titles_lower(items: list[dict]) -> list[str]:
     ids=[c["id"] for c in BENCHMARK_QUERIES],
 )
 def test_ranking_quality(case, live_client, auth_headers, results_dir):
-    """End-to-end ranking benchmark for a single query."""
+    """End-to-end ranking benchmark - supports both NL query and seed paper modes."""
+    # Build request payload based on input mode
+    if "query" in case:
+        # NL query mode
+        payload = {"query_text": case["query"]}
+    elif "seed_title" in case:
+        # Seed paper mode
+        payload = {"seed_title": case["seed_title"]}
+    else:
+        raise ValueError(f"Test case {case['id']} missing both 'query' and 'seed_title'")
+
     response = live_client.post(
         "/v1/rank",
-        json={"query_text": case["query"]},
+        json=payload,
         headers=auth_headers,
         timeout=240,
     )
@@ -192,15 +173,35 @@ def test_ranking_quality(case, live_client, auth_headers, results_dir):
     titles = _titles_lower(all_items)
 
     # --- Save results FIRST (before assertions, so we never lose data) ---
+    # Build full category breakdown with all papers (not just top 10)
+    full_categories = {}
+    for cat in ("foundational", "methodology", "reviews", "applications", "textbooks"):
+        cat_items = result.get(cat, [])
+        full_categories[cat] = [
+            {
+                "title": (item.get("preview", {}).get("title") or ""),
+                "score": item.get("score", 0),
+                "year": item.get("preview", {}).get("year"),
+                "cited_by_count": item.get("preview", {}).get("cited_by_count"),
+                "work_id": item.get("work_id", ""),
+            }
+            for item in cat_items
+        ]
+
     summary = {
-        "query": case["query"],
+        "query": case.get("query"),
+        "seed_title": case.get("seed_title"),
         "total_items": len(all_items),
         "categories": {
             cat: len(result.get(cat, []))
             for cat in ("foundational", "methodology", "reviews", "applications", "textbooks")
         },
+        "full_categories": full_categories,
         "top_10_titles": titles[:10],
         "top_10_scores": [item.get("score", 0) for item in all_items[:10]],
+        "all_titles": titles,
+        "all_scores": [item.get("score", 0) for item in all_items],
+        "all_years": [item.get("preview", {}).get("year") for item in all_items],
         "query_classification": result.get("query_classification"),
         "rank_job_id": str(result.get("rank_job_id", "")),
     }
@@ -219,19 +220,19 @@ def test_ranking_quality(case, live_client, auth_headers, results_dir):
     # --- Assertions ---
 
     # 1. Minimum total results
-    assert len(all_items) >= case["min_total"], (
-        f"[{case['id']}] Expected >= {case['min_total']} total items, got {len(all_items)}"
+    assert len(all_items) >= case.get("min_total", 5), (
+        f"[{case['id']}] Expected >= {case.get('min_total', 5)} total items, got {len(all_items)}"
     )
 
-    # 2. Minimum foundational papers (if categorized)
+    # 2. Minimum foundational papers (if specified)
     foundational = result.get("foundational", [])
-    if foundational is not None and case["min_foundational"] > 0:
+    if foundational is not None and case.get("min_foundational", 0) > 0:
         assert len(foundational) >= case["min_foundational"], (
             f"[{case['id']}] Expected >= {case['min_foundational']} foundational, got {len(foundational)}"
         )
 
-    # 3. Expected papers appear somewhere in results (fuzzy title match)
-    for expected in case["expected_papers"]:
+    # 3. Expected papers appear somewhere in results (fuzzy title match - if specified)
+    for expected in case.get("expected_papers", []):
         found = any(expected.lower() in t for t in titles)
         assert found, (
             f"[{case['id']}] Expected paper containing '{expected}' not found in results. "

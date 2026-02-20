@@ -54,9 +54,14 @@ MAX_PARALLEL_BATCHES = 6  # 6 batches of 15 = 90 papers, all in parallel
 #      intersection decomposition (METHOD + DOMAIN, different method for same task → LOW)
 # v27: Adjacent-phenomena specificity rule (dark matter ≠ dark energy, etc.),
 #      cause-effect topic constraint for "[cause] [system]" queries
-MODEL_VERSION = "llm-type-v27"
+# v28: Continuous 0-10 scoring replaces 5 discrete tiers (ESSENTIAL/HIGH/MEDIUM/LOW/NONE).
+#      Eliminates "60% of papers get 0.50" problem — papers get 5.2, 6.8, 7.3 etc.
+#      Score is divided by 10 for 0-1 range. Used as one input to RRF ensemble.
+# v29: Qualified-topic rule — "[QUALIFIER] [NOUN]" queries cap papers about
+#      the NOUN without the QUALIFIER at max 3 (e.g., LLM alignment, federated learning).
+MODEL_VERSION = "llm-type-v29"
 
-# Tier to score mapping
+# Legacy tier mapping kept for backwards compatibility with cached scores
 TIER_SCORES = {
     "ESSENTIAL": 0.95,
     "HIGH": 0.75,
@@ -200,56 +205,48 @@ def score_batch(
         })
     papers_json = json.dumps(papers_for_prompt, indent=2)
 
-    prompt = f"""Classify papers by relevance AND type. Return ONLY a JSON object, no other text.
+    prompt = f"""Score papers by relevance on a continuous 0-10 scale AND classify type. Return ONLY a JSON object.
 
-STEP 1 - DOMAIN CHECK (apply FIRST, before anything else):
-Identify the paper's PRIMARY research domain. If it does NOT match the query's domain → LOW.
-This overrides everything. Sharing a technique name (attention, transformer, BERT, RL) does NOT
-make domains match. The paper must CONTRIBUTE TO the query's domain.
+STEP 1 - DOMAIN CHECK (apply FIRST):
+Identify the paper's PRIMARY research domain. If it does NOT match the query's domain → score 0-2.
+Sharing a technique name (attention, transformer, BERT, RL) does NOT make domains match.
+The paper must CONTRIBUTE TO the query's domain.
 
-Domain mismatches → always LOW:
-- Vision/image/segmentation paper for an NLP/text query
-- NLP/text paper for a vision/image query
-- Time-series/forecasting paper for an NLP query
-- Genomics/DNA paper that uses BERT for an NLP query (contributes to genomics, not NLP)
-- Game-playing RL (Atari, board games) for a robotics manipulation query
-- Healthcare/education/economics paper that uses ChatGPT for an NLP query
-- Psychology/neuroscience about human cognition for an ML query
-- Different robotics sub-tasks: drone racing ≠ manipulation, flying ≠ grasping
-Same-sounding concept in a different scientific system ≠ same domain. Match the query's
-SPECIFIC system, not just the general phenomenon (e.g., drug resistance in bacteria ≠
-drug resistance in tumors; energy harvesting in wireless ≠ energy harvesting in solar).
-Adjacent/sibling phenomena within the SAME field ≠ same topic. When the query names a
-SPECIFIC phenomenon, papers about a closely related but DISTINCT phenomenon → LOW.
-Examples: dark matter ≠ dark energy (both cosmology, fundamentally different physics),
-Type 1 ≠ Type 2 diabetes, DNA methylation ≠ histone modification, apoptosis ≠ necrosis,
-RNA splicing ≠ RNA editing, innate immunity ≠ adaptive immunity.
+Domain mismatches → 0-2:
+- Vision paper for NLP query, NLP paper for vision query
+- Genomics paper using BERT for an NLP query
+- Game RL (Atari) for robotics query
+- Different scientific systems (bacterial vs tumor drug resistance)
+- Adjacent phenomena (dark matter ≠ dark energy, Type 1 ≠ Type 2 diabetes)
 
 STEP 2 - QUERY TYPE:
-- SINGLE TOPIC ("CRISPR gene therapy", "climate change impacts", "deep learning computer vision"):
-  Papers about any core aspect of this topic can score HIGH/ESSENTIAL.
-  For "[cause/effect] [system]" queries (e.g., "ocean acidification coral reefs"), the paper
-  must discuss the cause-effect relationship, not just the system in isolation. Papers about
-  the system alone (e.g., coral reproduction, coral predators) without the cause → MEDIUM at best.
-- INTERSECTION QUERY ("ML drug discovery", "GAN image synthesis", "RL robotics manipulation"):
-  Decompose into [METHOD/TECHNIQUE] + [DOMAIN/TASK].
-  Paper must address THE INTERSECTION, not just one component.
-  - Paper about METHOD only (no DOMAIN) → MEDIUM at best
-  - Paper about DOMAIN only (no METHOD) → MEDIUM at best
-  - Paper using a DIFFERENT method for the same task → LOW
+- SINGLE TOPIC: Papers about any core aspect can score 7-10.
+  For "[cause] [system]" queries, paper must discuss the cause-effect, not just the system.
+- INTERSECTION QUERY ("[METHOD] + [DOMAIN]"):
+  Paper about METHOD only → max 5. DOMAIN only → max 5.
+  Different method for same task → max 2. Must address THE INTERSECTION for 7+.
+- QUALIFIED TOPIC ("[QUALIFIER] [NOUN]" like "federated learning", "LLM alignment", "graph neural networks"):
+  Paper about the NOUN without the QUALIFIER → max 3.
+  "LLM alignment" requires alignment techniques (RLHF, DPO, safety), not just LLM usage/applications.
+  "Federated learning" requires federated protocols, not just distributed or general ML.
+  "Reinforcement learning" requires RL algorithms (Q-learning, policy gradient), not just optimization.
+  The qualifier is what makes the topic specific — without it, the paper is a different topic.
 
-STEP 3 - RELEVANCE TIER:
-- ESSENTIAL: Seminal/foundational work that shaped this specific field
-- HIGH: Directly addresses the query topic; paper is primarily ABOUT this topic
-- MEDIUM: Same field, useful context, but not primarily about the query topic
-- LOW: Wrong domain, wrong modality, generic tool, or only mentions topic in passing
-- NONE: Completely unrelated
+STEP 3 - CONTINUOUS SCORE (0-10):
+- 9-10: Seminal/foundational work that defined this specific field
+- 7-8: Directly addresses the query topic — paper is primarily ABOUT this
+- 5-6: Same field, useful context, but not primarily about the query topic
+- 3-4: Tangentially related, different sub-area or only mentions topic
+- 1-2: Wrong domain, wrong modality, or barely related
+- 0: Completely unrelated
+
+IMPORTANT: Use the FULL range. Do NOT cluster scores. A 5.3 is different from a 6.7.
 
 PAPER TYPE:
 - foundational: Introduced a genuinely new paradigm (RARE)
-- methodology: Tools, algorithms, frameworks, techniques (DEFAULT for most papers)
+- methodology: Tools, algorithms, frameworks, techniques (DEFAULT)
 - review: Surveys, meta-analyses, systematic reviews
-- application: Real-world implementations, clinical trials, case studies
+- application: Real-world implementations, clinical trials
 - theoretical: Pure theory, proofs
 - other: If unclear
 
@@ -259,7 +256,7 @@ PAPERS:
 {papers_json}
 
 OUTPUT (JSON only):
-{{"paper_id": {{"relevance": "TIER", "type": "TYPE"}}, ...}}"""
+{{"paper_id": {{"score": NUMBER, "type": "TYPE"}}, ...}}"""
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -304,20 +301,34 @@ OUTPUT (JSON only):
                 pid = p["paper_id"]
                 entry = response_map.get(pid, {})
 
-                if isinstance(entry, str):
+                if isinstance(entry, (int, float)):
+                    # Raw number — treat as 0-10 score
+                    raw_score = float(entry)
+                    paper_type = "other"
+                elif isinstance(entry, str):
+                    # Legacy tier string — map to score
                     tier = entry.upper()
+                    raw_score = TIER_SCORES.get(tier, 0.5) * 10.0
                     paper_type = "other"
                 else:
-                    tier = entry.get("relevance", "NONE").upper()
+                    # Dict with "score" and "type" (expected format)
+                    raw_score = float(entry.get("score", 0))
                     paper_type = entry.get("type", "other").lower()
+                    # Handle legacy "relevance" field (tier string)
+                    if isinstance(raw_score, str) or raw_score in (0.05, 0.25, 0.50, 0.75, 0.95):
+                        tier = entry.get("relevance", "NONE").upper()
+                        if tier in TIER_SCORES:
+                            raw_score = TIER_SCORES[tier] * 10.0
 
-                if tier not in TIER_SCORES:
-                    tier = "NONE"
+                # Clamp to [0, 10] and normalize to [0, 1]
+                raw_score = max(0.0, min(10.0, raw_score))
+                normalized_score = raw_score / 10.0
+
                 if paper_type not in PAPER_TYPES:
                     paper_type = "other"
 
                 result[pid] = {
-                    "score": TIER_SCORES[tier],
+                    "score": normalized_score,
                     "paper_type": paper_type,
                 }
 

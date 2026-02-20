@@ -11,9 +11,11 @@ normalisation functions are reused from the existing rank service.
 from __future__ import annotations
 
 import math
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from datetime import date
+
+from rank_bm25 import BM25Okapi
 
 from .work_topic_store import WorkForMap
 
@@ -195,6 +197,47 @@ def compute_age(year: Optional[int]) -> float:
         return max(0.0, float(current_year - int(year)))
     except Exception:
         return 10.0
+
+
+def compute_bm25_scores(
+    query_text: str,
+    works: Dict[str, WorkForMap],
+    paper_ids: List[str],
+) -> Dict[str, float]:
+    """Compute BM25 relevance scores for papers against query.
+
+    BM25 (Best Match 25) weights rare terms higher via IDF, handles document
+    length normalization, and has saturating term frequency. Fast (~50ms for
+    1000 papers), no API calls.
+
+    Returns raw BM25 scores (not normalized). Caller uses ranks for RRF.
+    """
+    if not paper_ids or not query_text:
+        return {}
+
+    corpus: List[List[str]] = []
+    id_order: List[str] = []
+
+    for pid in paper_ids:
+        w = works.get(pid)
+        if not w:
+            corpus.append([])
+            id_order.append(pid)
+            continue
+        title = w.title or ""
+        abstract = getattr(w, 'abstract', None) or ""
+        text = f"{title} {abstract}".lower().split()
+        corpus.append(text)
+        id_order.append(pid)
+
+    if not corpus:
+        return {}
+
+    bm25 = BM25Okapi(corpus)
+    tokenized_query = query_text.lower().split()
+    scores = bm25.get_scores(tokenized_query)
+
+    return {pid: float(s) for pid, s in zip(id_order, scores)}
 
 
 def compute_llm_relevance_feature(

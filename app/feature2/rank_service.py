@@ -41,15 +41,22 @@ from .features import (
     compute_topic_relevance,
     compute_completeness,
     compute_age,
+    compute_bm25_scores,
     compute_llm_relevance_feature,
 )
-from .rerank import build_reasons, build_reasons_with_categories, assemble_ranked_results, build_user_scoring
+from .rerank import (
+    build_reasons,
+    build_reasons_with_categories,
+    assemble_ranked_results,
+    build_user_scoring,
+    reciprocal_rank_fusion,
+)
 from .llm_relevance import score_papers, score_wave
 from .llm_evaluation import generate_evaluations
 from .convergence import (
     WAVE_SIZE, MAX_WAVES, evaluate_convergence, WaveResult, ConvergenceState,
 )
-from .tfidf_similarity import compute_tfidf_vectors
+from .tfidf_similarity import compute_tfidf_vectors, compute_tfidf_query_similarity
 from .query_classification import classify_query, QueryType, QuerySpecificity
 from .methodological_alignment import (
     partition_results_by_category,
@@ -83,7 +90,18 @@ from .methodological_alignment import (
 # v87: Evaluation prompt v2 — stronger evaluative framing, BAD/GOOD contrast, temp 0.5
 # v88: Evaluation model swap — Llama 3.3 70B for better evaluative writing
 # v89: ArXiv fix — max_results 500→50, sequential calls, 5s interval (was timing out/429ing)
-RANKING_VERSION = "rank-v89"
+# v90: RRF ensemble replaces weighted-linear scoring. 4 independent rankers
+#      (BM25, TF-IDF cosine, citation impact, LLM continuous 0-10) fused via
+#      Reciprocal Rank Fusion. Papers must be consistently good across all
+#      signals to rank high. LLM hard filter lowered 0.50→0.40.
+# v91: Relevance-gated impact ranker (impact × LLM relevance before RRF),
+#      min RRF score floor (0.05), FOUNDATIONAL_MIN_RELEVANCE 0.50→0.65,
+#      qualified-topic prompt rule, Jaccard dedup 0.5→0.4.
+# v92: Within-category sorting by RRF score instead of citations. All categories
+#      (foundational, methodology, reviews, applications, textbooks) now sort by
+#      item["score"] (combined relevance from 4 RRF rankers). Fixes systematic
+#      promotion of off-topic highly-cited papers above on-topic lower-cited papers.
+RANKING_VERSION = "rank-v92"
 
 
 def _stable_rank_hash(
@@ -590,7 +608,7 @@ def direct_rank_prod(
             logger.info(f"LLM scored {len(llm_scores)} papers")
 
             min_llm_relevance = safe_float(
-                rank_params_json.get("min_llm_relevance"), 0.50
+                rank_params_json.get("min_llm_relevance"), 0.40
             )
 
             # Build feature values
@@ -635,7 +653,7 @@ def direct_rank_prod(
                 if is_specific_query:
                     effective_threshold = min_llm_relevance
                 else:
-                    effective_threshold = 0.40 if is_foundational else min_llm_relevance
+                    effective_threshold = 0.30 if is_foundational else min_llm_relevance
                 if llm_val < effective_threshold:
                     llm_filter_stats["filtered"] = llm_filter_stats.get("filtered", 0) + 1
                     continue
@@ -678,7 +696,7 @@ def direct_rank_prod(
                 # Completeness
                 completeness_raw[wid] = compute_completeness(w)
 
-            # Log LLM filter stats
+            # Log LLM filter stats (threshold 0.40 = 4/10 on continuous scale)
             logger.info(f"LLM filter: {llm_filter_stats['passed']} passed, {llm_filter_stats['filtered']} filtered (threshold={min_llm_relevance})")
 
             # If no candidates remain, return empty categorized result
@@ -706,53 +724,93 @@ def direct_rank_prod(
                     "textbooks": [],
                 }
 
-            # Normalise features
+            # Normalise features for display/reasons (not used for scoring)
             lex_norm = robust_norm(lex_raw)
-            # LLM relevance: use raw scores directly (already on 0-1 scale: 0.25/0.50/0.75/0.95)
-            # Percentile normalization destroys the meaningful scale
+            # LLM relevance: use raw scores directly (already on 0-1 scale from continuous scoring)
             llm_norm = llm_raw
             topic_norm = robust_norm(topic_raw)
             impact_norm = robust_norm(impact_raw)
             recency_norm = robust_norm(recency_raw)
             comp_norm = robust_norm(completeness_raw)
 
-            # Note: Citation-floor boost removed (v73). The global LLM filter (min_llm_relevance=0.50)
-            # already excludes papers with LLM < 0.50, so the boost condition (llm < 0.2) was
-            # unreachable. The improved LLM prompt (v21) handles famous-paper scoring correctly.
+            # =================================================================
+            # RRF ENSEMBLE SCORING
+            # 5 independent rankers, each produces a full ordering:
+            #   1. BM25 lexical relevance (rare terms weighted higher, doc-length norm)
+            #   2. TF-IDF cosine similarity (query-paper vector similarity)
+            #   3. Citation impact (Bayesian citation rate, gated by LLM relevance)
+            #   4. LLM continuous 0-10 score (domain + relevance judgment)
+            # RRF fuses ranks: papers must be consistently good across ALL signals.
+            # =================================================================
 
-            # Compose features dictionary for reranker
-            # Simplified: LLM relevance is primary, supplemented by lexical, topic, impact, recency
+            # Compute BM25 and TF-IDF ranker scores
+            bm25_scores = compute_bm25_scores(query_text, works, valid_work_ids)
+            tfidf_scores = compute_tfidf_query_similarity(query_text, works, valid_work_ids)
+            logger.info(
+                f"Computed BM25 ({len(bm25_scores)}), TF-IDF ({len(tfidf_scores)}) ranker scores"
+            )
+
+            # Relevance-gate the impact ranker: multiply raw impact by LLM relevance.
+            # Without this, general highly-cited papers (XGBoost 80K cites, TensorFlow 100K)
+            # get top impact ranks for ANY ML query, polluting results for specialized topics.
+            # Gating means: XGBoost (impact=high × LLM=0.42) drops; FedAvg (impact=good × LLM=0.90) stays.
+            relevance_gated_impact = {
+                wid: impact_raw[wid] * llm_raw.get(wid, 0.0)
+                for wid in impact_raw
+            }
+
+            # RRF fusion: each ranker's scores → ranks → 1/(k+rank) → sum
+            rrf_raw = reciprocal_rank_fusion(
+                bm25_scores,
+                tfidf_scores,
+                relevance_gated_impact,
+                llm_raw,
+                k=60,
+            )
+
+            # Normalize RRF scores to 0-1 for downstream display and user scoring
+            rrf_vals = list(rrf_raw.values())
+            if rrf_vals:
+                rrf_min, rrf_max = min(rrf_vals), max(rrf_vals)
+                rrf_range = rrf_max - rrf_min
+                if rrf_range > 0:
+                    rrf_normalized = {wid: (score - rrf_min) / rrf_range for wid, score in rrf_raw.items()}
+                else:
+                    rrf_normalized = {wid: 1.0 for wid in rrf_raw}
+            else:
+                rrf_normalized = {}
+
+            # Remove papers with near-zero RRF scores (bottom of distribution).
+            # These have no cross-signal support and are noise (e.g., wavelet papers
+            # matching "diffusion" keyword but irrelevant to diffusion models).
+            MIN_RRF_SCORE = 0.05
+            pre_floor_count = len(rrf_normalized)
+            rrf_normalized = {
+                wid: score for wid, score in rrf_normalized.items()
+                if score >= MIN_RRF_SCORE
+            }
+            valid_work_ids = [wid for wid in valid_work_ids if wid in rrf_normalized]
+            rrf_floor_filtered = pre_floor_count - len(rrf_normalized)
+            if rrf_floor_filtered > 0:
+                logger.info(f"RRF floor filter: removed {rrf_floor_filtered} papers below {MIN_RRF_SCORE}")
+
+            logger.info(f"RRF fusion: {len(rrf_normalized)} papers scored with 4 rankers (BM25, TF-IDF, impact, LLM)")
+
+            # Normalize BM25 and TF-IDF for breakdown display
+            bm25_norm = robust_norm(bm25_scores)
+            tfidf_norm = robust_norm(tfidf_scores)
+
+            # Features for breakdown display (individual signal values for transparency)
             features_dict = {
                 "llm_relevance": llm_norm,
-                "lexical": lex_norm,
-                "topic": topic_norm,
+                "bm25": bm25_norm,
+                "tfidf": tfidf_norm,
                 "impact": impact_norm,
                 "recency": recency_norm,
             }
 
-            # Weights: LLM is dominant signal (0.55), others provide secondary ranking
-            # Topic relevance weight zeroed: the LLM already judges topical relevance
-            # far better than the OpenAlex topic-ID matching heuristic, which returns 0
-            # for ~90% of papers. Its 5% weight is redistributed to LLM.
-            weights_dict = {
-                "llm_relevance": safe_float(rank_params_json.get("w_llm_relevance"), 0.55),
-                "lexical": safe_float(rank_params_json.get("w_lexical"), 0.15),
-                "topic": safe_float(rank_params_json.get("w_topic"), 0.0),
-                "impact": safe_float(rank_params_json.get("w_impact"), 0.20),
-                "recency": safe_float(rank_params_json.get("w_recency"), 0.10),
-            }
-
-            # Adjust weights for SPECIFIC queries: prioritize LLM relevance (precision)
-            if is_specific_query:
-                weights_dict["llm_relevance"] = 0.65
-                weights_dict["impact"] = 0.10
-                weights_dict["recency"] = 0.10
-                weights_dict["lexical"] = 0.15
-                weights_dict["topic"] = 0.0
-                logger.info(
-                    f"SPECIFIC QUERY weights: llm={weights_dict['llm_relevance']:.2f}, "
-                    f"lexical={weights_dict['lexical']:.2f}, impact={weights_dict['impact']:.2f}"
-                )
+            # Scoring method descriptor (weights not applicable for RRF)
+            weights_dict = {"scoring_method": "rrf", "k": 60, "rankers": 4}
 
             # Build reasons for each paper
             reasons_map = build_reasons(
@@ -789,7 +847,7 @@ def direct_rank_prod(
 
             logger.info(f"Diversity metadata: {len(years_map)} years, {len(subfields_map)} subfields")
 
-            # Assemble ranked results with MMR diversification
+            # Assemble ranked results with RRF scoring + MMR diversification
             ranked_items = assemble_ranked_results(
                 candidate_ids=valid_work_ids,
                 features=features_dict,
@@ -802,6 +860,7 @@ def direct_rank_prod(
                 years=years_map,
                 subfields=subfields_map,
                 impact_scores=impact_norm,
+                precomputed_scores=rrf_normalized,
             )
 
             # Add raw LLM scores and paper_type to breakdown for:
