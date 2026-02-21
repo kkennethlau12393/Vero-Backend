@@ -1,30 +1,770 @@
 [
   {
-    "pdf_path": "attention_paper.pdf",
+    "arxiv_id": "1706.03762",
     "expected_title_substring": "Attention",
+    "filename": "1706.03762_transformer.pdf",
     "expect_error": false,
-    "category": "arxiv",
-    "note": "Attention Is All You Need - ArXiv PDF (need to download)"
+    "category": "arxiv_nlp",
+    "note": "Attention Is All You Need"
   },
   {
-    "pdf_path": "bert_paper.pdf",
+    "arxiv_id": "1810.04805",
     "expected_title_substring": "BERT",
+    "filename": "1810.04805_bert.pdf",
     "expect_error": false,
-    "category": "arxiv",
-    "note": "BERT paper - ArXiv PDF (need to download)"
+    "category": "arxiv_nlp",
+    "note": "BERT"
   },
   {
-    "pdf_path": "resnet_paper.pdf",
-    "expected_title_substring": "Residual",
+    "arxiv_id": "1409.1556",
+    "expected_title_substring": "Very Deep",
+    "filename": "1409.1556_vgg.pdf",
     "expect_error": false,
-    "category": "arxiv",
-    "note": "ResNet paper - ArXiv PDF (need to download)"
+    "category": "arxiv_cv",
+    "note": "VGG"
   },
   {
-    "pdf_path": "corrupt.pdf",
+    "arxiv_id": "1406.2661",
+    "expected_title_substring": "Generative Adversarial",
+    "filename": "1406.2661_gan.pdf",
+    "expect_error": false,
+    "category": "arxiv_ml",
+    "note": "GAN"
+  },
+  {
+    "arxiv_id": "1512.03385",
+    "expected_title_substring": "Deep Residual",
+    "filename": "1512.03385_resnet.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "ResNet"
+  },
+  {
+    "arxiv_id": "2010.11929",
+    "expected_title_substring": "16x16",
+    "filename": "2010.11929_vit.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "Vision Transformer"
+  },
+  {
+    "arxiv_id": "1411.4555",
+    "expected_title_substring": "ImageNet",
+    "filename": "1411.4555_googlenet.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "GoogLeNet"
+  },
+  {
+    "arxiv_id": "1412.6980",
+    "expected_title_substring": "Adam",
+    "filename": "1412.6980_adam.pdf",
+    "expect_error": false,
+    "category": "arxiv_ml",
+    "note": "Adam optimizer"
+  },
+  {
+    "arxiv_id": "1502.03167",
+    "expected_title_substring": "Batch Normalization",
+    "filename": "1502.03167_batchnorm.pdf",
+    "expect_error": false,
+    "category": "arxiv_ml",
+    "note": "Batch Normalization"
+  },
+  {
+    "arxiv_id": "1511.06434",
+    "expected_title_substring": "ELU",
+    "filename": "1511.06434_elu.pdf",
+    "expect_error": false,
+    "category": "arxiv_ml",
+    "note": "ELU activation"
+  },
+  {
+    "arxiv_id": "1607.06450",
+    "expected_title_substring": "Densely Connected",
+    "filename": "1607.06450_densenet.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "DenseNet"
+  },
+  {
+    "arxiv_id": "1505.04597",
+    "expected_title_substring": "U-Net",
+    "filename": "1505.04597_unet.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "U-Net"
+  },
+  {
+    "arxiv_id": "1409.0473",
+    "expected_title_substring": "Going Deeper",
+    "filename": "1409.0473_going_deeper.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "Going Deeper with Convolutions"
+  },
+  {
+    "arxiv_id": "1508.06576",
+    "expected_title_substring": "Neural Machine Translation",
+    "filename": "1508.06576_nmt_attention.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Attention for NMT"
+  },
+  {
+    "arxiv_id": "1409.1259",
+    "expected_title_substring": "Sequence to Sequence",
+    "filename": "1409.1259_seq2seq.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Seq2Seq"
+  },
+  {
+    "arxiv_id": "1301.3781",
+    "expected_title_substring": "Word2Vec",
+    "filename": "1301.3781_word2vec.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Word2Vec"
+  },
+  {
+    "arxiv_id": "1508.04025",
+    "expected_title_substring": "YOLO",
+    "filename": "1508.04025_yolo.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "YOLO"
+  },
+  {
+    "arxiv_id": "1506.02025",
+    "expected_title_substring": "Spatial Transformer",
+    "filename": "1506.02025_spatial_transformer.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "Spatial Transformer Networks"
+  },
+  {
+    "arxiv_id": "1312.6114",
+    "expected_title_substring": "Auto-Encoding",
+    "filename": "1312.6114_vae.pdf",
+    "expect_error": false,
+    "category": "arxiv_ml",
+    "note": "VAE"
+  },
+  {
+    "arxiv_id": "1802.03426",
+    "expected_title_substring": "ProGAN",
+    "filename": "1802.03426_progan.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "Progressive Growing of GANs"
+  },
+  {
+    "arxiv_id": "1711.10925",
+    "expected_title_substring": "Mask R-CNN",
+    "filename": "1711.10925_mask_rcnn.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "Mask R-CNN"
+  },
+  {
+    "arxiv_id": "1506.01497",
+    "expected_title_substring": "Faster R-CNN",
+    "filename": "1506.01497_faster_rcnn.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "Faster R-CNN"
+  },
+  {
+    "arxiv_id": "1611.07004",
+    "expected_title_substring": "YOLO9000",
+    "filename": "1611.07004_yolo9000.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "YOLO9000"
+  },
+  {
+    "arxiv_id": "1804.02767",
+    "expected_title_substring": "YOLOv3",
+    "filename": "1804.02767_yolov3.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "YOLOv3"
+  },
+  {
+    "arxiv_id": "1703.06868",
+    "expected_title_substring": "SqueezeNet",
+    "filename": "1703.06868_squeezenet.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "SqueezeNet"
+  },
+  {
+    "arxiv_id": "1704.04861",
+    "expected_title_substring": "MobileNets",
+    "filename": "1704.04861_mobilenets.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "MobileNets"
+  },
+  {
+    "arxiv_id": "1801.04381",
+    "expected_title_substring": "MobileNetV2",
+    "filename": "1801.04381_mobilenetv2.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "MobileNetV2"
+  },
+  {
+    "arxiv_id": "1905.11946",
+    "expected_title_substring": "EfficientNet",
+    "filename": "1905.11946_efficientnet.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "EfficientNet"
+  },
+  {
+    "arxiv_id": "1807.11164",
+    "expected_title_substring": "ELMo",
+    "filename": "1807.11164_elmo.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "ELMo"
+  },
+  {
+    "arxiv_id": "1906.08237",
+    "expected_title_substring": "XLNet",
+    "filename": "1906.08237_xlnet.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "XLNet"
+  },
+  {
+    "arxiv_id": "1907.11692",
+    "expected_title_substring": "RoBERTa",
+    "filename": "1907.11692_roberta.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "RoBERTa"
+  },
+  {
+    "arxiv_id": "1910.10683",
+    "expected_title_substring": "DistilBERT",
+    "filename": "1910.10683_distilbert.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "DistilBERT"
+  },
+  {
+    "arxiv_id": "1910.01108",
+    "expected_title_substring": "ALBERT",
+    "filename": "1910.01108_albert.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "ALBERT"
+  },
+  {
+    "arxiv_id": "2005.14165",
+    "expected_title_substring": "GPT-3",
+    "filename": "2005.14165_gpt3.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "GPT-3"
+  },
+  {
+    "arxiv_id": "1910.09700",
+    "expected_title_substring": "ELECTRA",
+    "filename": "1910.09700_electra.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "ELECTRA"
+  },
+  {
+    "arxiv_id": "1909.11942",
+    "expected_title_substring": "CTRL",
+    "filename": "1909.11942_ctrl.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "CTRL"
+  },
+  {
+    "arxiv_id": "2001.08361",
+    "expected_title_substring": "Reformer",
+    "filename": "2001.08361_reformer.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Reformer"
+  },
+  {
+    "arxiv_id": "1904.09751",
+    "expected_title_substring": "Transformer-XL",
+    "filename": "1904.09751_transformer_xl.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Transformer-XL"
+  },
+  {
+    "arxiv_id": "2003.10555",
+    "expected_title_substring": "DETR",
+    "filename": "2003.10555_detr.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "DETR"
+  },
+  {
+    "arxiv_id": "1711.00937",
+    "expected_title_substring": "Momentum Contrast",
+    "filename": "1711.00937_moco.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "MoCo"
+  },
+  {
+    "arxiv_id": "2002.05709",
+    "expected_title_substring": "SimCLR",
+    "filename": "2002.05709_simclr.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "SimCLR"
+  },
+  {
+    "arxiv_id": "2011.10566",
+    "expected_title_substring": "CLIP",
+    "filename": "2011.10566_clip.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "CLIP"
+  },
+  {
+    "arxiv_id": "2103.00020",
+    "expected_title_substring": "DALL-E",
+    "filename": "2103.00020_dalle.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "DALL-E"
+  },
+  {
+    "arxiv_id": "2112.10752",
+    "expected_title_substring": "Flamingo",
+    "filename": "2112.10752_flamingo.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "Flamingo"
+  },
+  {
+    "arxiv_id": "2204.06125",
+    "expected_title_substring": "InstructGPT",
+    "filename": "2204.06125_instructgpt.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "InstructGPT"
+  },
+  {
+    "arxiv_id": "2203.02155",
+    "expected_title_substring": "Chinchilla",
+    "filename": "2203.02155_chinchilla.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Chinchilla"
+  },
+  {
+    "arxiv_id": "2210.11416",
+    "expected_title_substring": "Scaling Instruction",
+    "filename": "2210.11416_flan_t5.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Flan-T5"
+  },
+  {
+    "arxiv_id": "2302.13971",
+    "expected_title_substring": "LLaMA",
+    "filename": "2302.13971_llama.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "LLaMA"
+  },
+  {
+    "arxiv_id": "2307.09288",
+    "expected_title_substring": "Llama 2",
+    "filename": "2307.09288_llama2.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Llama 2"
+  },
+  {
+    "arxiv_id": "2005.11401",
+    "expected_title_substring": "CLIP",
+    "filename": "2005.11401_clip_preprint.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "CLIP preprint"
+  },
+  {
+    "arxiv_id": "2103.14030",
+    "expected_title_substring": "BEiT",
+    "filename": "2103.14030_beit.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "BEiT"
+  },
+  {
+    "arxiv_id": "2111.06377",
+    "expected_title_substring": "Masked Autoencoders",
+    "filename": "2111.06377_mae.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "MAE"
+  },
+  {
+    "arxiv_id": "2010.02502",
+    "expected_title_substring": "Big Transfer",
+    "filename": "2010.02502_bit.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "BiT"
+  },
+  {
+    "arxiv_id": "1711.05101",
+    "expected_title_substring": "Progressive Neural",
+    "filename": "1711.05101_pnas.pdf",
+    "expect_error": false,
+    "category": "arxiv_ml",
+    "note": "Progressive Neural Architecture Search"
+  },
+  {
+    "arxiv_id": "1409.4842",
+    "expected_title_substring": "Recurrent Neural Network",
+    "filename": "1409.4842_rnn_nmt.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Neural Machine Translation by Jointly Learning to Align and Translate"
+  },
+  {
+    "arxiv_id": "1611.01144",
+    "expected_title_substring": "Image-to-Image",
+    "filename": "1611.01144_pix2pix.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "pix2pix"
+  },
+  {
+    "arxiv_id": "1703.10593",
+    "expected_title_substring": "CycleGAN",
+    "filename": "1703.10593_cyclegan.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "CycleGAN"
+  },
+  {
+    "arxiv_id": "1809.11096",
+    "expected_title_substring": "StyleGAN",
+    "filename": "1809.11096_stylegan.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "StyleGAN"
+  },
+  {
+    "arxiv_id": "1503.03832",
+    "expected_title_substring": "Inception",
+    "filename": "1503.03832_inception_v2.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "Inception v2/v3"
+  },
+  {
+    "arxiv_id": "1602.07360",
+    "expected_title_substring": "SqueezeNet",
+    "filename": "1602.07360_squeezenet_v2.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "SqueezeNet v2"
+  },
+  {
+    "arxiv_id": "1608.06993",
+    "expected_title_substring": "Xception",
+    "filename": "1608.06993_xception.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "Xception"
+  },
+  {
+    "arxiv_id": "1709.01507",
+    "expected_title_substring": "Squeeze-and-Excitation",
+    "filename": "1709.01507_senet.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "SENet"
+  },
+  {
+    "arxiv_id": "1807.11626",
+    "expected_title_substring": "ShuffleNet",
+    "filename": "1807.11626_shufflenet_v2.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "ShuffleNet V2"
+  },
+  {
+    "arxiv_id": "1807.06521",
+    "expected_title_substring": "MnasNet",
+    "filename": "1807.06521_mnasnet.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "MnasNet"
+  },
+  {
+    "arxiv_id": "1911.09070",
+    "expected_title_substring": "EfficientDet",
+    "filename": "1911.09070_efficientdet.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "EfficientDet"
+  },
+  {
+    "arxiv_id": "1904.07850",
+    "expected_title_substring": "EfficientNet",
+    "filename": "1904.07850_efficientnet_v1.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "EfficientNet (alternative)"
+  },
+  {
+    "arxiv_id": "2104.00298",
+    "expected_title_substring": "EfficientNetV2",
+    "filename": "2104.00298_efficientnet_v2.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "EfficientNetV2"
+  },
+  {
+    "arxiv_id": "2010.11934",
+    "expected_title_substring": "DeiT",
+    "filename": "2010.11934_deit.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "Data-efficient Image Transformers"
+  },
+  {
+    "arxiv_id": "2103.17239",
+    "expected_title_substring": "Swin Transformer",
+    "filename": "2103.17239_swin.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "Swin Transformer"
+  },
+  {
+    "arxiv_id": "2201.03545",
+    "expected_title_substring": "ConvNeXt",
+    "filename": "2201.03545_convnext.pdf",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "ConvNeXt"
+  },
+  {
+    "arxiv_id": "1908.08681",
+    "expected_title_substring": "Megatron",
+    "filename": "1908.08681_megatron_lm.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Megatron-LM"
+  },
+  {
+    "arxiv_id": "2001.04451",
+    "expected_title_substring": "REALM",
+    "filename": "2001.04451_realm.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "REALM"
+  },
+  {
+    "arxiv_id": "2004.10964",
+    "expected_title_substring": "Longformer",
+    "filename": "2004.10964_longformer.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Longformer"
+  },
+  {
+    "arxiv_id": "2007.14062",
+    "expected_title_substring": "BigBird",
+    "filename": "2007.14062_bigbird.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "BigBird"
+  },
+  {
+    "arxiv_id": "2001.07676",
+    "expected_title_substring": "PEGASUS",
+    "filename": "2001.07676_pegasus.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "PEGASUS"
+  },
+  {
+    "arxiv_id": "2002.10957",
+    "expected_title_substring": "BART",
+    "filename": "2002.10957_bart.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "BART"
+  },
+  {
+    "arxiv_id": "1910.13461",
+    "expected_title_substring": "T5",
+    "filename": "1910.13461_t5.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "T5"
+  },
+  {
+    "arxiv_id": "2104.08691",
+    "expected_title_substring": "mT5",
+    "filename": "2104.08691_mt5.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "mT5"
+  },
+  {
+    "arxiv_id": "2102.03334",
+    "expected_title_substring": "CANINE",
+    "filename": "2102.03334_canine.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "CANINE"
+  },
+  {
+    "arxiv_id": "2104.09864",
+    "expected_title_substring": "CPM",
+    "filename": "2104.09864_cpm.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "CPM"
+  },
+  {
+    "arxiv_id": "2101.03961",
+    "expected_title_substring": "Switch Transformers",
+    "filename": "2101.03961_switch_transformers.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Switch Transformers"
+  },
+  {
+    "arxiv_id": "2106.09685",
+    "expected_title_substring": "LoRA",
+    "filename": "2106.09685_lora.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "LoRA"
+  },
+  {
+    "arxiv_id": "2110.07602",
+    "expected_title_substring": "Prefix-Tuning",
+    "filename": "2110.07602_prefix_tuning.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Prefix-Tuning"
+  },
+  {
+    "arxiv_id": "2110.02178",
+    "expected_title_substring": "P-tuning",
+    "filename": "2110.02178_p_tuning.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "P-tuning v2"
+  },
+  {
+    "arxiv_id": "2201.11903",
+    "expected_title_substring": "Chain-of-Thought",
+    "filename": "2201.11903_cot.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Chain-of-Thought Prompting"
+  },
+  {
+    "arxiv_id": "2205.11916",
+    "expected_title_substring": "Self-Consistency",
+    "filename": "2205.11916_self_consistency.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Self-Consistency Improves Chain of Thought Reasoning"
+  },
+  {
+    "arxiv_id": "2210.03629",
+    "expected_title_substring": "ReAct",
+    "filename": "2210.03629_react.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "ReAct: Synergizing Reasoning and Acting"
+  },
+  {
+    "arxiv_id": "2211.09110",
+    "expected_title_substring": "Toolformer",
+    "filename": "2211.09110_toolformer.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Toolformer"
+  },
+  {
+    "arxiv_id": "2303.08774",
+    "expected_title_substring": "GPT-4",
+    "filename": "2303.08774_gpt4.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "GPT-4 Technical Report"
+  },
+  {
+    "arxiv_id": "2305.10601",
+    "expected_title_substring": "Tree of Thoughts",
+    "filename": "2305.10601_tree_of_thoughts.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Tree of Thoughts"
+  },
+  {
+    "arxiv_id": "2305.14314",
+    "expected_title_substring": "QLoRA",
+    "filename": "2305.14314_qlora.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "QLoRA"
+  },
+  {
+    "arxiv_id": "2310.06825",
+    "expected_title_substring": "Mistral",
+    "filename": "2310.06825_mistral.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Mistral 7B"
+  },
+  {
+    "arxiv_id": "2401.04088",
+    "expected_title_substring": "Mixtral",
+    "filename": "2401.04088_mixtral.pdf",
+    "expect_error": false,
+    "category": "arxiv_nlp",
+    "note": "Mixtral of Experts"
+  },
+  {
+    "pdf_path": "tests/fixtures/pdfs/corrupt.pdf",
     "expected_title_substring": "",
+    "filename": "corrupt.pdf",
     "expect_error": true,
     "category": "error_case",
-    "note": "Corrupt PDF - should fail (need to create)"
+    "note": "Corrupt PDF - should fail"
+  },
+  {
+    "pdf_path": "tests/fixtures/pdfs/no_metadata.pdf",
+    "expected_title_substring": "",
+    "filename": "no_metadata.pdf",
+    "expect_error": true,
+    "category": "error_case",
+    "note": "PDF with no metadata or title - should fail"
+  },
+  {
+    "pdf_path": "tests/fixtures/pdfs/scanned.pdf",
+    "expected_title_substring": "",
+    "filename": "scanned.pdf",
+    "expect_error": true,
+    "category": "error_case",
+    "note": "Scanned PDF (OCR needed) - expected limitation"
   }
 ]
