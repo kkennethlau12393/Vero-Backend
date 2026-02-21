@@ -31,3 +31,7 @@ app.include_router(feature3_node_details_router)
 app.include_router(feature4_compare_router)
 app.include_router(feature5_gap_router)
 app.include_router(settings_router)
+
+@app.get("/test")
+async def test():
+    return {"message": "Test successful"}
