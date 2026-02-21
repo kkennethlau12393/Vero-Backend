@@ -357,6 +357,13 @@
     "note": "EfficientDet - EfficientDet: Scalable and Efficient Object Detection"
   },
   {
+    "doi": "10.48550/arxiv.2010.11929",
+    "expected_title_substring": "An Image is",
+    "expect_error": false,
+    "category": "arxiv_cv",
+    "note": "ViT (duplicate) - An Image is Worth 16x16 Words: Transformers for Image Recogn"
+  },
+  {
     "doi": "10.48550/arxiv.2012.12877",
     "expected_title_substring": "Training data-efficient image",
     "expect_error": false,
@@ -565,138 +572,5 @@
     "expect_error": true,
     "category": "error_case",
     "note": "Empty DOI - should fail"
-  },
-  {
-    "doi": "10.1109/cvpr52733.2024.01605",
-    "expected_title_substring": "DETRs Beat YOLOs",
-    "expect_error": false,
-    "category": "additional",
-    "note": "DETRs Beat YOLOs on Real-time Object Detection"
-  },
-  {
-    "doi": "10.1109/cvpr.2016.91",
-    "expected_title_substring": "You Only Look",
-    "expect_error": false,
-    "category": "additional",
-    "note": "You Only Look Once: Unified, Real-Time Object Detection"
-  },
-  {
-    "doi": "10.4230/tgdk.3.3.5",
-    "expected_title_substring": "DistilBERT, a distilled",
-    "expect_error": false,
-    "category": "additional",
-    "note": "DistilBERT, a distilled version of BERT"
-  },
-  {
-    "doi": "10.1007/s11263-014-0733-5",
-    "expected_title_substring": "The Pascal Visual",
-    "expect_error": false,
-    "category": "additional",
-    "note": "The Pascal Visual Object Classes Challenge"
-  },
-  {
-    "doi": "10.1007/978-3-319-10602-1_48",
-    "expected_title_substring": "Microsoft COCO: Common",
-    "expect_error": false,
-    "category": "additional",
-    "note": "Microsoft COCO: Common Objects in Context"
-  },
-  {
-    "doi": "10.1007/978-3-319-46448-0_2",
-    "expected_title_substring": "SSD: Single Shot",
-    "expect_error": false,
-    "category": "additional",
-    "note": "SSD: Single Shot MultiBox Detector"
-  },
-  {
-    "doi": "10.1109/cvpr.2017.106",
-    "expected_title_substring": "Feature Pyramid Networks",
-    "expect_error": false,
-    "category": "additional",
-    "note": "Feature Pyramid Networks for Object Detection"
-  },
-  {
-    "doi": "10.1109/iccv.2017.324",
-    "expected_title_substring": "Focal Loss for",
-    "expect_error": false,
-    "category": "additional",
-    "note": "Focal Loss for Dense Object Detection"
-  },
-  {
-    "doi": "10.1109/cvpr.2016.319",
-    "expected_title_substring": "Learning Deep Features",
-    "expect_error": false,
-    "category": "additional",
-    "note": "Learning Deep Features for Discriminative Localization"
-  },
-  {
-    "doi": "10.1109/iccv.2015.425",
-    "expected_title_substring": "Deep Learning Face",
-    "expect_error": false,
-    "category": "additional",
-    "note": "Deep Learning Face Attributes in the Wild"
-  },
-  {
-    "doi": "10.1109/cvpr.2015.7298682",
-    "expected_title_substring": "FaceNet: A unified",
-    "expect_error": false,
-    "category": "additional",
-    "note": "FaceNet: A unified embedding"
-  },
-  {
-    "doi": "10.48550/arxiv.1410.5401",
-    "expected_title_substring": "Neural Turing Machines",
-    "expect_error": false,
-    "category": "additional",
-    "note": "Neural Turing Machines"
-  },
-  {
-    "doi": "10.23915/distill.00001",
-    "expected_title_substring": "Attention and Augmented",
-    "expect_error": false,
-    "category": "additional",
-    "note": "Attention and Augmented Recurrent Neural Networks"
-  },
-  {
-    "doi": "10.48550/arxiv.1710.10196",
-    "expected_title_substring": "Progressive Growing of",
-    "expect_error": false,
-    "category": "additional",
-    "note": "Progressive Growing of GANs"
-  },
-  {
-    "doi": "10.48550/arxiv.1609.03499",
-    "expected_title_substring": "WaveNet: A Generative",
-    "expect_error": false,
-    "category": "additional",
-    "note": "WaveNet: A Generative Model for Raw Audio"
-  },
-  {
-    "doi": "10.1109/iccv.2017.89",
-    "expected_title_substring": "Deformable Convolutional Networks",
-    "expect_error": false,
-    "category": "additional",
-    "note": "Deformable Convolutional Networks"
-  },
-  {
-    "doi": "10.1007/978-3-319-46475-6_43",
-    "expected_title_substring": "Perceptual Losses for",
-    "expect_error": false,
-    "category": "additional",
-    "note": "Perceptual Losses for Real-Time Style Transfer"
-  },
-  {
-    "doi": "10.1007/978-3-319-24574-4_28",
-    "expected_title_substring": "U-Net: Convolutional Networks",
-    "expect_error": false,
-    "category": "additional",
-    "note": "U-Net: Convolutional Networks for Biomedical Image Segmentation"
-  },
-  {
-    "doi": "10.1145/3065386",
-    "expected_title_substring": "ImageNet classification with",
-    "expect_error": false,
-    "category": "additional",
-    "note": "ImageNet classification with deep convolutional neural networks"
   }
 ]

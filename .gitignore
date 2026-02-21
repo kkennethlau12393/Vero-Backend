@@ -48,3 +48,4 @@ scoring_manifest.json
 scoring_report_*.md
 feature1_final_scores.md
 final_scores.md
+tests/live/pdfs/

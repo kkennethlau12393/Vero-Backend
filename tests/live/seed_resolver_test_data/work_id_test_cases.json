@@ -1,72 +1,765 @@
 [
   {
-    "work_id": "W2626778328",
-    "expected_title_substring": "Attention",
+    "work_id": "W1686810756",
+    "expected_title_substring": "Very Deep Convolutional",
     "expect_error": false,
     "category": "openalex",
-    "note": "Attention Is All You Need (from DOI test)"
+    "note": "Very Deep Convolutional Networks for Large-Scale Image Recog"
   },
   {
-    "work_id": "W4298289240",
-    "expected_title_substring": "Generative Adversarial",
+    "work_id": "W3096831136",
+    "expected_title_substring": "Generative adversarial networks",
     "expect_error": false,
     "category": "openalex",
-    "note": "GAN paper (from DOI test)"
+    "note": "Generative adversarial networks"
   },
   {
-    "work_id": "W2949650786",
-    "expected_title_substring": "Residual",
+    "work_id": "W2194775991",
+    "expected_title_substring": "Deep Residual Learning",
     "expect_error": false,
     "category": "openalex",
-    "note": "ResNet paper (from DOI test)"
+    "note": "Deep Residual Learning for Image Recognition"
   },
   {
     "work_id": "W3094502228",
-    "expected_title_substring": "16x16",
+    "expected_title_substring": "An Image is",
     "expect_error": false,
     "category": "openalex",
-    "note": "ViT paper (from DOI test)"
+    "note": "An Image is Worth 16x16 Words: Transformers for Image Recogn"
   },
   {
     "work_id": "W2257979135",
-    "expected_title_substring": "game of Go",
+    "expected_title_substring": "Mastering the game",
     "expect_error": false,
     "category": "openalex",
-    "note": "AlphaGo paper (from DOI test)"
+    "note": "Mastering the game of Go with deep neural networks and tree "
   },
   {
     "work_id": "W3177828909",
-    "expected_title_substring": "AlphaFold",
+    "expected_title_substring": "Highly accurate protein",
     "expect_error": false,
     "category": "openalex",
-    "note": "AlphaFold 2 paper (from DOI test)"
+    "note": "Highly accurate protein structure prediction with AlphaFold"
   },
   {
-    "work_id": "W2963341956",
-    "expected_title_substring": "BERT",
+    "work_id": "W2902907165",
+    "expected_title_substring": "A general reinforcement",
     "expect_error": false,
     "category": "openalex",
-    "note": "BERT ACL paper (from DOI test)"
+    "note": "A general reinforcement learning algorithm that masters ches"
+  },
+  {
+    "work_id": "W3129155125",
+    "expected_title_substring": "FAD-BERT: Improved prediction",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "FAD-BERT: Improved prediction of FAD binding sites using pre"
+  },
+  {
+    "work_id": "W2163605009",
+    "expected_title_substring": "ImageNet classification with",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "ImageNet classification with deep convolutional neural netwo"
+  },
+  {
+    "work_id": "W1836465849",
+    "expected_title_substring": "Batch Normalization: Accelerating",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Batch Normalization: Accelerating Deep Network Training by R"
+  },
+  {
+    "work_id": "W1522301498",
+    "expected_title_substring": "Adam: A Method",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Adam: A Method for Stochastic Optimization"
+  },
+  {
+    "work_id": "W2963446712",
+    "expected_title_substring": "Densely Connected Convolutional",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Densely Connected Convolutional Networks"
+  },
+  {
+    "work_id": "W1901129140",
+    "expected_title_substring": "U-Net: Convolutional Networks",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "U-Net: Convolutional Networks for Biomedical Image Segmentat"
+  },
+  {
+    "work_id": "W2130942839",
+    "expected_title_substring": "Sequence to Sequence",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Sequence to Sequence Learning with Neural Networks"
+  },
+  {
+    "work_id": "W1614298861",
+    "expected_title_substring": "Efficient Estimation of",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Efficient Estimation of Word Representations in Vector Space"
+  },
+  {
+    "work_id": "W2562066862",
+    "expected_title_substring": "Inverse Compositional Spatial",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Inverse Compositional Spatial Transformer Networks"
+  },
+  {
+    "work_id": "W1959608418",
+    "expected_title_substring": "Auto-Encoding Variational Bayes",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Auto-Encoding Variational Bayes"
+  },
+  {
+    "work_id": "W2963150697",
+    "expected_title_substring": "Mask R-CNN",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Mask R-CNN"
+  },
+  {
+    "work_id": "W639708223",
+    "expected_title_substring": "Faster R-CNN: Towards",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Faster R-CNN: Towards Real-Time Object Detection with Region"
+  },
+  {
+    "work_id": "W2796347433",
+    "expected_title_substring": "YOLOv3: An Incremental",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "YOLOv3: An Incremental Improvement"
+  },
+  {
+    "work_id": "W2612445135",
+    "expected_title_substring": "MobileNets: Efficient Convolutional",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "MobileNets: Efficient Convolutional Neural Networks for Mobi"
+  },
+  {
+    "work_id": "W2963163009",
+    "expected_title_substring": "MobileNetV2: Inverted Residuals",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "MobileNetV2: Inverted Residuals and Linear Bottlenecks"
+  },
+  {
+    "work_id": "W2946948417",
+    "expected_title_substring": "EfficientNet: Rethinking Model",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "EfficientNet: Rethinking Model Scaling for Convolutional Neu"
+  },
+  {
+    "work_id": "W2787560479",
+    "expected_title_substring": "Deep Contextualized Word",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Deep Contextualized Word Representations"
+  },
+  {
+    "work_id": "W2950813464",
+    "expected_title_substring": "XLNet: Generalized Autoregressive",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "XLNet: Generalized Autoregressive Pretraining for Language U"
+  },
+  {
+    "work_id": "W4399857017",
+    "expected_title_substring": "Use of Bidirectional",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Use of Bidirectional Encoder Representations from Transforme"
+  },
+  {
+    "work_id": "W2975059944",
+    "expected_title_substring": "ALBERT: A Lite",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "ALBERT: A Lite BERT for Self-supervised Learning of Language"
+  },
+  {
+    "work_id": "W3030163527",
+    "expected_title_substring": "Language Models are",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Language Models are Few-Shot Learners"
+  },
+  {
+    "work_id": "W2996035354",
+    "expected_title_substring": "ELECTRA: Pre-training Text",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "ELECTRA: Pre-training Text Encoders as Discriminators Rather"
+  },
+  {
+    "work_id": "W2964110616",
+    "expected_title_substring": "Transformer-XL: Attentive Language",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Transformer-XL: Attentive Language Models beyond a Fixed-Len"
+  },
+  {
+    "work_id": "W2994673210",
+    "expected_title_substring": "Reformer: The Efficient",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Reformer: The Efficient Transformer"
+  },
+  {
+    "work_id": "W3030520226",
+    "expected_title_substring": "End-to-End Object Detection",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "End-to-End Object Detection with Transformers"
+  },
+  {
+    "work_id": "W3035524453",
+    "expected_title_substring": "Momentum Contrast for",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Momentum Contrast for Unsupervised Visual Representation Lea"
+  },
+  {
+    "work_id": "W3005680577",
+    "expected_title_substring": "A Simple Framework",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "A Simple Framework for Contrastive Learning of Visual Repres"
+  },
+  {
+    "work_id": "W3135367836",
+    "expected_title_substring": "Learning Transferable Visual",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Learning Transferable Visual Models From Natural Language Su"
+  },
+  {
+    "work_id": "W3129576130",
+    "expected_title_substring": "Zero-Shot Text-to-Image Generation",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Zero-Shot Text-to-Image Generation"
+  },
+  {
+    "work_id": "W4226278401",
+    "expected_title_substring": "Training language models",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Training language models to follow instructions with human f"
+  },
+  {
+    "work_id": "W4225591000",
+    "expected_title_substring": "Training Compute-Optimal Large",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Training Compute-Optimal Large Language Models"
+  },
+  {
+    "work_id": "W4322718191",
+    "expected_title_substring": "LLaMA: Open and",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "LLaMA: Open and Efficient Foundation Language Models"
+  },
+  {
+    "work_id": "W4384918448",
+    "expected_title_substring": "Llama 2: Open",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Llama 2: Open Foundation and Fine-Tuned Chat Models"
+  },
+  {
+    "work_id": "W3170863103",
+    "expected_title_substring": "BEiT: BERT Pre-Training",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "BEiT: BERT Pre-Training of Image Transformers"
+  },
+  {
+    "work_id": "W3211983881",
+    "expected_title_substring": "Masked Autoencoders Are",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Masked Autoencoders Are Scalable Vision Learners"
+  },
+  {
+    "work_id": "W2552465644",
+    "expected_title_substring": "Image-to-Image Translation with",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Image-to-Image Translation with Conditional Adversarial Netw"
+  },
+  {
+    "work_id": "W2962793481",
+    "expected_title_substring": "Unpaired Image-to-Image Translation",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Unpaired Image-to-Image Translation Using Cycle-Consistent A"
+  },
+  {
+    "work_id": "W2904367110",
+    "expected_title_substring": "A Style-Based Generator",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "A Style-Based Generator Architecture for Generative Adversar"
+  },
+  {
+    "work_id": "W2531409750",
+    "expected_title_substring": "Xception: Deep Learning",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Xception: Deep Learning with Depthwise Separable Convolution"
+  },
+  {
+    "work_id": "W2752782242",
+    "expected_title_substring": "Squeeze-and-Excitation Networks",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Squeeze-and-Excitation Networks"
+  },
+  {
+    "work_id": "W2883780447",
+    "expected_title_substring": "ShuffleNet V2: Practical",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "ShuffleNet V2: Practical Guidelines for Efficient CNN Archit"
+  },
+  {
+    "work_id": "W2886953980",
+    "expected_title_substring": "MnasNet: Platform-Aware Neural",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "MnasNet: Platform-Aware Neural Architecture Search for Mobil"
+  },
+  {
+    "work_id": "W3034971973",
+    "expected_title_substring": "EfficientDet: Scalable and",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "EfficientDet: Scalable and Efficient Object Detection"
+  },
+  {
+    "work_id": "W4394668313",
+    "expected_title_substring": "Training data-efficient image",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Training data-efficient image transformers &amp; distillatio"
+  },
+  {
+    "work_id": "W3138516171",
+    "expected_title_substring": "Swin Transformer: Hierarchical",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Swin Transformer: Hierarchical Vision Transformer using Shif"
+  },
+  {
+    "work_id": "W4312443924",
+    "expected_title_substring": "A ConvNet for",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "A ConvNet for the 2020s"
+  },
+  {
+    "work_id": "W2973727699",
+    "expected_title_substring": "Megatron-LM: Training Multi-Billion",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Megatron-LM: Training Multi-Billion Parameter Language Model"
+  },
+  {
+    "work_id": "W3007672467",
+    "expected_title_substring": "REALM: Retrieval-Augmented Language",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "REALM: Retrieval-Augmented Language Model Pre-Training"
+  },
+  {
+    "work_id": "W3015468748",
+    "expected_title_substring": "Longformer: The Long-Document",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Longformer: The Long-Document Transformer"
+  },
+  {
+    "work_id": "W3045733172",
+    "expected_title_substring": "Big Bird: Transformers",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Big Bird: Transformers for Longer Sequences"
+  },
+  {
+    "work_id": "W2996264288",
+    "expected_title_substring": "PEGASUS: Pre-training with",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "PEGASUS: Pre-training with Extracted Gap-sentences for Abstr"
+  },
+  {
+    "work_id": "W2982399380",
+    "expected_title_substring": "BART: Denoising Sequence-to-Sequence",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "BART: Denoising Sequence-to-Sequence Pre-training for Natura"
+  },
+  {
+    "work_id": "W2981852735",
+    "expected_title_substring": "Exploring the Limits",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Exploring the Limits of Transfer Learning with a Unified Tex"
+  },
+  {
+    "work_id": "W3168867926",
+    "expected_title_substring": "LoRA: Low-Rank Adaptation",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "LoRA: Low-Rank Adaptation of Large Language Models"
+  },
+  {
+    "work_id": "W4221161695",
+    "expected_title_substring": "Self-Consistency Improves Chain",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Self-Consistency Improves Chain of Thought Reasoning in Lang"
+  },
+  {
+    "work_id": "W4320165837",
+    "expected_title_substring": "Toolformer: Language Models",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Toolformer: Language Models Can Teach Themselves to Use Tool"
+  },
+  {
+    "work_id": "W4327810158",
+    "expected_title_substring": "GPT-4 Technical Report",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "GPT-4 Technical Report"
+  },
+  {
+    "work_id": "W4377130677",
+    "expected_title_substring": "Tree of Thoughts:",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Tree of Thoughts: Deliberate Problem Solving with Large Lang"
+  },
+  {
+    "work_id": "W4378509449",
+    "expected_title_substring": "QLoRA: Efficient Finetuning",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "QLoRA: Efficient Finetuning of Quantized LLMs"
+  },
+  {
+    "work_id": "W4387561528",
+    "expected_title_substring": "Mistral 7B",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Mistral 7B"
+  },
+  {
+    "work_id": "W4390723197",
+    "expected_title_substring": "Mixtral of Experts",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Mixtral of Experts"
+  },
+  {
+    "work_id": "W2064675550",
+    "expected_title_substring": "Long Short-Term Memory",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Long Short-Term Memory"
+  },
+  {
+    "work_id": "W2112796928",
+    "expected_title_substring": "Gradient-based learning applied",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Gradient-based learning applied to document recognition"
+  },
+  {
+    "work_id": "W2911964244",
+    "expected_title_substring": "Random Forests",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Random Forests"
+  },
+  {
+    "work_id": "W1678356000",
+    "expected_title_substring": "Greedy function approximation:",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Greedy function approximation: A gradient boosting machine."
+  },
+  {
+    "work_id": "W2919115771",
+    "expected_title_substring": "Deep learning",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Deep learning"
+  },
+  {
+    "work_id": "W2772709170",
+    "expected_title_substring": "Mastering Chess and",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Mastering Chess and Shogi by Self-Play with a General Reinfo"
+  },
+  {
+    "work_id": "W2982169647",
+    "expected_title_substring": "Quantum supremacy using",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Quantum supremacy using a programmable superconducting proce"
+  },
+  {
+    "work_id": "W2982316857",
+    "expected_title_substring": "Grandmaster level in",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Grandmaster level in StarCraft II using multi-agent reinforc"
+  },
+  {
+    "work_id": "W4402754006",
+    "expected_title_substring": "DETRs Beat YOLOs",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "DETRs Beat YOLOs on Real-time Object Detection"
+  },
+  {
+    "work_id": "W1483870316",
+    "expected_title_substring": "You Only Look",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "You Only Look Once: Unified, Real-Time Object Detection"
+  },
+  {
+    "work_id": "W2978017171",
+    "expected_title_substring": "DistilBERT, a distilled",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "DistilBERT, a distilled version of BERT: smaller, faster, ch"
+  },
+  {
+    "work_id": "W2037227137",
+    "expected_title_substring": "The Pascal Visual",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "The Pascal Visual Object Classes Challenge: A Retrospective"
+  },
+  {
+    "work_id": "W1861492603",
+    "expected_title_substring": "Microsoft COCO: Common",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Microsoft COCO: Common Objects in Context"
+  },
+  {
+    "work_id": "W2193145675",
+    "expected_title_substring": "SSD: Single Shot",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "SSD: Single Shot MultiBox Detector"
+  },
+  {
+    "work_id": "W2565639579",
+    "expected_title_substring": "Feature Pyramid Networks",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Feature Pyramid Networks for Object Detection"
+  },
+  {
+    "work_id": "W2963351448",
+    "expected_title_substring": "Focal Loss for",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Focal Loss for Dense Object Detection"
+  },
+  {
+    "work_id": "W2295107390",
+    "expected_title_substring": "Learning Deep Features",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Learning Deep Features for Discriminative Localization"
+  },
+  {
+    "work_id": "W1834627138",
+    "expected_title_substring": "Deep Learning Face",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Deep Learning Face Attributes in the Wild"
+  },
+  {
+    "work_id": "W2096733369",
+    "expected_title_substring": "FaceNet: A unified",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "FaceNet: A unified embedding for face recognition and cluste"
+  },
+  {
+    "work_id": "W2167839676",
+    "expected_title_substring": "Neural Turing Machines",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Neural Turing Machines"
+  },
+  {
+    "work_id": "W2520375714",
+    "expected_title_substring": "Attention and Augmented",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Attention and Augmented Recurrent Neural Networks"
+  },
+  {
+    "work_id": "W2766527293",
+    "expected_title_substring": "Progressive Growing of",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Progressive Growing of GANs for Improved Quality, Stability,"
+  },
+  {
+    "work_id": "W2519091744",
+    "expected_title_substring": "WaveNet: A Generative",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "WaveNet: A Generative Model for Raw Audio"
+  },
+  {
+    "work_id": "W2601564443",
+    "expected_title_substring": "Deformable Convolutional Networks",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Deformable Convolutional Networks"
+  },
+  {
+    "work_id": "W2331128040",
+    "expected_title_substring": "Perceptual Losses for",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Perceptual Losses for Real-Time Style Transfer and Super-Res"
+  },
+  {
+    "work_id": "W1901129140",
+    "expected_title_substring": "U-Net: Convolutional Networks",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "U-Net: Convolutional Networks for Biomedical Image Segmentat"
+  },
+  {
+    "work_id": "W2163605009",
+    "expected_title_substring": "ImageNet classification with",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "ImageNet classification with deep convolutional neural netwo"
   },
   {
     "work_id": "AX:1706.03762",
     "expected_title_substring": "Attention",
     "expect_error": false,
     "category": "arxiv",
-    "note": "Transformer via ArXiv ID"
+    "note": "Attention Is All You Need"
   },
   {
     "work_id": "AX:1810.04805",
     "expected_title_substring": "BERT",
     "expect_error": false,
     "category": "arxiv",
-    "note": "BERT via ArXiv ID"
+    "note": "BERT"
+  },
+  {
+    "work_id": "AX:1409.1556",
+    "expected_title_substring": "Very Deep",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "VGG"
+  },
+  {
+    "work_id": "AX:1406.2661",
+    "expected_title_substring": "Generative Adversarial",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "GAN"
+  },
+  {
+    "work_id": "AX:1512.03385",
+    "expected_title_substring": "Deep Residual",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "ResNet"
+  },
+  {
+    "work_id": "AX:2010.11929",
+    "expected_title_substring": "16x16",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "ViT"
+  },
+  {
+    "work_id": "AX:1412.6980",
+    "expected_title_substring": "Adam",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "Adam optimizer"
+  },
+  {
+    "work_id": "AX:1502.03167",
+    "expected_title_substring": "Batch Normalization",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "Batch Normalization"
+  },
+  {
+    "work_id": "AX:1607.06450",
+    "expected_title_substring": "Densely Connected",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "DenseNet"
+  },
+  {
+    "work_id": "AX:1505.04597",
+    "expected_title_substring": "U-Net",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "U-Net"
   },
   {
     "work_id": "W999999999999",
     "expected_title_substring": "",
     "expect_error": true,
     "category": "error_case",
-    "note": "Non-existent work_id - should fail"
+    "note": "Non-existent work_id"
+  },
+  {
+    "work_id": "S2:invalid-id",
+    "expected_title_substring": "",
+    "expect_error": true,
+    "category": "error_case",
+    "note": "Malformed S2 ID"
+  },
+  {
+    "work_id": "AX:9999.99999",
+    "expected_title_substring": "",
+    "expect_error": true,
+    "category": "error_case",
+    "note": "Non-existent ArXiv ID"
+  },
+  {
+    "work_id": "",
+    "expected_title_substring": "",
+    "expect_error": true,
+    "category": "error_case",
+    "note": "Empty work_id"
   }
 ]
