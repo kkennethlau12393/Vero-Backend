@@ -1,0 +1,72 @@
+[
+  {
+    "doi": "10.48550/arXiv.1706.03762",
+    "expected_title_substring": "Attention Is All You Need",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "Transformer paper"
+  },
+  {
+    "doi": "10.48550/arXiv.1409.1556",
+    "expected_title_substring": "Very Deep Convolutional",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "VGG paper - Very Deep Convolutional Networks"
+  },
+  {
+    "doi": "10.48550/arXiv.1406.2661",
+    "expected_title_substring": "Generative Adversarial",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "GAN paper"
+  },
+  {
+    "doi": "10.48550/arXiv.1512.03385",
+    "expected_title_substring": "Deep Residual Learning",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "ResNet paper"
+  },
+  {
+    "doi": "10.48550/arXiv.2010.11929",
+    "expected_title_substring": "16x16",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "Vision Transformer (ViT) paper"
+  },
+  {
+    "doi": "10.1038/nature16961",
+    "expected_title_substring": "game of Go",
+    "expect_error": false,
+    "category": "nature",
+    "note": "AlphaGo Nature paper - title is 'Mastering the game of Go'"
+  },
+  {
+    "doi": "10.1038/s41586-021-03819-2",
+    "expected_title_substring": "AlphaFold",
+    "expect_error": false,
+    "category": "nature",
+    "note": "AlphaFold 2 Nature paper"
+  },
+  {
+    "doi": "10.1126/science.aar6404",
+    "expected_title_substring": "reinforcement learning",
+    "expect_error": false,
+    "category": "science",
+    "note": "AlphaZero Science paper - title is 'A general reinforcement learning algorithm'"
+  },
+  {
+    "doi": "10.18653/v1/N19-1423",
+    "expected_title_substring": "BERT",
+    "expect_error": false,
+    "category": "acl",
+    "note": "BERT ACL paper"
+  },
+  {
+    "doi": "10.9999/invalid-doi-format",
+    "expected_title_substring": "",
+    "expect_error": true,
+    "category": "error_case",
+    "note": "Invalid DOI - should fail"
+  }
+]

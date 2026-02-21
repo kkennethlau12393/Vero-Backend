@@ -1,0 +1,30 @@
+[
+  {
+    "pdf_path": "attention_paper.pdf",
+    "expected_title_substring": "Attention",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "Attention Is All You Need - ArXiv PDF (need to download)"
+  },
+  {
+    "pdf_path": "bert_paper.pdf",
+    "expected_title_substring": "BERT",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "BERT paper - ArXiv PDF (need to download)"
+  },
+  {
+    "pdf_path": "resnet_paper.pdf",
+    "expected_title_substring": "Residual",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "ResNet paper - ArXiv PDF (need to download)"
+  },
+  {
+    "pdf_path": "corrupt.pdf",
+    "expected_title_substring": "",
+    "expect_error": true,
+    "category": "error_case",
+    "note": "Corrupt PDF - should fail (need to create)"
+  }
+]

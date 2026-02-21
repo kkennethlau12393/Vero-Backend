@@ -1,0 +1,72 @@
+[
+  {
+    "work_id": "W2626778328",
+    "expected_title_substring": "Attention",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "Attention Is All You Need (from DOI test)"
+  },
+  {
+    "work_id": "W4298289240",
+    "expected_title_substring": "Generative Adversarial",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "GAN paper (from DOI test)"
+  },
+  {
+    "work_id": "W2949650786",
+    "expected_title_substring": "Residual",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "ResNet paper (from DOI test)"
+  },
+  {
+    "work_id": "W3094502228",
+    "expected_title_substring": "16x16",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "ViT paper (from DOI test)"
+  },
+  {
+    "work_id": "W2257979135",
+    "expected_title_substring": "game of Go",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "AlphaGo paper (from DOI test)"
+  },
+  {
+    "work_id": "W3177828909",
+    "expected_title_substring": "AlphaFold",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "AlphaFold 2 paper (from DOI test)"
+  },
+  {
+    "work_id": "W2963341956",
+    "expected_title_substring": "BERT",
+    "expect_error": false,
+    "category": "openalex",
+    "note": "BERT ACL paper (from DOI test)"
+  },
+  {
+    "work_id": "AX:1706.03762",
+    "expected_title_substring": "Attention",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "Transformer via ArXiv ID"
+  },
+  {
+    "work_id": "AX:1810.04805",
+    "expected_title_substring": "BERT",
+    "expect_error": false,
+    "category": "arxiv",
+    "note": "BERT via ArXiv ID"
+  },
+  {
+    "work_id": "W999999999999",
+    "expected_title_substring": "",
+    "expect_error": true,
+    "category": "error_case",
+    "note": "Non-existent work_id - should fail"
+  }
+]
