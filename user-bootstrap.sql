@@ -1,7 +1,6 @@
 -- user-bootstrap.sql
 -- Supabase bootstrap for user/workspace ownership with strict RLS.
--- Current model: one user owns exactly one workspace.
--- Future-ready: can evolve to many-to-many collaboration with a workspace_members table.
+-- Current model: one user can own multiple workspaces.
 
 \set ON_ERROR_STOP on
 BEGIN;
@@ -76,7 +75,7 @@ END $$;
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.workspaces (
     workspace_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_user_id uuid NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+    owner_user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     workspace_name text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
@@ -85,7 +84,6 @@ CREATE TABLE IF NOT EXISTS public.workspaces (
 
 CREATE TABLE IF NOT EXISTS public.users (
     user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    workspace_id uuid NOT NULL UNIQUE REFERENCES public.workspaces(workspace_id) ON DELETE CASCADE,
     display_name text,
     first_name text,
     last_name text,
@@ -95,14 +93,27 @@ CREATE TABLE IF NOT EXISTS public.users (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE public.users
-    ADD COLUMN IF NOT EXISTS first_name text,
-    ADD COLUMN IF NOT EXISTS last_name text,
-    ADD COLUMN IF NOT EXISTS avatar_url text,
-    ADD COLUMN IF NOT EXISTS profile_picture_url text;
+-- Drop legacy columns/constraints if migrating from single-workspace schema.
+DO $$
+BEGIN
+    -- Drop the 1:1 workspace_id column from users if it exists
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'workspace_id'
+    ) THEN
+        ALTER TABLE public.users DROP COLUMN workspace_id;
+    END IF;
 
-CREATE INDEX IF NOT EXISTS idx_users_workspace_id
-    ON public.users (workspace_id);
+    -- Drop the UNIQUE constraint on owner_user_id if it exists
+    IF EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = 'public' AND table_name = 'workspaces'
+          AND constraint_type = 'UNIQUE'
+          AND constraint_name LIKE '%owner_user_id%'
+    ) THEN
+        ALTER TABLE public.workspaces DROP CONSTRAINT workspaces_owner_user_id_key;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_workspaces_owner_user_id
     ON public.workspaces (owner_user_id);
@@ -144,22 +155,10 @@ BEGIN
     END IF;
 END $$;
 
--- Returns the workspace ID for the signed-in user.
-CREATE OR REPLACE FUNCTION public.current_workspace_id()
-RETURNS uuid
-LANGUAGE sql
-STABLE
-AS $fn$
-    SELECT u.workspace_id
-    FROM public.users u
-    WHERE u.user_id = auth.uid()
-    LIMIT 1;
-$fn$;
-
 -- Keeps app tables in sync with Supabase auth.users.
 -- On new auth user:
---   1) ensure exactly one owned workspace exists
---   2) ensure users.user_id = auth.users.id
+--   1) create a default workspace for the user
+--   2) ensure users profile row exists
 CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -208,15 +207,14 @@ BEGIN
         'Workspace'
     );
 
+    -- Create default workspace (no uniqueness conflict — user can have many)
     INSERT INTO public.workspaces (owner_user_id, workspace_name)
     VALUES (NEW.id, v_workspace_name)
-    ON CONFLICT (owner_user_id) DO UPDATE
-      SET owner_user_id = EXCLUDED.owner_user_id
     RETURNING workspace_id INTO v_workspace_id;
 
+    -- Create user profile
     INSERT INTO public.users (
         user_id,
-        workspace_id,
         display_name,
         first_name,
         last_name,
@@ -225,7 +223,6 @@ BEGIN
     )
     VALUES (
         NEW.id,
-        v_workspace_id,
         NULLIF(v_display_name, ''),
         v_first_name,
         v_last_name,
@@ -233,8 +230,7 @@ BEGIN
         v_profile_picture_url
     )
     ON CONFLICT (user_id) DO UPDATE
-      SET workspace_id = EXCLUDED.workspace_id,
-          display_name = COALESCE(public.users.display_name, EXCLUDED.display_name),
+      SET display_name = COALESCE(public.users.display_name, EXCLUDED.display_name),
           first_name = COALESCE(public.users.first_name, EXCLUDED.first_name),
           last_name = COALESCE(public.users.last_name, EXCLUDED.last_name),
           avatar_url = COALESCE(public.users.avatar_url, EXCLUDED.avatar_url),
@@ -266,7 +262,6 @@ END $$;
 DO $$
 DECLARE
     r RECORD;
-    v_workspace_id uuid;
     v_first_name text;
     v_last_name text;
     v_display_name text;
@@ -313,15 +308,12 @@ BEGIN
             'Workspace'
         );
 
+        -- Create default workspace for backfilled user
         INSERT INTO public.workspaces (owner_user_id, workspace_name)
-        VALUES (r.id, v_workspace_name)
-        ON CONFLICT (owner_user_id) DO UPDATE
-          SET owner_user_id = EXCLUDED.owner_user_id
-        RETURNING workspace_id INTO v_workspace_id;
+        VALUES (r.id, v_workspace_name);
 
         INSERT INTO public.users (
             user_id,
-            workspace_id,
             display_name,
             first_name,
             last_name,
@@ -330,7 +322,6 @@ BEGIN
         )
         VALUES (
             r.id,
-            v_workspace_id,
             NULLIF(v_display_name, ''),
             v_first_name,
             v_last_name,
@@ -338,8 +329,7 @@ BEGIN
             v_profile_picture_url
         )
         ON CONFLICT (user_id) DO UPDATE
-          SET workspace_id = EXCLUDED.workspace_id,
-              display_name = COALESCE(public.users.display_name, EXCLUDED.display_name),
+          SET display_name = COALESCE(public.users.display_name, EXCLUDED.display_name),
               first_name = COALESCE(public.users.first_name, EXCLUDED.first_name),
               last_name = COALESCE(public.users.last_name, EXCLUDED.last_name),
               avatar_url = COALESCE(public.users.avatar_url, EXCLUDED.avatar_url),
@@ -347,8 +337,36 @@ BEGIN
     END LOOP;
 END $$;
 
--- Bootstrap helper: create workspace + profile row for current auth user.
--- This is safe for first login/signup flows.
+-- Create a new workspace for the signed-in user.
+CREATE OR REPLACE FUNCTION public.create_workspace(
+    p_workspace_name text
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+DECLARE
+    v_user_id uuid := auth.uid();
+    v_workspace_id uuid;
+BEGIN
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'Not authenticated';
+    END IF;
+
+    INSERT INTO public.workspaces (owner_user_id, workspace_name)
+    VALUES (v_user_id, p_workspace_name)
+    RETURNING workspace_id INTO v_workspace_id;
+
+    RETURN v_workspace_id;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.create_workspace(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.create_workspace(text) TO authenticated;
+
+-- Bootstrap helper: ensure at least one workspace + profile exists for current auth user.
+-- Returns the first workspace_id.
 CREATE OR REPLACE FUNCTION public.bootstrap_workspace(
     p_workspace_name text,
     p_display_name text DEFAULT NULL
@@ -366,27 +384,28 @@ BEGIN
         RAISE EXCEPTION 'Not authenticated';
     END IF;
 
+    -- Return existing workspace if user already has one
     SELECT workspace_id
       INTO v_workspace_id
-      FROM public.users
-     WHERE user_id = v_user_id;
+      FROM public.workspaces
+     WHERE owner_user_id = v_user_id
+     ORDER BY created_at ASC
+     LIMIT 1;
 
     IF v_workspace_id IS NOT NULL THEN
         RETURN v_workspace_id;
     END IF;
 
+    -- Create first workspace
     INSERT INTO public.workspaces (owner_user_id, workspace_name)
     VALUES (v_user_id, p_workspace_name)
-    ON CONFLICT (owner_user_id) DO UPDATE
-      SET owner_user_id = EXCLUDED.owner_user_id
     RETURNING workspace_id INTO v_workspace_id;
 
-    INSERT INTO public.users (user_id, workspace_id, display_name)
-    VALUES (v_user_id, v_workspace_id, p_display_name)
+    -- Create user profile
+    INSERT INTO public.users (user_id, display_name)
+    VALUES (v_user_id, p_display_name)
     ON CONFLICT (user_id) DO UPDATE
-      SET workspace_id = EXCLUDED.workspace_id,
-          display_name = COALESCE(public.users.display_name, EXCLUDED.display_name)
-    RETURNING workspace_id INTO v_workspace_id;
+      SET display_name = COALESCE(public.users.display_name, EXCLUDED.display_name);
 
     RETURN v_workspace_id;
 END;
@@ -417,11 +436,6 @@ TO authenticated
 WITH CHECK (
     (SELECT auth.uid()) IS NOT NULL
     AND user_id = (SELECT auth.uid())
-    AND workspace_id IN (
-        SELECT workspace_id
-        FROM public.workspaces
-        WHERE owner_user_id = (SELECT auth.uid())
-    )
 );
 
 DROP POLICY IF EXISTS users_update_own ON public.users;
@@ -439,7 +453,7 @@ FOR DELETE
 TO authenticated
 USING ((SELECT auth.uid()) IS NOT NULL AND user_id = (SELECT auth.uid()));
 
--- workspaces: owner can read and manage only their own workspace.
+-- workspaces: owner can read and manage only their own workspaces.
 DROP POLICY IF EXISTS workspaces_select_own ON public.workspaces;
 CREATE POLICY workspaces_select_own
 ON public.workspaces

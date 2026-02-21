@@ -54,7 +54,7 @@ def dev_tenant_id() -> UUID:
 @pytest.fixture()
 def auth_headers(dev_tenant_id: UUID) -> dict[str, str]:
     """Headers that satisfy the dev auth stub."""
-    return {"X-Tenant-Id": str(dev_tenant_id)}
+    return {"X-Workspace-Id": str(dev_tenant_id)}
 
 
 # ---------------------------------------------------------------------------
