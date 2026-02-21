@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env", override=True)
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.feature1.api import router as feature1_router
 from app.feature2.maps_api import router as feature2_maps_router
 from app.feature2.rank_api import router as feature2_rank_router
@@ -16,6 +17,13 @@ from app.feature5.gap_api import router as feature5_gap_router
 from app.settings.api import router as settings_router
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(feature1_router)
 app.include_router(feature2_maps_router)
 app.include_router(feature2_rank_router)
