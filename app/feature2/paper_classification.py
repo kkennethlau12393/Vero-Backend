@@ -1,23 +1,20 @@
 """
 Paper classification module for ranking.
 
-This module classifies papers into categories using LLM with caching in works.category.
-Categories are paper-intrinsic (not query-dependent) and cached permanently.
+NOTE: This module contains legacy classification logic. The actual ranking output uses
+5 categories defined in methodological_alignment.py:
 
-Classification Strategy:
-- Title patterns are used as FIRST-PASS FILTERS, not final decisions
-- Subfield qualifiers (geotechnical, wind, computational) flag papers for LLM review
-- LLM (gpt-5-mini) is used ONLY for borderline cases to determine semantic intent
-- Fundamentals is strictly recency-agnostic, limited to truly canonical theory
+ACTUAL OUTPUT CATEGORIES (used in production):
+1. foundational - Seminal papers that defined the field
+2. methodology - Method development papers
+3. reviews - Survey papers, review articles, meta-analyses
+4. applications - Domain-specific applications
+5. textbooks - Educational/pedagogical resources
 
-Categories (in order of priority for canonical spine):
-1. FOUNDATIONAL - Canonical, field-defining papers (widely cited, broadly applicable)
-2. METHODOLOGICAL - Method development papers (core conceptual toolkit)
-3. HANDBOOK - Review articles, surveys, meta-analyses (synthesize existing work)
-4. RECENT - New developments in emerging phenomena (post-2018)
-5. APPLIED - Empirical studies with broad significance (representative exemplars)
-6. SPECIFIC_TOPICS - Niche papers for specialized subareas
-7. IMPLEMENTATION - Software packages, tools, tutorials (excluded by default)
+This module provides title pattern detection (HANDBOOK_PATTERNS, TEXTBOOK_PATTERNS)
+used by methodological_alignment.py for category assignment.
+
+The PaperCategory enum below is LEGACY and not used in production ranking output.
 """
 
 from __future__ import annotations
@@ -56,15 +53,24 @@ MAX_PARALLEL_BATCHES = 5
 HIGH_CITATION_THRESHOLD = 500
 
 
+# ============================================================================
+# LEGACY: This enum is NOT used in production ranking output.
+# Actual categories are defined in methodological_alignment.py:
+#   foundational, methodology, reviews, applications, textbooks
+# This enum is kept for backward compatibility with tests only.
+# ============================================================================
 class PaperCategory(Enum):
-    """Categories of academic papers by methodological role."""
+    """LEGACY: Categories of academic papers by methodological role.
+
+    NOT USED IN PRODUCTION. See module docstring for actual output categories.
+    """
     FOUNDATIONAL = "foundational"       # Canonical papers that established core methods
     METHODOLOGICAL = "methodological"   # Method development papers
     APPLIED = "applied"                 # Applications of methods to empirical questions
-    RECENT = "recent"                   # Recent developments (post-2018 modern practice)
-    IMPLEMENTATION = "implementation"   # Software packages, tools, tutorials
-    HANDBOOK = "handbook"               # Reviews, handbooks, surveys
-    SPECIFIC_TOPICS = "specific_topics" # Niche subareas for active researchers
+    RECENT = "recent"                   # UNUSED - removed from production output
+    IMPLEMENTATION = "implementation"   # UNUSED - removed from production output
+    HANDBOOK = "handbook"               # Mapped to "reviews" in production
+    SPECIFIC_TOPICS = "specific_topics" # UNUSED - removed from production output
 
 
 @dataclass
