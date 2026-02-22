@@ -106,6 +106,117 @@ def generate_topic_query_from_title(title: str) -> Optional[str]:
         return _fallback_clean_title(title)
 
 
+QUERY_TO_TITLE_PROMPT = """Extract the core research topic from this user query. Return a concise title (2-6 words) suitable as a header.
+
+User query: "{query}"
+
+Examples:
+- "What are the best papers on CRISPR gene editing?" → "CRISPR Gene Editing"
+- "Can you find me research on transformer architectures?" → "Transformer Architectures"
+- "How does reinforcement learning work in robotics?" → "Reinforcement Learning in Robotics"
+- "I want to learn about graph neural networks" → "Graph Neural Networks"
+- "attention mechanisms in transformers" → "Attention Mechanisms in Transformers"
+- "show me papers about protein folding" → "Protein Folding"
+
+Guidelines:
+- Strip conversational fluff (find me, show me, best papers on, etc.)
+- Keep the core research topic
+- Use Title Case
+- Output ONLY the title, no quotes or explanations"""
+
+
+def extract_display_title(query_text: str) -> str:
+    """Extract a clean display title from a user query for workspace headers.
+
+    Completely separate from the ranking pipeline — this is only used
+    for UI display purposes. Falls back to regex cleaning if LLM fails.
+    """
+    if not query_text or len(query_text.strip()) < 3:
+        return query_text or ""
+
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        return _fallback_display_title(query_text)
+
+    try:
+        client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
+
+        resp = client.chat.completions.create(
+            model=MODEL_VERSION,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You extract research topics from user queries. Return only a concise title in Title Case.",
+                },
+                {
+                    "role": "user",
+                    "content": QUERY_TO_TITLE_PROMPT.format(query=query_text),
+                },
+            ],
+            max_tokens=30,
+            temperature=0.0,
+            timeout=10.0,
+        )
+
+        title = (resp.choices[0].message.content or "").strip().strip('"\'')
+
+        word_count = len(title.split())
+        if word_count < 1 or word_count > 8:
+            logger.warning(f"Display title too short/long ({word_count} words): '{title}'")
+            return _fallback_display_title(query_text)
+
+        logger.info(f"Display title: '{query_text[:50]}' → '{title}'")
+        return title
+
+    except Exception as e:
+        logger.warning(f"Display title LLM error: {e}")
+        return _fallback_display_title(query_text)
+
+
+def _fallback_display_title(query_text: str) -> str:
+    """Regex fallback for display title extraction."""
+    import re
+    cleaned = query_text.strip()
+    # Strip trailing ?
+    cleaned = re.sub(r'\?$', '', cleaned).strip()
+    # Strip conversational prefixes (run before question-word strip)
+    cleaned = re.sub(
+        r'^(?:can\s+you\s+|could\s+you\s+|please\s+)?'
+        r'(?:find\s+me|show\s+me|tell\s+me\s+about|give\s+me|get\s+me'
+        r'|help\s+me\s+(?:find|understand|learn\s+about))\s+',
+        '', cleaned, flags=re.IGNORECASE,
+    )
+    # Strip question prefixes (what are the, how does, etc.)
+    cleaned = re.sub(
+        r'^(?:what|how|why|when|where|which|who|can|could|should|would|does|do|is|are)\s+'
+        r'(?:is|are|does|do|was|were|will|would|could|should|can)?\s*'
+        r'(?:the|a|an|some)?\s*',
+        '', cleaned, flags=re.IGNORECASE,
+    )
+    # Strip "I want to learn about", "I need to understand"
+    cleaned = re.sub(
+        r'^i\s+(?:want|need|\'d\s+like)\s+to\s+(?:learn|know|read|find\s+out|understand|study)\s+'
+        r'(?:about|more\s+about)?\s*',
+        '', cleaned, flags=re.IGNORECASE,
+    )
+    # Strip "best/top/latest papers on", "the top papers on", "research on/about"
+    cleaned = re.sub(
+        r'^(?:the\s+)?(?:best|top|latest|recent|good|important|key|seminal)?\s*'
+        r'(?:papers?|articles?|research|studies|work|literature)\s+'
+        r'(?:on|about|in|for|regarding)\s+',
+        '', cleaned, flags=re.IGNORECASE,
+    )
+    # Strip leftover prepositions at start
+    cleaned = re.sub(
+        r'^(?:about|on|in|for|regarding)\s+',
+        '', cleaned, flags=re.IGNORECASE,
+    )
+    # Strip "work in" from "reinforcement learning work in robotics"
+    cleaned = re.sub(r'\s+work\s+in\s+', ' in ', cleaned, flags=re.IGNORECASE)
+    # Title case
+    return cleaned.strip().title() if cleaned.strip() else query_text.strip()
+
+
 def _fallback_clean_title(title: str) -> str:
     """
     Fallback: clean up the title to use as a query.
