@@ -51,6 +51,7 @@ class WorkPreview:
     cited_by_count: int
     authors: list[str]
     venue: Optional[str]
+    abstract: Optional[str] = None
     doi: Optional[str] = None
     is_open_access: Optional[bool] = None
     oa_pdf_url: Optional[str] = None
@@ -122,7 +123,7 @@ class WorkStore:
         rows = conn.execute(
             text("""
                 SELECT work_id, title, year, cited_by_count, authors_json, venue,
-                       doi, is_open_access, oa_pdf_url
+                       abstract, doi, is_open_access, oa_pdf_url
                 FROM works
                 WHERE work_id = ANY(:ids)
             """),
@@ -141,6 +142,7 @@ class WorkStore:
                 cited_by_count=int(r["cited_by_count"] or 0),
                 authors=[str(a) for a in authors],
                 venue=r["venue"],
+                abstract=r["abstract"],
                 doi=r["doi"],
                 is_open_access=r["is_open_access"],
                 oa_pdf_url=r["oa_pdf_url"],

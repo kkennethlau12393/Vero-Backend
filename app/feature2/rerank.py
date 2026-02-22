@@ -388,6 +388,7 @@ def assemble_ranked_results(
                 "cited_by_count": int(p.cited_by_count or 0),
                 "authors": p.authors,
                 "venue": p.venue,
+                "abstract": p.abstract,
             }
         results.append(item)
     return results
