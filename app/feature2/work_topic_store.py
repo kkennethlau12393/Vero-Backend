@@ -197,7 +197,18 @@ class WorkStore:
                     if au.get("author", {}).get("display_name") or au.get("display_name")
                 ]
                 cited_by_count = w.get("cited_by_count") or 0
-                venue = (w.get("host_venue") or {}).get("display_name")
+                venue = (
+                    ((w.get("primary_location") or {}).get("source") or {}).get("display_name")
+                    or (w.get("host_venue") or {}).get("display_name")
+                )
+                # Fallback: check locations array for a journal/conference source
+                if not venue:
+                    for loc in w.get("locations", []):
+                        loc_src = (loc.get("source") or {}).get("display_name")
+                        loc_type = (loc.get("source") or {}).get("type")
+                        if loc_src and loc_type in ("journal", "conference"):
+                            venue = loc_src
+                            break
                 # Abstract: OpenAlex provides an inverted index
                 abstract = _decode_openalex_abstract(w.get("abstract_inverted_index"))
                 # Primary topic

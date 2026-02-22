@@ -235,7 +235,7 @@ def _search_s2_bulk(query: str, k: int, headers: dict) -> Optional[List[Tuple[st
     while len(out) < k:
         params = {
             "query": query,
-            "fields": "paperId,title,year,citationCount,externalIds",
+            "fields": "paperId,title,year,citationCount,externalIds,venue,journal",
             "limit": page_size,
         }
         if continuation_token:
@@ -265,6 +265,9 @@ def _search_s2_bulk(query: str, k: int, headers: dict) -> Optional[List[Tuple[st
                     seen_ids.add(paper_id)
                     external_ids = paper.get("externalIds") or {}
 
+                    # Venue: prefer venue field, fall back to journal.name
+                    venue = paper.get("venue") or (paper.get("journal") or {}).get("name") or None
+
                     out.append((paper_id, {
                         "title": paper.get("title", ""),
                         "year": paper.get("year"),
@@ -272,6 +275,7 @@ def _search_s2_bulk(query: str, k: int, headers: dict) -> Optional[List[Tuple[st
                         "openalex_id": external_ids.get("OpenAlex"),
                         "arxiv_id": external_ids.get("ArXiv"),
                         "doi": external_ids.get("DOI"),
+                        "venue": venue,
                     }))
 
                     if len(out) >= k:
@@ -313,7 +317,7 @@ def _search_s2_regular(query: str, k: int, headers: dict) -> List[Tuple[str, Dic
     while len(out) < k and offset < 1000:
         params = {
             "query": query,
-            "fields": "paperId,title,year,citationCount,externalIds",
+            "fields": "paperId,title,year,citationCount,externalIds,venue,journal",
             "limit": page_size,
             "offset": offset,
         }
@@ -337,6 +341,9 @@ def _search_s2_regular(query: str, k: int, headers: dict) -> List[Tuple[str, Dic
                     seen_ids.add(paper_id)
                     external_ids = paper.get("externalIds") or {}
 
+                    # Venue: prefer venue field, fall back to journal.name
+                    venue = paper.get("venue") or (paper.get("journal") or {}).get("name") or None
+
                     out.append((paper_id, {
                         "title": paper.get("title", ""),
                         "year": paper.get("year"),
@@ -344,6 +351,7 @@ def _search_s2_regular(query: str, k: int, headers: dict) -> List[Tuple[str, Dic
                         "openalex_id": external_ids.get("OpenAlex"),
                         "arxiv_id": external_ids.get("ArXiv"),
                         "doi": external_ids.get("DOI"),
+                        "venue": venue,
                     }))
 
                     if len(out) >= k:
@@ -1045,7 +1053,7 @@ def _parse_arxiv_response(content: bytes) -> List[Tuple[str, Dict[str, Any]]]:
     import xml.etree.ElementTree as ET
 
     root = ET.fromstring(content)
-    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    ns = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
 
     out: List[Tuple[str, Dict[str, Any]]] = []
     for entry in root.findall("atom:entry", ns):
@@ -1075,12 +1083,17 @@ def _parse_arxiv_response(content: bytes) -> List[Tuple[str, Dict[str, Any]]]:
             if name_elem is not None and name_elem.text:
                 authors.append(name_elem.text)
 
+        # Extract journal_ref if paper was published in a journal/conference
+        journal_ref_elem = entry.find("arxiv:journal_ref", ns)
+        journal_ref = journal_ref_elem.text.strip() if journal_ref_elem is not None and journal_ref_elem.text else None
+
         out.append((arxiv_id, {
             "title": title,
             "year": year,
             "citations": 0,
             "authors": authors,
             "arxiv_id": arxiv_id,
+            "venue": journal_ref or "arXiv",
         }))
     return out
 
@@ -1615,6 +1628,8 @@ def _ingest_arxiv_papers(
                         ),
                         -- Fill in title if missing
                         title = COALESCE(works.title, EXCLUDED.title),
+                        -- Fill in venue if missing (journal_ref from ArXiv or existing)
+                        venue = COALESCE(works.venue, EXCLUDED.venue),
                         -- Prefer earlier year (ArXiv often has correct original pub date)
                         year = CASE
                             WHEN works.year IS NULL THEN EXCLUDED.year
@@ -1636,7 +1651,7 @@ def _ingest_arxiv_papers(
                     "year": meta.get("year"),
                     "cited_by_count": meta.get("citations", 0),  # Use enriched citation count
                     "authors_json": meta.get("authors", []),
-                    "venue": "arXiv",
+                    "venue": meta.get("venue") or "arXiv",
                     "primary_topic_id": None,
                     "primary_topic_score": None,
                     "topics_json": [],
@@ -1788,7 +1803,7 @@ def _ingest_semantic_scholar_papers(
             "year": meta.get("year"),
             "cited_by_count": meta.get("citations", 0),
             "authors_json": [],  # S2 search doesn't return full author info
-            "venue": None,
+            "venue": meta.get("venue"),
             "primary_topic_id": None,
             "primary_topic_score": None,
             "topics_json": [],
@@ -1835,6 +1850,8 @@ def _ingest_semantic_scholar_papers(
                             END,
                             -- Fill in title if missing
                             title = COALESCE(works.title, EXCLUDED.title),
+                            -- Fill in venue if missing
+                            venue = COALESCE(works.venue, EXCLUDED.venue),
                             -- Fill in external IDs if missing
                             doi = COALESCE(works.doi, EXCLUDED.doi),
                             arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id)
