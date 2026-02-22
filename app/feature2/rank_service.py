@@ -204,7 +204,7 @@ def direct_rank_prod(
         logger.info(f"Existing rows in candidate set: {len(existing_rows)}")
         query_expansion = None
         if existing_rows:
-            legacy_sources = {"semantic_knn", "lexical_openalex"}
+            legacy_sources = {"semantic_knn"}
             has_legacy = any(
                 any(item.get("source") in legacy_sources for item in (row.get("provenance") or []))
                 for row in existing_rows
