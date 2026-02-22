@@ -235,7 +235,7 @@ def _search_s2_bulk(query: str, k: int, headers: dict) -> Optional[List[Tuple[st
     while len(out) < k:
         params = {
             "query": query,
-            "fields": "paperId,title,year,citationCount,externalIds,venue,journal",
+            "fields": "paperId,title,year,citationCount,externalIds,venue,journal,abstract",
             "limit": page_size,
         }
         if continuation_token:
@@ -276,6 +276,7 @@ def _search_s2_bulk(query: str, k: int, headers: dict) -> Optional[List[Tuple[st
                         "arxiv_id": external_ids.get("ArXiv"),
                         "doi": external_ids.get("DOI"),
                         "venue": venue,
+                        "abstract": paper.get("abstract"),
                     }))
 
                     if len(out) >= k:
@@ -317,7 +318,7 @@ def _search_s2_regular(query: str, k: int, headers: dict) -> List[Tuple[str, Dic
     while len(out) < k and offset < 1000:
         params = {
             "query": query,
-            "fields": "paperId,title,year,citationCount,externalIds,venue,journal",
+            "fields": "paperId,title,year,citationCount,externalIds,venue,journal,abstract",
             "limit": page_size,
             "offset": offset,
         }
@@ -352,6 +353,7 @@ def _search_s2_regular(query: str, k: int, headers: dict) -> List[Tuple[str, Dic
                         "arxiv_id": external_ids.get("ArXiv"),
                         "doi": external_ids.get("DOI"),
                         "venue": venue,
+                        "abstract": paper.get("abstract"),
                     }))
 
                     if len(out) >= k:
@@ -1087,6 +1089,10 @@ def _parse_arxiv_response(content: bytes) -> List[Tuple[str, Dict[str, Any]]]:
         journal_ref_elem = entry.find("arxiv:journal_ref", ns)
         journal_ref = journal_ref_elem.text.strip() if journal_ref_elem is not None and journal_ref_elem.text else None
 
+        # Extract abstract from <summary> tag
+        summary_elem = entry.find("atom:summary", ns)
+        abstract = summary_elem.text.strip().replace("\n", " ") if summary_elem is not None and summary_elem.text else None
+
         out.append((arxiv_id, {
             "title": title,
             "year": year,
@@ -1094,6 +1100,7 @@ def _parse_arxiv_response(content: bytes) -> List[Tuple[str, Dict[str, Any]]]:
             "authors": authors,
             "arxiv_id": arxiv_id,
             "venue": journal_ref or "arXiv",
+            "abstract": abstract,
         }))
     return out
 
@@ -1808,7 +1815,7 @@ def _ingest_semantic_scholar_papers(
             "primary_topic_score": None,
             "topics_json": [],
             "is_retracted": False,
-            "abstract": None,
+            "abstract": meta.get("abstract"),
             "doi": normalized_doi,
             "arxiv_id": normalized_arxiv,
             "source": "semantic_scholar",
@@ -1852,6 +1859,8 @@ def _ingest_semantic_scholar_papers(
                             title = COALESCE(works.title, EXCLUDED.title),
                             -- Fill in venue if missing
                             venue = COALESCE(works.venue, EXCLUDED.venue),
+                            -- Fill in abstract if missing
+                            abstract = COALESCE(works.abstract, EXCLUDED.abstract),
                             -- Fill in external IDs if missing
                             doi = COALESCE(works.doi, EXCLUDED.doi),
                             arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id)
