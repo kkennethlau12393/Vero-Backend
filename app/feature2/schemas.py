@@ -223,6 +223,7 @@ class ConvergenceInfo(BaseModel):
 
 class DirectRankResponse(BaseModel):
     rank_job_id: UUID
+    display_title: Optional[str] = None  # Research space header (query text or paper title)
     job: dict[str, Any]
     query_classification: Optional[QueryClassificationResponse] = None
     convergence: Optional[ConvergenceInfo] = None

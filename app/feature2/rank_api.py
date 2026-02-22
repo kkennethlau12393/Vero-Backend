@@ -44,7 +44,7 @@ from app.feature2.schemas import (
 from app.feature2.rank_service import direct_rank_prod
 from app.feature2.subtopic_service import generate_subtopics
 from app.feature2.temporal_map_service import build_temporal_map
-from app.feature2.title_to_query import generate_topic_query_from_title
+from app.feature2.title_to_query import extract_display_title, generate_topic_query_from_title
 
 
 router = APIRouter(prefix="/v1/rank", tags=["rank"])
@@ -133,6 +133,7 @@ def direct_rank_endpoint(
 
         # Determine query_text based on input mode
         query_text = req.query_text
+        display_title = extract_display_title(req.query_text) if req.query_text else None
 
         if req.seed_doi or req.seed_work_id:
             from app.feature2.seed_resolver import resolve_doi_to_title, resolve_work_id_to_title
@@ -144,6 +145,8 @@ def direct_rank_endpoint(
                 title, metadata = resolve_work_id_to_title(req.seed_work_id)
                 logger.info(f"Resolved work_id {req.seed_work_id} to title: '{title[:50]}...'")
 
+            display_title = title
+
             # Generate query from extracted title
             query_text = generate_topic_query_from_title(title)
             if not query_text:
@@ -154,6 +157,7 @@ def direct_rank_endpoint(
             # Backward compatibility path
             logger.warning("seed_title is deprecated. Use seed_doi, seed_work_id, or /v1/rank/pdf")
             logger.info(f"Generating query from seed_title: '{req.seed_title[:50]}...'")
+            display_title = req.seed_title
             query_text = generate_topic_query_from_title(req.seed_title)
             if not query_text:
                 raise ValueError("Failed to generate query from seed_title")
@@ -178,6 +182,9 @@ def direct_rank_endpoint(
             filters_json=filters_json,
             rank_params_json=rank_params_json,
         )
+
+        if isinstance(result, dict):
+            result["display_title"] = display_title
 
         status = (result.get("job") or {}).get("status")
         if status in ("pending", "running"):
@@ -250,8 +257,9 @@ async def rank_from_pdf_endpoint(
             rank_params_json=params_json,
         )
 
-        # Add extraction metadata to response
+        # Add extraction metadata and display title to response
         if isinstance(result, dict):
+            result["display_title"] = title
             result["seed_extraction"] = {
                 "pdf_filename": pdf_file.filename,
                 "extracted_title": title,
