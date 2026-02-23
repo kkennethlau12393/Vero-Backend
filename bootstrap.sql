@@ -534,6 +534,25 @@ CREATE INDEX IF NOT EXISTS idx_node_details_cache_created
 ALTER TABLE public.node_details_cache
     ADD COLUMN IF NOT EXISTS assessment_unavailable_reason text;
 
+-- ---------------------------------------------------------------------
+-- Permanent novelty assessment storage (Feature 3)
+-- Separate from version-gated cache; survives ASSESSMENT_VERSION bumps.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.novelty_assessments (
+    work_id text PRIMARY KEY,
+    novelty_level text NOT NULL,
+    confidence text NOT NULL,
+    whats_new text,
+    compared_to_prior_work text,
+    novelty_explanation text NOT NULL,
+    grounding_papers jsonb NOT NULL DEFAULT '[]',
+    context_depth text NOT NULL DEFAULT 'abstract_only',
+    assessment_unavailable_reason text,
+    model_version text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- ==========================================================================
 -- Feature 4: Methodology Comparison
 -- ==========================================================================

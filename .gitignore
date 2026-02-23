@@ -50,3 +50,4 @@ feature1_final_scores.md
 final_scores.md
 tests/live/pdfs/
 tests/live/seed_resolver_test_data/pdfs/
+.worktrees/

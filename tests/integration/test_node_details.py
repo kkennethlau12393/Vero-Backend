@@ -282,6 +282,10 @@ def test_data(db_engine):
         all_work_ids = [work_id] + connected_ids
         for wid in all_work_ids:
             conn.execute(
+                text("DELETE FROM novelty_assessments WHERE work_id = :wid"),
+                {"wid": wid},
+            )
+            conn.execute(
                 text("DELETE FROM node_details_cache WHERE work_id = :wid"),
                 {"wid": wid},
             )
@@ -1003,3 +1007,119 @@ class TestGetNodeDetailsAccessInfo:
         # topic_display_name might be None if not cached and the mock doesn't
         # insert into openalex_topics, but the primary_topic_id should be set
         assert result.primary_topic_id == "T10123"
+
+    # ── Permanent Assessment Storage Tests ──────────────────────────────
+
+    def test_assessment_persisted_after_generation(self, db_engine, test_data):
+        """After LLM generates an assessment, it should be saved in novelty_assessments table."""
+        map_id, work_id, _ = test_data
+
+        with _patch_all_external_apis():
+            result = get_node_details(
+                db_engine,
+                tenant_id=TEST_TENANT_ID,
+                map_id=map_id,
+                work_id=work_id,
+                include_novelty=True,
+            )
+
+        assert result.novelty_assessment is not None
+        assert result.novelty_assessment.novelty_level == "high"
+
+        # Verify it was persisted in novelty_assessments table
+        with db_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT novelty_level, confidence, novelty_explanation FROM novelty_assessments WHERE work_id = :wid"),
+                {"wid": work_id},
+            ).mappings().first()
+
+        assert row is not None
+        assert row["novelty_level"] == "high"
+        assert row["confidence"] == "high"
+        assert row["novelty_explanation"] is not None
+
+    def test_persisted_assessment_served_without_llm(self, db_engine, test_data):
+        """Persisted assessment should be served directly, no LLM call needed."""
+        map_id, work_id, _ = test_data
+
+        # Manually insert a persisted assessment
+        with db_engine.connect() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO novelty_assessments
+                        (work_id, novelty_level, confidence, whats_new,
+                         compared_to_prior_work, novelty_explanation,
+                         grounding_papers, model_version)
+                    VALUES
+                        (:wid, 'medium', 'high', 'Test whats new',
+                         'Test comparison', 'Test explanation',
+                         :grounding, 'test-version')
+                """),
+                {
+                    "wid": work_id,
+                    "grounding": json.dumps([{
+                        "work_id": "W999", "title": "Test Paper",
+                        "year": 2020, "cited_by_count": 100,
+                        "relationship": "cited_reference",
+                        "relevance": "Test relevance",
+                    }]),
+                },
+            )
+            conn.commit()
+
+        # Should serve from permanent table without calling LLM
+        with _patch_all_external_apis() as _:
+            result = get_node_details(
+                db_engine,
+                tenant_id=TEST_TENANT_ID,
+                map_id=map_id,
+                work_id=work_id,
+                include_novelty=True,
+            )
+
+        assert result.novelty_assessment is not None
+        assert result.novelty_assessment.novelty_level == "medium"
+        assert result.novelty_assessment.novelty_explanation == "Test explanation"
+
+    def test_force_regenerate_bypasses_persisted(self, db_engine, test_data):
+        """force_regenerate=True should delete persisted assessment and regenerate via LLM."""
+        map_id, work_id, _ = test_data
+
+        # Insert a stale persisted assessment
+        with db_engine.connect() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO novelty_assessments
+                        (work_id, novelty_level, confidence, novelty_explanation,
+                         grounding_papers, model_version)
+                    VALUES
+                        (:wid, 'low', 'low', 'Stale explanation',
+                         '[]', 'old-version')
+                """),
+                {"wid": work_id},
+            )
+            conn.commit()
+
+        # force_regenerate should bypass the stale assessment
+        with _patch_all_external_apis():
+            result = get_node_details(
+                db_engine,
+                tenant_id=TEST_TENANT_ID,
+                map_id=map_id,
+                work_id=work_id,
+                include_novelty=True,
+                force_regenerate=True,
+            )
+
+        # Should get fresh LLM result (HIGH from fixture), not stale LOW
+        assert result.novelty_assessment is not None
+        assert result.novelty_assessment.novelty_level == "high"
+
+        # And the persisted table should now have the fresh result
+        with db_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT novelty_level FROM novelty_assessments WHERE work_id = :wid"),
+                {"wid": work_id},
+            ).mappings().first()
+        assert row is not None
+        assert row["novelty_level"] == "high"

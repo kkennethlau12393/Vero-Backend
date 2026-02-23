@@ -119,6 +119,135 @@ def cache_details(
         logger.warning(f"Failed to cache details: {e}")
 
 
+# ---------------------------------------------------------------------------
+# Permanent novelty assessment storage (survives ASSESSMENT_VERSION bumps)
+# ---------------------------------------------------------------------------
+
+def get_persisted_assessment(
+    conn: Connection, work_id: str
+) -> Optional[Dict[str, Any]]:
+    """Read a permanently stored novelty assessment (no version gate)."""
+    try:
+        row = conn.execute(
+            text("""
+                SELECT novelty_level, confidence, whats_new,
+                       compared_to_prior_work, novelty_explanation,
+                       grounding_papers, context_depth,
+                       assessment_unavailable_reason
+                FROM novelty_assessments
+                WHERE work_id = :work_id
+            """),
+            {"work_id": work_id},
+        ).mappings().first()
+
+        if not row:
+            return None
+
+        if row["assessment_unavailable_reason"]:
+            return {
+                "novelty_assessment": None,
+                "assessment_unavailable_reason": row["assessment_unavailable_reason"],
+            }
+
+        return {
+            "novelty_assessment": {
+                "novelty_level": row["novelty_level"],
+                "confidence": row["confidence"],
+                "whats_new": row["whats_new"],
+                "compared_to_prior_work": row["compared_to_prior_work"],
+                "novelty_explanation": row["novelty_explanation"],
+                "grounding_papers": row["grounding_papers"] or [],
+                "context_depth": row["context_depth"] or "abstract_only",
+            },
+            "assessment_unavailable_reason": None,
+        }
+    except Exception as e:
+        logger.warning(f"Failed to read persisted assessment for {work_id}: {e}")
+        return None
+
+
+def persist_assessment(
+    conn: Connection,
+    work_id: str,
+    novelty_assessment: Optional[Dict[str, Any]],
+    assessment_unavailable_reason: Optional[str] = None,
+) -> None:
+    """Permanently store a novelty assessment (survives version bumps)."""
+    try:
+        if novelty_assessment:
+            conn.execute(
+                text("""
+                    INSERT INTO novelty_assessments
+                        (work_id, novelty_level, confidence, whats_new,
+                         compared_to_prior_work, novelty_explanation,
+                         grounding_papers, context_depth,
+                         model_version, assessment_unavailable_reason)
+                    VALUES
+                        (:work_id, :novelty_level, :confidence, :whats_new,
+                         :compared_to_prior_work, :novelty_explanation,
+                         :grounding_papers, :context_depth,
+                         :model_version, NULL)
+                    ON CONFLICT (work_id) DO UPDATE SET
+                        novelty_level = EXCLUDED.novelty_level,
+                        confidence = EXCLUDED.confidence,
+                        whats_new = EXCLUDED.whats_new,
+                        compared_to_prior_work = EXCLUDED.compared_to_prior_work,
+                        novelty_explanation = EXCLUDED.novelty_explanation,
+                        grounding_papers = EXCLUDED.grounding_papers,
+                        context_depth = EXCLUDED.context_depth,
+                        model_version = EXCLUDED.model_version,
+                        assessment_unavailable_reason = NULL,
+                        updated_at = now()
+                """),
+                {
+                    "work_id": work_id,
+                    "novelty_level": novelty_assessment.get("novelty_level", "medium"),
+                    "confidence": novelty_assessment.get("confidence", "medium"),
+                    "whats_new": novelty_assessment.get("whats_new"),
+                    "compared_to_prior_work": novelty_assessment.get("compared_to_prior_work"),
+                    "novelty_explanation": novelty_assessment.get("novelty_explanation", ""),
+                    "grounding_papers": json.dumps(novelty_assessment.get("grounding_papers", [])),
+                    "context_depth": novelty_assessment.get("context_depth", "abstract_only"),
+                    "model_version": ASSESSMENT_VERSION,
+                },
+            )
+        else:
+            conn.execute(
+                text("""
+                    INSERT INTO novelty_assessments
+                        (work_id, novelty_level, confidence, novelty_explanation,
+                         model_version, assessment_unavailable_reason)
+                    VALUES
+                        (:work_id, 'medium', 'low', '',
+                         :model_version, :reason)
+                    ON CONFLICT (work_id) DO UPDATE SET
+                        assessment_unavailable_reason = EXCLUDED.assessment_unavailable_reason,
+                        model_version = EXCLUDED.model_version,
+                        updated_at = now()
+                """),
+                {
+                    "work_id": work_id,
+                    "model_version": ASSESSMENT_VERSION,
+                    "reason": assessment_unavailable_reason or "assessment_failed",
+                },
+            )
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to persist assessment for {work_id}: {e}")
+
+
+def delete_persisted_assessment(conn: Connection, work_id: str) -> None:
+    """Delete a persisted assessment (used by force_regenerate)."""
+    try:
+        conn.execute(
+            text("DELETE FROM novelty_assessments WHERE work_id = :work_id"),
+            {"work_id": work_id},
+        )
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to delete persisted assessment for {work_id}: {e}")
+
+
 def _truncate_text(text_val: str, max_chars: int = 500) -> str:
     """Truncate text to max characters, preserving word boundaries."""
     if not text_val:
@@ -1326,6 +1455,7 @@ def get_node_details(
     work_id: str,
     include_novelty: bool = False,
     include_timeline: bool = False,
+    force_regenerate: bool = False,
 ) -> NodeDetailsResponse:
     """
     Get detailed pop-up information for a node in the citation map.
@@ -1442,6 +1572,10 @@ def get_node_details(
                 conn, work_id, basic_summary, basic_keywords, None,
                 assessment_unavailable_reason=unavailable_reason,
             )
+            persist_assessment(
+                conn, work_id, None,
+                assessment_unavailable_reason=unavailable_reason,
+            )
             return NodeDetailsResponse(
                 work_id=work_data["work_id"],
                 title=work_data["title"],
@@ -1492,9 +1626,100 @@ def get_node_details(
                 oa_status=work_data.get("oa_status"),
             )
 
-        # Check cache first (but skip if enrichment happened - regenerate assessment)
+        # Force regeneration: clear permanent storage so we fall through
+        if force_regenerate:
+            delete_persisted_assessment(conn, work_id)
+
+        # Check permanent storage first (no version gate, survives bumps)
+        if not enrichment_happened and not force_regenerate:
+            persisted = get_persisted_assessment(conn, work_id)
+            if persisted:
+                logger.info(f"Permanent assessment hit for {work_id}")
+
+                novelty_assessment_obj = None
+                if persisted["novelty_assessment"]:
+                    novelty_dict = dict(persisted["novelty_assessment"])
+                    grounding_papers_data = novelty_dict.pop("grounding_papers", [])
+                    novelty_assessment_obj = NoveltyAssessment(
+                        **novelty_dict,
+                        grounding_papers=[
+                            GroundingPaper(**gp)
+                            for gp in grounding_papers_data
+                        ],
+                    )
+
+                # Summary/keywords: try cache, fallback to basic
+                cached_for_summary = get_cached_details(conn, work_id)
+                if cached_for_summary:
+                    summary = cached_for_summary["summary"]
+                    keywords = cached_for_summary["keywords"]
+                else:
+                    summary = _generate_summary_from_abstract(
+                        work_data["abstract"], work_data["title"]
+                    )
+                    keywords = _extract_keywords_from_abstract(work_data["abstract"])
+
+                # Build timeline if requested
+                timeline_obj = None
+                if include_timeline:
+                    referenced_works = get_referenced_works(conn, work_id)
+                    landmarks = get_topic_landmarks(
+                        conn, work_data.get("primary_topic_id"),
+                        work_data.get("year"), target_title=work_data.get("title"),
+                    )
+                    timeline_data = build_node_timeline(
+                        conn, work_id, work_data["year"],
+                        referenced_works, landmarks,
+                        include_impact_analysis=True,
+                        target_title=work_data.get("title"),
+                        target_abstract=work_data.get("abstract"),
+                        target_cited_by_count=work_data.get("cited_by_count", 0),
+                    )
+                    timeline_obj = NodeTimeline(
+                        target_work_id=timeline_data["target_work_id"],
+                        target_year=timeline_data["target_year"],
+                        backward=[
+                            TimelineSection(
+                                era=section["era"],
+                                papers=[TimelinePaper(**p) for p in section["papers"]],
+                            )
+                            for section in timeline_data["backward"]
+                        ],
+                        forward=[
+                            TimelineSection(
+                                era=section["era"],
+                                papers=[TimelinePaper(**p) for p in section["papers"]],
+                            )
+                            for section in timeline_data["forward"]
+                        ],
+                        impact_analysis=_build_impact_analysis_obj(timeline_data.get("impact_analysis")),
+                    )
+
+                return NodeDetailsResponse(
+                    work_id=work_data["work_id"],
+                    title=work_data["title"],
+                    year=work_data["year"],
+                    authors=work_data["authors"],
+                    venue=work_data["venue"],
+                    cited_by_count=work_data["cited_by_count"],
+                    abstract=work_data["abstract"],
+                    summary=summary,
+                    keywords=keywords,
+                    novelty_assessment=novelty_assessment_obj,
+                    connected_works=connected_works,
+                    assessment_unavailable_reason=persisted.get("assessment_unavailable_reason"),
+                    timeline=timeline_obj,
+                    primary_topic_id=work_data.get("primary_topic_id"),
+                    topic_display_name=topic_display_name,
+                    access_status=access_info["access_status"],
+                    pdf_url=access_info["pdf_url"],
+                    doi_url=access_info["doi_url"],
+                    oa_status=work_data.get("oa_status"),
+                )
+
+        # Check version-gated cache (fallback if not in permanent storage)
         cached = None
-        if not enrichment_happened:
+        if not enrichment_happened and not force_regenerate:
             cached = get_cached_details(conn, work_id)
 
         if cached:
@@ -1706,6 +1931,10 @@ def get_node_details(
                     None,
                     assessment_unavailable_reason=unavailable_reason,
                 )
+                persist_assessment(
+                    conn, work_id, None,
+                    assessment_unavailable_reason=unavailable_reason,
+                )
 
                 return NodeDetailsResponse(
                     work_id=work_data["work_id"],
@@ -1869,6 +2098,8 @@ def get_node_details(
             llm_result["keywords"],
             llm_result["novelty_assessment"],
         )
+        # Persist permanently (survives version bumps)
+        persist_assessment(conn, work_id, llm_result["novelty_assessment"])
 
         # Build timeline if requested
         timeline_obj = None
@@ -1942,6 +2173,7 @@ def get_novelty_for_work(
     engine: Engine,
     *,
     work_id: str,
+    force_regenerate: bool = False,
 ) -> dict:
     """
     Run novelty assessment for a work_id without requiring a citation map.
@@ -1998,8 +2230,19 @@ def get_novelty_for_work(
                 work_data["primary_topic_id"] = inferred_topic_id
                 enrichment_happened = True
 
-        # Check cache (skip if enrichment happened — regenerate)
-        if not enrichment_happened:
+        # Force regeneration: clear permanent storage
+        if force_regenerate:
+            delete_persisted_assessment(conn, work_id)
+
+        # Check permanent storage first (no version gate)
+        if not enrichment_happened and not force_regenerate:
+            persisted = get_persisted_assessment(conn, work_id)
+            if persisted:
+                logger.info(f"Permanent assessment hit for {work_id}")
+                return persisted
+
+        # Check version-gated cache (fallback)
+        if not enrichment_happened and not force_regenerate:
             cached = get_cached_details(conn, work_id)
             if cached and cached.get("novelty_assessment"):
                 logger.info(f"Cache hit for novelty assessment: {work_id}")
@@ -2063,6 +2306,7 @@ def get_novelty_for_work(
                     "reference or landmark paper to ground the analysis."
                 )
                 cache_details(conn, work_id, "", [], None, assessment_unavailable_reason=unavailable_reason)
+                persist_assessment(conn, work_id, None, assessment_unavailable_reason=unavailable_reason)
                 return {
                     "novelty_assessment": None,
                     "assessment_unavailable_reason": unavailable_reason,
@@ -2165,6 +2409,8 @@ def get_novelty_for_work(
             llm_result["keywords"],
             llm_result["novelty_assessment"],
         )
+        # Persist permanently (survives version bumps)
+        persist_assessment(conn, work_id, llm_result["novelty_assessment"])
 
         return {
             "novelty_assessment": llm_result["novelty_assessment"],
