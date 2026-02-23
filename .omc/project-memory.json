@@ -1,0 +1,180 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1771826897720,
+  "projectRoot": "/Users/sami/project/vero/Vero-Backend",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "fastapi",
+        "version": null,
+        "category": "backend"
+      },
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "pytest",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "app",
+      "docs",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "alexandria_backend.egg-info": {
+      "path": "alexandria_backend.egg-info",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1771826897714,
+      "keyFiles": [
+        "PKG-INFO",
+        "SOURCES.txt",
+        "dependency_links.txt",
+        "requires.txt",
+        "top_level.txt"
+      ]
+    },
+    "app": {
+      "path": "app",
+      "purpose": "Application code",
+      "fileCount": 4,
+      "lastAccessed": 1771826897715,
+      "keyFiles": [
+        "__init__.py",
+        "api_endpoints.md",
+        "db.py",
+        "main.py"
+      ]
+    },
+    "build": {
+      "path": "build",
+      "purpose": "Build output",
+      "fileCount": 0,
+      "lastAccessed": 1771826897715,
+      "keyFiles": []
+    },
+    "docker": {
+      "path": "docker",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1771826897715,
+      "keyFiles": [
+        "Dockerfile",
+        "docker-compose.yml"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 0,
+      "lastAccessed": 1771826897716,
+      "keyFiles": []
+    },
+    "htmlcov": {
+      "path": "htmlcov",
+      "purpose": null,
+      "fileCount": 29,
+      "lastAccessed": 1771826897716,
+      "keyFiles": [
+        "class_index.html",
+        "coverage_html_cb_dd2e7eb5.js",
+        "favicon_32_cb_c827f16f.png",
+        "function_index.html",
+        "index.html"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 3,
+      "lastAccessed": 1771826897716,
+      "keyFiles": [
+        "__init__.py",
+        "conftest.py",
+        "feature2_test_rubric.md"
+      ]
+    },
+    "venv": {
+      "path": "venv",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1771826897716,
+      "keyFiles": [
+        "pyvenv.cfg"
+      ]
+    },
+    "build/lib": {
+      "path": "build/lib",
+      "purpose": "Library code",
+      "fileCount": 0,
+      "lastAccessed": 1771826897717,
+      "keyFiles": []
+    },
+    "tests/fixtures": {
+      "path": "tests/fixtures",
+      "purpose": "Test fixtures",
+      "fileCount": 4,
+      "lastAccessed": 1771826897718,
+      "keyFiles": [
+        "__init__.py",
+        "citation_map_responses.py",
+        "novelty_responses.py"
+      ]
+    },
+    "venv/bin": {
+      "path": "venv/bin",
+      "purpose": "Executable scripts",
+      "fileCount": 60,
+      "lastAccessed": 1771826897718,
+      "keyFiles": [
+        "Activate.ps1",
+        "activate",
+        "activate.csh"
+      ]
+    },
+    "venv/lib": {
+      "path": "venv/lib",
+      "purpose": "Library code",
+      "fileCount": 0,
+      "lastAccessed": 1771826897718,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}
