@@ -15,6 +15,7 @@ from app.feature3.node_details_api import router as feature3_node_details_router
 from app.feature4.compare_api import router as feature4_compare_router
 from app.feature5.gap_api import router as feature5_gap_router
 from app.settings.api import router as settings_router
+from app.workspaces.status_api import router as workspaces_router
 
 app = FastAPI()
 app.add_middleware(
@@ -31,6 +32,7 @@ app.include_router(feature3_node_details_router)
 app.include_router(feature4_compare_router)
 app.include_router(feature5_gap_router)
 app.include_router(settings_router)
+app.include_router(workspaces_router)
 
 @app.get("/test")
 async def test():
