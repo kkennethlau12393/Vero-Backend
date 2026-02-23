@@ -55,7 +55,7 @@ MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Bump this when model OR prompt changes to auto-invalidate cached assessments
-ASSESSMENT_VERSION = "maverick-v11"
+ASSESSMENT_VERSION = "maverick-v12"
 
 
 def get_cached_details(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
@@ -1601,6 +1601,7 @@ def get_node_details(
                     conn,
                     work_data.get("primary_topic_id"),
                     work_data.get("year"),
+                    target_title=work_data.get("title"),
                 )
                 timeline_data = build_node_timeline(
                     conn,
@@ -1667,6 +1668,7 @@ def get_node_details(
             conn,
             work_data["primary_topic_id"],
             work_data["year"],
+            target_title=work_data.get("title"),
         )
         logger.info(f"Found {len(landmarks)} topic landmarks")
 
@@ -2094,6 +2096,7 @@ def get_novelty_for_work(
             conn,
             work_data.get("primary_topic_id"),
             work_data.get("year"),
+            target_title=work_data.get("title"),
         )
 
         # Detect pioneering work

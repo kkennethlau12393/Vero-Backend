@@ -3,12 +3,18 @@ Reference store for Feature 3.
 
 This module fetches and caches the papers that a work cites (its references)
 from OpenAlex, storing them in the works.referenced_works_json column.
+
+Key design: We fetch ALL referenced work_ids, insert them all into the DB,
+then sort by citation count and return the top N. This ensures we get the
+most influential references, not arbitrary ones.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
+import time
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -19,8 +25,14 @@ from app.feature3.paper_identity import decode_openalex_abstract
 
 logger = logging.getLogger(__name__)
 
+OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
 OPENALEX_BATCH_SIZE = 50
-MAX_REFERENCES_TO_FETCH = 7
+OPENALEX_TIMEOUT = 15
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 0.5
+
+# How many top-cited references to return for grounding
+MAX_REFERENCES_TO_RETURN = 10
 
 
 def get_referenced_works(
@@ -33,8 +45,8 @@ def get_referenced_works(
     1. Check if works.referenced_works_json is already populated
     2. If not, fetch from OpenAlex API
     3. Store in referenced_works_json column
-    4. Ensure referenced works exist in works table
-    5. Return top references with title/abstract
+    4. Ensure ALL referenced works exist in works table
+    5. Sort by citation count and return top N
 
     Returns list of dicts with: work_id, title, year, cited_by_count, abstract
     """
@@ -42,28 +54,22 @@ def get_referenced_works(
     cached = _get_cached_references(conn, work_id)
     if cached is not None:
         logger.info(f"Reference cache hit for {work_id}: {len(cached)} refs")
-        # Ensure referenced works exist in DB (may be missing if cache was populated
-        # but works weren't inserted, or if works table was modified)
-        top_refs = cached[:MAX_REFERENCES_TO_FETCH]
-        _ensure_works_exist(conn, top_refs)
-        return _load_reference_details(conn, top_refs)
+    else:
+        # Step 2: Fetch from OpenAlex
+        cached = _fetch_references_from_openalex(work_id)
+        if not cached:
+            logger.info(f"No references found for {work_id}")
+            _cache_references(conn, work_id, [])
+            return []
+        # Step 3: Cache all reference IDs
+        _cache_references(conn, work_id, cached)
 
-    # Step 2: Fetch from OpenAlex
-    ref_ids = _fetch_references_from_openalex(work_id)
-    if not ref_ids:
-        logger.info(f"No references found for {work_id}")
-        # Cache empty result
-        _cache_references(conn, work_id, [])
-        return []
+    # Step 4: Ensure ALL referenced works exist in our DB
+    # This is the key fix: fetch all, not just first N
+    _ensure_works_exist(conn, cached)
 
-    # Step 3: Cache the reference IDs
-    _cache_references(conn, work_id, ref_ids)
-
-    # Step 4: Ensure referenced works exist in our DB
-    _ensure_works_exist(conn, ref_ids[:MAX_REFERENCES_TO_FETCH])
-
-    # Step 5: Load and return details
-    return _load_reference_details(conn, ref_ids[:MAX_REFERENCES_TO_FETCH])
+    # Step 5: Load ALL references, sort by citations, return top N
+    return _load_reference_details(conn, cached, limit=MAX_REFERENCES_TO_RETURN)
 
 
 def _get_cached_references(conn: Connection, work_id: str) -> Optional[List[str]]:
@@ -84,7 +90,6 @@ def _get_cached_references(conn: Connection, work_id: str) -> Optional[List[str]
     if refs is None:
         return None
 
-    # refs is a list of work_ids
     if isinstance(refs, list):
         return refs
     return None
@@ -107,35 +112,47 @@ def _cache_references(conn: Connection, work_id: str, ref_ids: List[str]) -> Non
 
 
 def _fetch_references_from_openalex(work_id: str) -> List[str]:
-    """Fetch referenced_works from OpenAlex API."""
-    try:
-        # OpenAlex work endpoint
-        url = f"https://api.openalex.org/works/{work_id}"
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
+    """Fetch referenced_works from OpenAlex API with retry logic."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            url = f"https://api.openalex.org/works/{work_id}"
+            params = {}
+            if OPENALEX_API_KEY:
+                params["api_key"] = OPENALEX_API_KEY
+            resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
 
-        data = resp.json()
-        referenced_works = data.get("referenced_works", [])
+            if resp.status_code == 429:
+                backoff = RETRY_BACKOFF_BASE * (2 ** attempt)
+                logger.info(f"OpenAlex 429 for refs, waiting {backoff}s")
+                time.sleep(backoff)
+                continue
 
-        # Extract work IDs from full URLs
-        ref_ids = []
-        for ref_url in referenced_works:
-            if isinstance(ref_url, str) and "/" in ref_url:
-                ref_id = ref_url.rsplit("/", 1)[-1]
-                ref_ids.append(ref_id)
+            resp.raise_for_status()
 
-        logger.info(f"Fetched {len(ref_ids)} references for {work_id} from OpenAlex")
-        return ref_ids
+            data = resp.json()
+            referenced_works = data.get("referenced_works", [])
 
-    except Exception as e:
-        logger.warning(f"Failed to fetch references from OpenAlex for {work_id}: {e}")
-        return []
+            ref_ids = []
+            for ref_url in referenced_works:
+                if isinstance(ref_url, str) and "/" in ref_url:
+                    ref_id = ref_url.rsplit("/", 1)[-1]
+                    ref_ids.append(ref_id)
+
+            logger.info(f"Fetched {len(ref_ids)} references for {work_id} from OpenAlex")
+            return ref_ids
+
+        except requests.exceptions.RequestException as e:
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
+            else:
+                logger.warning(f"Failed to fetch references from OpenAlex for {work_id}: {e}")
+    return []
 
 
 def _ensure_works_exist(conn: Connection, work_ids: List[str]) -> None:
     """
     Ensure the referenced works exist in our works table.
-    Fetch missing ones from OpenAlex.
+    Fetch missing ones from OpenAlex in batches.
     """
     if not work_ids:
         return
@@ -160,71 +177,82 @@ def _ensure_works_exist(conn: Connection, work_ids: List[str]) -> None:
 
 
 def _fetch_and_insert_works(conn: Connection, work_ids: List[str]) -> None:
-    """Fetch works from OpenAlex and insert into DB."""
+    """Fetch works from OpenAlex and insert into DB with retry logic."""
     if not work_ids:
         return
 
-    try:
-        ids_param = "|".join(f"https://openalex.org/{wid}" for wid in work_ids)
-        url = "https://api.openalex.org/works"
-        params = {"filter": f"openalex:{ids_param}", "per-page": len(work_ids)}
+    for attempt in range(MAX_RETRIES):
+        try:
+            ids_param = "|".join(f"https://openalex.org/{wid}" for wid in work_ids)
+            url = "https://api.openalex.org/works"
+            params = {"filter": f"openalex:{ids_param}", "per-page": len(work_ids)}
+            if OPENALEX_API_KEY:
+                params["api_key"] = OPENALEX_API_KEY
 
-        resp = requests.get(url, params=params, timeout=15)
-        resp.raise_for_status()
+            resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
 
-        data = resp.json()
-        works = data.get("results", [])
-
-        for w in works:
-            wid_full = w.get("id")
-            if not wid_full or "/" not in wid_full:
+            if resp.status_code == 429:
+                backoff = RETRY_BACKOFF_BASE * (2 ** attempt)
+                logger.info(f"OpenAlex 429 for batch insert, waiting {backoff}s")
+                time.sleep(backoff)
                 continue
 
-            wid = wid_full.rsplit("/", 1)[-1]
-            title = w.get("title")
-            year = w.get("publication_year")
-            cited_by_count = w.get("cited_by_count") or 0
+            resp.raise_for_status()
 
-            # Decode abstract from inverted index
-            abstract = decode_openalex_abstract(w.get("abstract_inverted_index"))
+            data = resp.json()
+            works = data.get("results", [])
 
-            # Extract primary_topic_id for cross-domain filtering
-            primary_topic = w.get("primary_topic", {})
-            topic_id = None
-            if primary_topic and primary_topic.get("id"):
-                topic_url = primary_topic["id"]
-                if "/" in topic_url:
-                    topic_id = topic_url.rsplit("/", 1)[-1]
+            for w in works:
+                wid_full = w.get("id")
+                if not wid_full or "/" not in wid_full:
+                    continue
 
-            # Insert (ignore conflicts)
-            conn.execute(
-                text("""
-                    INSERT INTO works (work_id, title, year, cited_by_count, abstract, primary_topic_id)
-                    VALUES (:work_id, :title, :year, :cited_by_count, :abstract, :primary_topic_id)
-                    ON CONFLICT (work_id) DO NOTHING
-                """),
-                {
-                    "work_id": wid,
-                    "title": title,
-                    "year": year,
-                    "cited_by_count": cited_by_count,
-                    "abstract": abstract,
-                    "primary_topic_id": topic_id,
-                },
-            )
+                wid = wid_full.rsplit("/", 1)[-1]
+                title = w.get("title")
+                year = w.get("publication_year")
+                cited_by_count = w.get("cited_by_count") or 0
 
-        conn.commit()
+                abstract = decode_openalex_abstract(w.get("abstract_inverted_index"))
 
-    except Exception as e:
-        logger.warning(f"Failed to fetch/insert works: {e}")
+                primary_topic = w.get("primary_topic", {})
+                topic_id = None
+                if primary_topic and primary_topic.get("id"):
+                    topic_url = primary_topic["id"]
+                    if "/" in topic_url:
+                        topic_id = topic_url.rsplit("/", 1)[-1]
 
+                conn.execute(
+                    text("""
+                        INSERT INTO works (work_id, title, year, cited_by_count, abstract, primary_topic_id)
+                        VALUES (:work_id, :title, :year, :cited_by_count, :abstract, :primary_topic_id)
+                        ON CONFLICT (work_id) DO NOTHING
+                    """),
+                    {
+                        "work_id": wid,
+                        "title": title,
+                        "year": year,
+                        "cited_by_count": cited_by_count,
+                        "abstract": abstract,
+                        "primary_topic_id": topic_id,
+                    },
+                )
+
+            conn.commit()
+            return  # Success
+
+        except requests.exceptions.RequestException as e:
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
+            else:
+                logger.warning(f"Failed to fetch/insert works: {e}")
 
 
 def _load_reference_details(
     conn: Connection,
     ref_ids: List[str],
+    limit: int = MAX_REFERENCES_TO_RETURN,
 ) -> List[Dict[str, Any]]:
-    """Load title, year, cited_by_count, abstract for referenced works."""
+    """Load ALL references from DB, sort by citation count, return top N."""
     if not ref_ids:
         return []
 
@@ -233,14 +261,13 @@ def _load_reference_details(
             SELECT work_id, title, year, cited_by_count, abstract, category, primary_topic_id
             FROM works
             WHERE work_id = ANY(:ids)
+            ORDER BY cited_by_count DESC NULLS LAST
         """),
         {"ids": ref_ids},
     ).mappings().all()
 
-    # Preserve order and sort by citation count
-    results = []
-    for row in rows:
-        results.append({
+    results = [
+        {
             "work_id": row["work_id"],
             "title": row["title"],
             "year": row["year"],
@@ -248,9 +275,9 @@ def _load_reference_details(
             "abstract": row["abstract"],
             "category": row["category"],
             "primary_topic_id": row["primary_topic_id"],
-        })
+        }
+        for row in rows
+    ]
 
-    # Sort by citation count descending (most influential first)
-    results.sort(key=lambda x: -x["cited_by_count"])
-
-    return results
+    # Return top N by citation count (already sorted by SQL)
+    return results[:limit]
