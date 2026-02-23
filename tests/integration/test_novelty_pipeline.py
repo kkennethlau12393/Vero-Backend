@@ -948,8 +948,8 @@ class TestLandmarkRetrieval:
 class TestCrossDomainFiltering:
     """Tests for _filter_cross_domain_papers from node_details_service."""
 
-    def test_methodology_mismatch_filtered(self):
-        """Neural network paper with ensemble tree references filtered out."""
+    def test_references_never_filtered(self):
+        """References are author-curated and never filtered, even if unrelated."""
         refs = [
             {
                 "work_id": "W001",
@@ -966,73 +966,74 @@ class TestCrossDomainFiltering:
                 "primary_topic_id": "T123",
             },
         ]
+
+        filtered_refs, _ = _filter_cross_domain_papers(
+            refs, [],
+            target_title="Deep Learning with Neural Networks for Image Recognition",
+            target_abstract="We train a deep neural network using backpropagation and convolutional layers.",
+        )
+
+        # ALL references should be kept - they are author-curated
+        filtered_ref_ids = {r["work_id"] for r in filtered_refs}
+        assert "W001" in filtered_ref_ids
+        assert "W002" in filtered_ref_ids
+
+    def test_irrelevant_landmarks_filtered_by_content(self):
+        """Landmarks with no content overlap to target are filtered out."""
         landmarks = [
             {
                 "work_id": "W003",
-                "title": "Gradient Boosting with XGBoost",
-                "abstract": "XGBoost uses gradient boosting with decision tree ensembles.",
+                "title": "Vehicle Tire Dynamics and Road Surface Interaction",
+                "abstract": "We study tire friction coefficients under varying road conditions.",
                 "cited_by_count": 500,
                 "primary_topic_id": "T456",
             },
         ]
 
-        filtered_refs, filtered_landmarks = _filter_cross_domain_papers(
-            refs, landmarks,
+        _, filtered_landmarks = _filter_cross_domain_papers(
+            [], landmarks,
             target_title="Deep Learning with Neural Networks for Image Recognition",
             target_abstract="We train a deep neural network using backpropagation and convolutional layers.",
         )
 
-        # The ensemble/tree papers should be filtered out
-        filtered_ref_ids = {r["work_id"] for r in filtered_refs}
-        filtered_lm_ids = {lm["work_id"] for lm in filtered_landmarks}
+        # W003 (tire dynamics) should be filtered - no content overlap with neural networks
+        assert len(filtered_landmarks) == 0
 
-        # W001 (random forest) should be filtered - methodology mismatch
-        assert "W001" not in filtered_ref_ids
-        # W002 (neural network) should be kept - same methodology
-        assert "W002" in filtered_ref_ids
-        # W003 (XGBoost) should be filtered - methodology mismatch
-        assert "W003" not in filtered_lm_ids
-
-    def test_same_methodology_kept(self):
-        """Neural network paper with neural network refs are kept."""
-        refs = [
+    def test_relevant_landmarks_kept_by_content(self):
+        """Landmarks with content overlap to target are kept."""
+        landmarks = [
             {
                 "work_id": "W001",
-                "title": "ResNet: Deep Residual Learning",
+                "title": "ResNet: Deep Residual Learning for Image Recognition",
                 "abstract": "Deep neural network with residual connections and convolutional layers.",
                 "cited_by_count": 50000,
-                "field_name": "Computer Vision",
             },
             {
                 "work_id": "W002",
                 "title": "VGGNet: Very Deep Convolutional Networks",
                 "abstract": "Very deep convolutional neural network for image classification.",
                 "cited_by_count": 40000,
-                "field_name": "Computer Vision",
             },
         ]
-        landmarks = []
 
-        filtered_refs, filtered_landmarks = _filter_cross_domain_papers(
-            refs, landmarks,
+        _, filtered_landmarks = _filter_cross_domain_papers(
+            [], landmarks,
             target_title="DenseNet: Dense Convolutional Networks",
             target_abstract="We propose dense connections between convolutional neural network layers.",
-            target_field_name="Computer Vision",
         )
 
-        filtered_ids = {r["work_id"] for r in filtered_refs}
+        filtered_ids = {lm["work_id"] for lm in filtered_landmarks}
         assert "W001" in filtered_ids
         assert "W002" in filtered_ids
 
-    def test_fallback_keeps_top_refs(self):
-        """If filtering removes too many, top-cited W-prefix refs are kept."""
+    def test_all_refs_kept_regardless_of_field(self):
+        """References from any field are kept since they're author-curated."""
         refs = [
             {
                 "work_id": "W001",
                 "title": "Paper Alpha",
                 "abstract": "Using random forest and bagging for classification.",
                 "cited_by_count": 10000,
-                "primary_topic_id": "T999",
                 "field_name": "Some Other Field",
             },
             {
@@ -1040,7 +1041,6 @@ class TestCrossDomainFiltering:
                 "title": "Paper Beta",
                 "abstract": "Using random forest for regression.",
                 "cited_by_count": 8000,
-                "primary_topic_id": "T888",
                 "field_name": "Some Other Field",
             },
             {
@@ -1048,7 +1048,6 @@ class TestCrossDomainFiltering:
                 "title": "Paper Gamma",
                 "abstract": "Using decision trees with bagging.",
                 "cited_by_count": 5000,
-                "primary_topic_id": "T777",
                 "field_name": "Some Other Field",
             },
         ]
@@ -1060,11 +1059,11 @@ class TestCrossDomainFiltering:
             target_abstract="Deep learning with neural networks and convolutional layers.",
         )
 
-        # Fallback should keep at least MIN_REFS_AFTER_FILTER (3)
-        assert len(filtered_refs) >= 3
+        # All references should be kept - they are author-curated
+        assert len(filtered_refs) == 3
 
-    def test_no_filter_without_info(self):
-        """Without field_name/topic_id/methodology, all papers returned."""
+    def test_no_filter_without_target_info(self):
+        """Without target title/abstract, all papers returned."""
         refs = [
             {"work_id": "W001", "title": "Paper A", "cited_by_count": 100},
             {"work_id": "W002", "title": "Paper B", "cited_by_count": 200},
@@ -1085,8 +1084,8 @@ class TestCrossDomainFiltering:
         assert len(filtered_refs) == 2
         assert len(filtered_landmarks) == 1
 
-    def test_s2_papers_without_field_excluded(self):
-        """S2: prefixed papers without field_name are excluded when target has field."""
+    def test_all_refs_kept_including_s2(self):
+        """References are never filtered, even S2-prefixed papers."""
         refs = [
             {
                 "work_id": "S2:abc123",
@@ -1107,8 +1106,9 @@ class TestCrossDomainFiltering:
             target_abstract="A paper about machine learning.",
         )
 
+        # All references are author-curated, never filtered
         filtered_ids = {r["work_id"] for r in filtered_refs}
-        assert "S2:abc123" not in filtered_ids
+        assert "S2:abc123" in filtered_ids
         assert "W001" in filtered_ids
 
 

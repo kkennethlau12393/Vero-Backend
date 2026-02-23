@@ -20,8 +20,8 @@ METHODOLOGY_CATEGORIES = {
         "rprop", "adaptive learning", "oscillator",
     },
     "ensemble_tree": {
-        "random forest", "decision tree", "bagging", "boosting", "ensemble",
-        "gradient boosting", "xgboost", "adaboost", "cart", "gini", "entropy",
+        "random forest", "decision tree", "bagging", "boosting",
+        "gradient boosting", "xgboost", "adaboost", "cart", "gini",
         "tree-based", "leaf node", "split criterion", "feature importance",
         "classification tree", "regression tree",
     },
