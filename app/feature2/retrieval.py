@@ -236,7 +236,7 @@ def _search_s2_bulk(query: str, k: int, headers: dict) -> Optional[List[Tuple[st
     while len(out) < k:
         params = {
             "query": query,
-            "fields": "paperId,title,year,citationCount,externalIds,venue,journal,abstract",
+            "fields": "paperId,title,year,citationCount,externalIds,venue,journal,abstract,openAccessPdf",
             "limit": page_size,
         }
         if continuation_token:
@@ -278,6 +278,7 @@ def _search_s2_bulk(query: str, k: int, headers: dict) -> Optional[List[Tuple[st
                         "doi": external_ids.get("DOI"),
                         "venue": venue,
                         "abstract": paper.get("abstract"),
+                        "s2_pdf_url": (paper.get("openAccessPdf") or {}).get("url"),
                     }))
 
                     if len(out) >= k:
@@ -319,7 +320,7 @@ def _search_s2_regular(query: str, k: int, headers: dict) -> List[Tuple[str, Dic
     while len(out) < k and offset < 1000:
         params = {
             "query": query,
-            "fields": "paperId,title,year,citationCount,externalIds,venue,journal,abstract",
+            "fields": "paperId,title,year,citationCount,externalIds,venue,journal,abstract,openAccessPdf",
             "limit": page_size,
             "offset": offset,
         }
@@ -355,6 +356,7 @@ def _search_s2_regular(query: str, k: int, headers: dict) -> List[Tuple[str, Dic
                         "doi": external_ids.get("DOI"),
                         "venue": venue,
                         "abstract": paper.get("abstract"),
+                        "s2_pdf_url": (paper.get("openAccessPdf") or {}).get("url"),
                     }))
 
                     if len(out) >= k:
@@ -1823,6 +1825,13 @@ def _ingest_semantic_scholar_papers(
         if title:
             title_to_work_id[title.lower()] = work_id
 
+        # Build PDF URL: S2 openAccessPdf -> ArXiv construction -> None
+        s2_pdf_url = meta.get("s2_pdf_url")
+        constructed_arxiv_url = None
+        if normalized_arxiv:
+            constructed_arxiv_url = f"https://arxiv.org/pdf/{normalized_arxiv}.pdf"
+        pdf_url_fallback = s2_pdf_url or constructed_arxiv_url
+
         # Prepare row for insertion
         rows_to_insert.append({
             "work_id": work_id,
@@ -1838,6 +1847,7 @@ def _ingest_semantic_scholar_papers(
             "abstract": meta.get("abstract"),
             "doi": normalized_doi,
             "arxiv_id": normalized_arxiv,
+            "oa_pdf_url": pdf_url_fallback,
             "source": "semantic_scholar",
         })
 
@@ -1862,6 +1872,7 @@ def _ingest_semantic_scholar_papers(
                 row["abstract"],
                 row["doi"],
                 row["arxiv_id"],
+                row["oa_pdf_url"],
             )
             for row in rows_to_insert
         ]
@@ -1874,12 +1885,12 @@ def _ingest_semantic_scholar_papers(
                     work_id, title, year, cited_by_count,
                     authors_json, venue, primary_topic_id,
                     primary_topic_score, topics_json, is_retracted,
-                    abstract, doi, arxiv_id
+                    abstract, doi, arxiv_id, oa_pdf_url
                 ) VALUES (
                     %s, %s, %s, %s,
                     %s::jsonb, %s, %s,
                     %s, %s::jsonb, %s,
-                    %s, %s, %s
+                    %s, %s, %s, %s
                 )
                 ON CONFLICT (work_id) DO UPDATE
                 SET
@@ -1897,7 +1908,8 @@ def _ingest_semantic_scholar_papers(
                     venue = COALESCE(works.venue, EXCLUDED.venue),
                     abstract = COALESCE(works.abstract, EXCLUDED.abstract),
                     doi = COALESCE(works.doi, EXCLUDED.doi),
-                    arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id)
+                    arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id),
+                    oa_pdf_url = COALESCE(works.oa_pdf_url, EXCLUDED.oa_pdf_url)
                 """,
                 batch_tuples,
                 page_size=200,
