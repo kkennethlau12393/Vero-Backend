@@ -55,7 +55,7 @@ MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Bump this when model OR prompt changes to auto-invalidate cached assessments
-ASSESSMENT_VERSION = "maverick-v10"
+ASSESSMENT_VERSION = "maverick-v11"
 
 
 def get_cached_details(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
@@ -619,6 +619,72 @@ BANNED VERBS - NEVER use these in summary, whats_new, explanation, or relevance:
 - If title uses "Assessing X" → you write "introduces/develops a method for X"
 - If title uses "Investigating Y" → you write "establishes/demonstrates Y"
 
+## DETAILED FIELD INSTRUCTIONS — READ CAREFULLY BEFORE WRITING
+
+**WHATS_NEW — What THIS paper introduces (3-5 sentences, 80-150 words)**
+
+This field describes ONLY the novel contributions of the target paper. Do NOT mention prior work here — that belongs in compared_to_prior_work.
+
+REQUIRED CONTENT:
+- The specific method, framework, architecture, or finding the paper introduces
+- Technical details: what mechanism, algorithm, or approach is new
+- Key results: quantitative improvements, benchmarks achieved, or empirical findings
+- Why it matters: what problem does this solve or what limitation does it overcome
+
+Cite 1-2 grounding paper work_ids ONLY to clarify what the new contribution replaces or extends (e.g. "replacing the fully-connected layers used in [W2163605009]"), NOT to describe what those papers did.
+
+ONLY null if novelty_level is "pioneering". NEVER null for reviews — describe what the review SYNTHESIZES or ORGANIZES and what organizational framework it provides.
+
+BAD (too shallow):
+"Introduces deep residual networks that simplify training of deeper networks, achieving state-of-the-art on ImageNet."
+
+GOOD (specific mechanism, quantitative results, technical depth):
+"Introduces residual learning via skip connections that add identity mappings between layers, directly addressing the degradation problem where deeper networks paradoxically produce higher training error. The core innovation reformulates layers to learn residual functions F(x) = H(x) - x rather than the underlying mapping H(x), which is easier to optimize. This enables training networks with 152 layers (8x deeper than VGG [W2109255472]), achieving 3.57% top-5 error and winning ILSVRC 2015. The residual blocks are modular and demonstrated on both classification (ImageNet) and detection (COCO) tasks."
+
+**COMPARED_TO_PRIOR_WORK — How this paper differs from what came before (3-5 sentences, 80-150 words)**
+
+This field describes ONLY how the target paper's approach differs from specific prior methods. Do NOT re-describe what the target paper introduces — that belongs in whats_new.
+
+REQUIRED CONTENT:
+- Name specific prior methods by work_id and describe what THEY did (their approach, their limitations)
+- Explain the concrete technical difference between prior approaches and this paper
+- Identify what limitation of prior work this paper overcomes
+- If applicable, quantify the improvement (accuracy gains, speed improvements, capability gaps filled)
+
+Cite 2-4 grounding paper work_ids with meaningful context about what each cited paper actually contributed.
+
+ONLY null if novelty_level is "pioneering". For reviews: explain what prior surveys existed and how this review extends or re-organizes them.
+
+BAD (name-drops citations without explaining what they did):
+"Compared to landmark papers like ImageNet classification [W2163605009] and VGGNet [W2109255472], this paper updates the existing framework."
+
+GOOD (explains what each prior method did and the specific technical difference):
+"Prior deep networks like AlexNet [W2163605009] demonstrated that 8-layer CNNs could achieve breakthrough accuracy on ImageNet, and VGGNet [W2109255472] showed that increasing depth to 19 layers further improved performance. However, both architectures suffered from the degradation problem — accuracy saturated and then degraded rapidly beyond ~20 layers due to vanishing gradients in plain networks. Highway Networks [W2153625789] introduced gating mechanisms for information flow but added significant parameter overhead. ResNet solves this with parameter-free identity shortcuts, enabling 152-layer training without degradation while maintaining lower complexity than VGG."
+
+**NOVELTY_EXPLANATION — Summary justification of the novelty classification (3-5 sentences, 80-150 words)**
+
+This field synthesizes findings from whats_new and compared_to_prior_work to justify WHY the assigned novelty level is correct. It should read as a self-contained justification.
+
+REQUIRED CONTENT:
+- State the novelty level and primary reason in the first sentence
+- Cite at least 2 work_ids [W...] with specific context about what those papers established
+- Explain the causal chain: what existed before (with citations) → what this paper changed → why that warrants this level
+- For "high": explain why not "pioneering" (task existed before) and not "medium" (contribution is substantial)
+- For "medium": explain why the contribution is incremental rather than a major advance
+
+FORBIDDEN patterns (will fail validation):
+- "Classified as X due to title containing..."
+- "Classified as review due to its synthesis..."
+- Generic: "builds upon prior work and updates the field"
+
+BAD (circular reasoning, no technical substance):
+"Classified as high because it introduces deep residual learning that builds upon previous architectures [W2163605009] and updates traditional approaches."
+
+GOOD (clear causal chain, specific claims, cited evidence):
+"Classified as high because deep image classification networks already existed — AlexNet [W2163605009] demonstrated 8-layer CNNs and VGGNet [W2109255472] showed depth improves accuracy up to 19 layers. ResNet solves the specific degradation problem that prevented training beyond ~20 layers, enabling 152-layer networks that reduced top-5 error from 7.3% (VGG) to 3.57%. This is not pioneering because image classification with deep CNNs was established by 2015, but represents a major architectural breakthrough that became the default backbone for subsequent vision models."
+
+---
+
 Return JSON (include q0_is_review, q1_is_software, q2_new_framework, q3_improvement to show your reasoning):
 {{
     "summary": "MUST use: introduces/develops/demonstrates/establishes/creates/presents/validates. NEVER use banned verbs.",
@@ -630,9 +696,9 @@ Return JSON (include q0_is_review, q1_is_software, q2_new_framework, q3_improvem
         "q3_improvement": "major" | "incremental" | "n/a",
         "novelty_level": "low" | "medium" | "high" | "pioneering",
         "confidence": "low" | "medium" | "high",
-        "whats_new": "NEVER use banned verbs. Use: introduces/builds upon/develops. Cite work_ids. ONLY null if pioneering. For reviews/surveys: describe what the review SYNTHESIZES or ORGANIZES (e.g. 'Synthesizes recent advances in X, organizing methods by Y'). NEVER null for reviews.",
-        "compared_to_prior_work": "Compare to landmarks (cite work_ids). ONLY null if pioneering. For reviews: explain how it builds on prior work.",
-        "novelty_explanation": "REQUIRED: (1) Cite specific work_ids [W...] that support classification, (2) Make specific technical claims about WHY this level. BAD: 'classified as review due to title'. GOOD: 'classified as high because it validates SOFA scores [W1898928487] for sepsis diagnosis, updating the SIRS criteria established by [W2168803832]'. NEVER just restate the Q0-Q3 decision without substantive technical claims.",
+        "whats_new": "Follow WHATS_NEW instructions above. 3-5 sentences, 80-150 words. Technical depth required.",
+        "compared_to_prior_work": "Follow COMPARED_TO_PRIOR_WORK instructions above. 3-5 sentences, 80-150 words. Must cite 2-4 work_ids with context.",
+        "novelty_explanation": "Follow NOVELTY_EXPLANATION instructions above. 3-5 sentences, 80-150 words. Must cite 2+ work_ids. Must explain causal chain.",
         "grounding_papers": [
             {{
                 "work_id": "W...",
@@ -640,19 +706,22 @@ Return JSON (include q0_is_review, q1_is_software, q2_new_framework, q3_improvem
                 "year": 2020,
                 "cited_by_count": 1000,
                 "relationship": "cited_reference" | "field_landmark",
-                "relevance": "NEVER use banned verbs. Use: established/introduced/developed/demonstrated"
+                "relevance": "NEVER use banned verbs. MUST explain the specific technical contribution of THIS paper and how the target paper relates to it. BAD: 'Landmark paper in deep learning'. GOOD: 'Introduced 8-layer CNN architecture for ImageNet classification, establishing that deep networks outperform hand-crafted features — the target paper extends this by enabling 152-layer training via skip connections'."
             }}
         ]
     }}
 }}
 
-**GROUNDING PAPERS:**
+**GROUNDING PAPERS — SELECTION AND QUALITY RULES:**
 - Include 5-7 papers (mix of cited_reference + field_landmark)
-- ONLY use work_ids from the lists provided above
-- Each relevance MUST be SPECIFIC about technical relationship
-- BAD: "Landmark paper in this field"
-- GOOD: "Established SNe Ia as standard candles, which this paper uses to measure cosmic distances"
-- Landmarks should be from the SAME FIELD (cosmology papers for cosmology, not particle physics textbooks)
+- ONLY use work_ids from the reference and landmark lists provided above
+- ONLY include papers that are DIRECTLY technically related to the target paper's method, architecture, or findings
+- Do NOT include papers just because they are highly cited — they must be relevant to the target paper's specific contribution
+- If a reference or landmark is from a different sub-field or uses unrelated methods, EXCLUDE it from grounding_papers
+- Each relevance MUST explain what the grounding paper technically contributed AND how the target paper relates to it
+- BAD: "Landmark paper in this field" or "Important work in machine learning"
+- GOOD: "Established SNe Ia as standard candles for cosmic distance measurement, which this paper directly uses to constrain the dark energy equation of state"
+- Prefer papers the target paper METHODOLOGICALLY builds upon or EMPIRICALLY compares against
 
 **CRITICAL VALIDATION (CHECK YOUR OUTPUT BEFORE RETURNING):**
 If your summary contains "examines", "discusses", "investigates", "likely", "assesses" → REWRITE IT

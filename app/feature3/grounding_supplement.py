@@ -64,7 +64,7 @@ RETRY_BACKOFF = 0.5
 # LLM Prompts for Different Paper Types
 # ============================================================================
 
-SUGGEST_REFS_PROMPT = """You are an expert academic researcher. Suggest papers that are METHODOLOGICALLY SIMILAR to the target paper - papers that use similar techniques, approaches, or solve similar problems.
+SUGGEST_REFS_PROMPT = """You are an expert academic researcher. Suggest papers that the target paper DIRECTLY builds upon methodologically — papers whose specific techniques, architectures, or frameworks the target paper extends, improves, or compares against.
 
 Target Paper:
 Title: {title}
@@ -75,13 +75,17 @@ Papers I already have:
 {existing_papers}
 
 Suggest {num_needed} papers that:
-1. Use SIMILAR METHODS or techniques as the target paper
-2. Were published BEFORE {year}
-3. Are directly comparable in methodology
+1. The target paper DIRECTLY builds upon — papers whose method/architecture/framework the target paper extends or modifies
+2. The target paper EXPLICITLY compares against — papers used as baselines or prior state-of-the-art
+3. Were published BEFORE {year}
 4. Are NOT already in my list
-5. MUST be from the SAME FIELD - if target is a statistics paper, suggest statistics papers; if biology, suggest biology papers
+5. MUST be from the EXACT SAME sub-field and methodology
 
-CRITICAL: Do NOT suggest papers from different domains! A statistics paper should NEVER cite chemistry or physics papers for methodological comparison.
+CRITICAL RULES:
+- Do NOT suggest papers from different domains or sub-fields. A computer vision paper needs computer vision references, NOT NLP or robotics.
+- Do NOT suggest generic "foundational" papers unless the target paper directly uses their specific technique.
+- Suggest papers the target paper would CITE, not just papers in the same broad area.
+- Example: For a paper on object detection with CNNs, suggest prior object detection papers and the specific CNN architectures it builds on — NOT generic machine learning papers.
 
 Return a JSON array:
 [
@@ -89,11 +93,11 @@ Return a JSON array:
         "title": "Exact paper title",
         "authors": "First Author et al.",
         "year": 2015,
-        "why_relevant": "Uses similar [specific technique] for [specific task]"
+        "why_relevant": "Introduced [specific technique] that the target paper directly extends by [specific modification]"
     }}
 ]
 
-Focus on methodological similarity, not just topic similarity."""
+Focus on the papers the target paper would CITE for methodological lineage, not topic similarity."""
 
 
 SUGGEST_LANDMARKS_PROMPT = """You are an expert academic researcher. Suggest SEMINAL/FOUNDATIONAL papers that use the SAME METHODOLOGY as the target paper.
@@ -126,7 +130,7 @@ Return a JSON array:
 Focus on papers that established the SPECIFIC TECHNIQUE used in the target paper."""
 
 
-SUGGEST_PIONEERING_CONTEXT_PROMPT = """You are an expert academic researcher. This target paper appears to be a PIONEERING/FOUNDATIONAL work itself. Suggest papers that provide HISTORICAL CONTEXT for understanding its significance.
+SUGGEST_PIONEERING_CONTEXT_PROMPT = """You are an expert academic researcher. This target paper appears to be a PIONEERING/FOUNDATIONAL work. Suggest papers that show what existed BEFORE it and what specific problem or limitation motivated this breakthrough.
 
 Target Pioneering Paper:
 Title: {title}
@@ -137,16 +141,17 @@ Field/Topic: {field}
 Papers I already have:
 {existing_papers}
 
-Suggest {num_needed} papers that provide CONTEXT for this pioneering work:
-1. Papers published BEFORE or AROUND {year} in the SAME FIELD that show what existed prior
-2. Contemporaneous works addressing similar problems (to show the intellectual climate)
-3. Papers that cite this work heavily (showing its influence, even if published after)
-4. Earlier foundational works in ADJACENT fields that may have influenced it
+Suggest {num_needed} papers that provide DIRECT methodological context:
+1. The best prior approach to the SAME problem — what method was state-of-the-art before this paper?
+2. Papers that established the specific technique this paper builds upon or replaces
+3. Contemporaneous works that attempted to solve the same problem differently
+4. Earlier works in the SAME sub-field that defined the problem space
 
-IMPORTANT:
-- Papers must be from the SAME or closely related field (e.g., psychology, cognitive science for a psychology paper)
-- Do NOT suggest papers from unrelated domains
-- Focus on papers that help explain WHY this work was groundbreaking
+CRITICAL RULES:
+- Every suggested paper must be about the SAME specific problem or technique, not just the same broad field
+- Do NOT suggest generic textbooks, survey papers, or papers from unrelated sub-fields
+- Example: For "Attention Is All You Need" (transformers), suggest prior sequence-to-sequence models and attention mechanisms — NOT generic NLP papers about word embeddings or parsing
+- Each paper should help answer: "What was the state of the art BEFORE this paper, and what specific limitation did it address?"
 
 Return a JSON array:
 [
@@ -154,11 +159,11 @@ Return a JSON array:
         "title": "Exact paper title",
         "authors": "First Author et al.",
         "year": 1970,
-        "why_relevant": "Shows the state of [field] before this work / Contemporaneous work addressing similar questions / Key work influenced by this pioneering paper"
+        "why_relevant": "Was the prior state-of-the-art for [specific task], achieving [specific result], which this paper surpassed by [specific improvement]"
     }}
 ]
 
-Focus on papers from the SAME DOMAIN that illuminate the historical significance."""
+Focus on the methodological lineage — the chain of papers that leads directly to this breakthrough."""
 
 
 # ============================================================================
