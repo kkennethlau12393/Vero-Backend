@@ -1840,3 +1840,189 @@ def get_node_details(
             doi_url=access_info["doi_url"],
             oa_status=work_data.get("oa_status"),
         )
+
+
+def get_novelty_for_work(
+    engine: Engine,
+    *,
+    work_id: str,
+) -> dict:
+    """
+    Run novelty assessment for a work_id without requiring a citation map.
+
+    Returns a dict with:
+        "novelty_assessment": dict matching NoveltyAssessment schema, or None
+        "assessment_unavailable_reason": str or None
+
+    Reuses the same LLM pipeline, caching, and grounding logic as
+    get_node_details() but skips map-specific steps (connected works,
+    timeline, access info, summary/keywords).
+    """
+    with engine.connect() as conn:
+        # Load work metadata
+        work_data = load_work_data(conn, work_id)
+        if not work_data:
+            raise ValueError("work_not_found")
+
+        # Enrich abstract if invalid
+        enrichment_happened = False
+        enriched_abstract, abstract_source = ensure_valid_abstract(
+            conn,
+            work_id=work_id,
+            title=work_data["title"],
+            abstract=work_data["abstract"],
+            year=work_data["year"],
+            doi=work_data.get("doi"),
+            arxiv_id=work_data.get("arxiv_id"),
+        )
+        if abstract_source not in ("cached", "unavailable") and enriched_abstract:
+            if enriched_abstract != work_data["abstract"]:
+                logger.info(f"Enriched abstract for {work_id} from {abstract_source}")
+                work_data["abstract"] = enriched_abstract
+                enrichment_happened = True
+        elif abstract_source == "unavailable":
+            if work_data["abstract"] is not None:
+                logger.info(f"Abstract for {work_id} is invalid and unfetchable, clearing")
+                work_data["abstract"] = None
+                enrichment_happened = True
+
+        # Infer topic if missing (needed for landmark retrieval)
+        inferred_topic_id, topic_source = ensure_topic(
+            conn,
+            work_id=work_id,
+            title=work_data["title"],
+            abstract=work_data["abstract"],
+            current_topic_id=work_data.get("primary_topic_id"),
+            doi=work_data.get("doi"),
+            arxiv_id=work_data.get("arxiv_id"),
+        )
+        if topic_source not in ("cached", "unavailable") and inferred_topic_id:
+            if inferred_topic_id != work_data.get("primary_topic_id"):
+                logger.info(f"Inferred topic for {work_id}: {inferred_topic_id} from {topic_source}")
+                work_data["primary_topic_id"] = inferred_topic_id
+                enrichment_happened = True
+
+        # Check cache (skip if enrichment happened — regenerate)
+        if not enrichment_happened:
+            cached = get_cached_details(conn, work_id)
+            if cached and cached.get("novelty_assessment"):
+                logger.info(f"Cache hit for novelty assessment: {work_id}")
+                return {
+                    "novelty_assessment": cached["novelty_assessment"],
+                    "assessment_unavailable_reason": None,
+                }
+            if cached and cached.get("assessment_unavailable_reason"):
+                return {
+                    "novelty_assessment": None,
+                    "assessment_unavailable_reason": cached["assessment_unavailable_reason"],
+                }
+
+        # Fetch grounding papers
+        referenced_works = get_referenced_works(conn, work_id)
+        landmarks = get_topic_landmarks(
+            conn,
+            work_data.get("primary_topic_id"),
+            work_data.get("year"),
+        )
+
+        # Detect pioneering work
+        cited_by_count = work_data.get("cited_by_count", 0)
+        work_year = work_data.get("year")
+        is_pioneering = False
+        if work_year is not None and cited_by_count > 0:
+            paper_age = max(2025 - work_year, 1)
+            cites_per_year = cited_by_count / paper_age
+            if cited_by_count > 50000:
+                is_pioneering = True
+            elif work_year < 2000 and cited_by_count > 5000 and len(referenced_works) < 10:
+                is_pioneering = True
+            elif cites_per_year > 500 and len(referenced_works) < 10:
+                is_pioneering = True
+
+        # Handle zero grounding data — try LLM landmark fallback
+        if len(referenced_works) == 0 and len(landmarks) == 0:
+            if cited_by_count > 500:
+                _, fallback_landmarks = supplement_grounding_papers(
+                    title=work_data["title"],
+                    abstract=work_data["abstract"],
+                    year=work_data["year"],
+                    existing_refs=[],
+                    existing_landmarks=[],
+                    field=work_data.get("category"),
+                    primary_topic_id=work_data.get("primary_topic_id"),
+                    is_pioneering=is_pioneering,
+                    target_work_id=work_id,
+                    conn=conn,
+                )
+            else:
+                fallback_landmarks = []
+
+            if fallback_landmarks:
+                landmarks = fallback_landmarks
+            else:
+                unavailable_reason = (
+                    "Insufficient reference data - no citations or field landmark papers "
+                    "available for comparison. Novelty assessment requires at least one "
+                    "reference or landmark paper to ground the analysis."
+                )
+                cache_details(conn, work_id, "", [], None, assessment_unavailable_reason=unavailable_reason)
+                return {
+                    "novelty_assessment": None,
+                    "assessment_unavailable_reason": unavailable_reason,
+                }
+
+        # Cross-domain filtering
+        target_topic_id = work_data.get("primary_topic_id")
+        target_field_name = get_field_from_topic_id(target_topic_id)
+        filtered_refs, filtered_landmarks = _filter_cross_domain_papers(
+            referenced_works, landmarks, target_field_name, target_topic_id,
+            target_title=work_data.get("title"),
+            target_abstract=work_data.get("abstract"),
+        )
+
+        # Supplement grounding if insufficient
+        additional_refs, additional_landmarks = supplement_grounding_papers(
+            title=work_data["title"],
+            abstract=work_data["abstract"],
+            year=work_data["year"],
+            existing_refs=filtered_refs,
+            existing_landmarks=filtered_landmarks,
+            field=work_data.get("category"),
+            primary_topic_id=work_data.get("primary_topic_id"),
+            is_pioneering=is_pioneering,
+            target_work_id=work_id,
+            conn=conn,
+        )
+
+        if additional_refs or additional_landmarks:
+            combined_refs = filtered_refs + additional_refs
+            combined_landmarks = filtered_landmarks + additional_landmarks
+            filtered_refs, filtered_landmarks = _filter_cross_domain_papers(
+                combined_refs, combined_landmarks, target_field_name, target_topic_id,
+                target_title=work_data.get("title"),
+                target_abstract=work_data.get("abstract"),
+            )
+
+        # LLM assessment
+        llm_result = generate_node_details_llm(
+            title=work_data["title"] or "Untitled",
+            abstract=work_data["abstract"],
+            year=work_data["year"],
+            referenced_works=filtered_refs,
+            landmarks=filtered_landmarks,
+            target_work_id=work_id,
+            cited_by_count=cited_by_count,
+        )
+
+        # Cache
+        cache_details(
+            conn, work_id,
+            llm_result["summary"],
+            llm_result["keywords"],
+            llm_result["novelty_assessment"],
+        )
+
+        return {
+            "novelty_assessment": llm_result["novelty_assessment"],
+            "assessment_unavailable_reason": None,
+        }
