@@ -31,6 +31,7 @@ Total pool after dedup: typically 800-1800 papers → capped at DEFAULT_LIMIT_PO
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -76,11 +77,11 @@ _arxiv_last_request_time = 0.0  # Module-level timestamp of last ArXiv request
 _arxiv_lock = threading.Lock()  # Serialize all ArXiv requests
 
 # CrossRef configuration (general scholarly works via DOI)
-CROSSREF_ENABLED = True
+CROSSREF_ENABLED = False
 CROSSREF_LIMIT = 100  # Papers from CrossRef
 
 # PubMed configuration (biomedical literature)
-PUBMED_ENABLED = True
+PUBMED_ENABLED = False
 PUBMED_LIMIT = 100  # Papers from PubMed
 
 # DBLP configuration (computer science)
@@ -992,9 +993,14 @@ def _search_openalex_by_title(title: str, k: int = 10) -> List[Tuple[str, float]
     if not title or len(title) < 4:
         return []
 
+    # Strip commas from title — OpenAlex interprets commas as filter
+    # value separators, causing 400 errors on titles like
+    # "You Only Look Once: Unified, Real-Time Object Detection"
+    sanitized = title.replace(",", "")
+
     url = "https://api.openalex.org/works"
     params = {
-        "filter": f"title.search:{title}",
+        "filter": f"title.search:{sanitized}",
         "sort": "cited_by_count:desc",
         "per_page": min(k, 50),
         "select": "id,cited_by_count,title",
@@ -1585,6 +1591,7 @@ def _ingest_arxiv_papers(
             logger.warning(f"Failed to check existing papers by title: {e}")
 
     work_ids = []
+    rows_to_insert = []
     for arxiv_id, meta in papers:
         title = meta.get("title", "")
         normalized_arxiv = normalize_arxiv_id(arxiv_id)
@@ -1611,64 +1618,63 @@ def _ingest_arxiv_papers(
         if title:
             title_to_work_id[title.lower()] = work_id
 
+        rows_to_insert.append((
+            work_id,
+            meta.get("title"),
+            meta.get("year"),
+            meta.get("citations", 0),
+            json.dumps(meta.get("authors", [])),
+            meta.get("venue") or "arXiv",
+            None,  # primary_topic_id
+            None,  # primary_topic_score
+            json.dumps([]),  # topics_json
+            False,  # is_retracted
+            meta.get("abstract"),
+            normalized_arxiv,
+        ))
+
+    if rows_to_insert:
+        from psycopg2.extras import execute_batch
+        raw_cursor = conn.connection.dbapi_connection.cursor()
         try:
-            # Upsert with preference for better data
-            conn.execute(
-                text("""
-                    INSERT INTO works (
-                        work_id, title, year, cited_by_count,
-                        authors_json, venue, primary_topic_id,
-                        primary_topic_score, topics_json, is_retracted,
-                        abstract, arxiv_id
-                    ) VALUES (
-                        :work_id, :title, :year, :cited_by_count,
-                        :authors_json, :venue, :primary_topic_id,
-                        :primary_topic_score, :topics_json, :is_retracted,
-                        :abstract, :arxiv_id
-                    )
-                    ON CONFLICT (work_id) DO UPDATE
-                    SET
-                        -- Keep higher citation count (S2 enrichment is usually accurate)
-                        cited_by_count = GREATEST(
-                            COALESCE(works.cited_by_count, 0),
-                            COALESCE(EXCLUDED.cited_by_count, 0)
-                        ),
-                        -- Fill in title if missing
-                        title = COALESCE(works.title, EXCLUDED.title),
-                        -- Fill in venue if missing (journal_ref from ArXiv or existing)
-                        venue = COALESCE(works.venue, EXCLUDED.venue),
-                        -- Prefer earlier year (ArXiv often has correct original pub date)
-                        year = CASE
-                            WHEN works.year IS NULL THEN EXCLUDED.year
-                            WHEN EXCLUDED.year IS NULL THEN works.year
-                            WHEN EXCLUDED.year < works.year THEN EXCLUDED.year
-                            ELSE works.year
-                        END,
-                        -- Fill in abstract if missing
-                        abstract = COALESCE(works.abstract, EXCLUDED.abstract),
-                        -- Fill in arxiv_id if missing
-                        arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id)
-                """).bindparams(
-                    bindparam("authors_json", type_=JSONB),
-                    bindparam("topics_json", type_=JSONB),
-                ),
-                {
-                    "work_id": work_id,
-                    "title": meta.get("title"),
-                    "year": meta.get("year"),
-                    "cited_by_count": meta.get("citations", 0),  # Use enriched citation count
-                    "authors_json": meta.get("authors", []),
-                    "venue": meta.get("venue") or "arXiv",
-                    "primary_topic_id": None,
-                    "primary_topic_score": None,
-                    "topics_json": [],
-                    "is_retracted": False,
-                    "abstract": meta.get("abstract"),
-                    "arxiv_id": normalized_arxiv,
-                },
+            execute_batch(
+                raw_cursor,
+                """
+                INSERT INTO works (
+                    work_id, title, year, cited_by_count,
+                    authors_json, venue, primary_topic_id,
+                    primary_topic_score, topics_json, is_retracted,
+                    abstract, arxiv_id
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s::jsonb, %s, %s,
+                    %s, %s::jsonb, %s,
+                    %s, %s
+                )
+                ON CONFLICT (work_id) DO UPDATE
+                SET
+                    cited_by_count = GREATEST(
+                        COALESCE(works.cited_by_count, 0),
+                        COALESCE(EXCLUDED.cited_by_count, 0)
+                    ),
+                    title = COALESCE(works.title, EXCLUDED.title),
+                    venue = COALESCE(works.venue, EXCLUDED.venue),
+                    year = CASE
+                        WHEN works.year IS NULL THEN EXCLUDED.year
+                        WHEN EXCLUDED.year IS NULL THEN works.year
+                        WHEN EXCLUDED.year < works.year THEN EXCLUDED.year
+                        ELSE works.year
+                    END,
+                    abstract = COALESCE(works.abstract, EXCLUDED.abstract),
+                    arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id)
+                """,
+                rows_to_insert,
+                page_size=200,
             )
         except Exception as e:
-            logger.warning(f"Failed to ingest ArXiv paper {work_id}: {e}")
+            logger.warning(f"Failed to batch ingest ArXiv papers: {e}")
+        finally:
+            raw_cursor.close()
 
     return work_ids, title_to_work_id, arxiv_id_to_work_id
 
@@ -1826,52 +1832,66 @@ def _ingest_semantic_scholar_papers(
     # - Keep EARLIER year (prevents future-dated papers from wrong OpenAlex data)
     # - Fill in title/year if missing
     if rows_to_insert:
-        for row in rows_to_insert:
-            try:
-                conn.execute(
-                    text("""
-                        INSERT INTO works (
-                            work_id, title, year, cited_by_count,
-                            authors_json, venue, primary_topic_id,
-                            primary_topic_score, topics_json, is_retracted,
-                            abstract, doi, arxiv_id
-                        ) VALUES (
-                            :work_id, :title, :year, :cited_by_count,
-                            :authors_json, :venue, :primary_topic_id,
-                            :primary_topic_score, :topics_json, :is_retracted,
-                            :abstract, :doi, :arxiv_id
-                        )
-                        ON CONFLICT (work_id) DO UPDATE
-                        SET
-                            -- Keep higher citation count (S2 often more accurate)
-                            cited_by_count = GREATEST(
-                                COALESCE(works.cited_by_count, 0),
-                                COALESCE(EXCLUDED.cited_by_count, 0)
-                            ),
-                            -- Keep earlier year (prevents future-dated wrong papers)
-                            year = CASE
-                                WHEN works.year IS NULL THEN EXCLUDED.year
-                                WHEN EXCLUDED.year IS NULL THEN works.year
-                                WHEN EXCLUDED.year < works.year THEN EXCLUDED.year
-                                ELSE works.year
-                            END,
-                            -- Fill in title if missing
-                            title = COALESCE(works.title, EXCLUDED.title),
-                            -- Fill in venue if missing
-                            venue = COALESCE(works.venue, EXCLUDED.venue),
-                            -- Fill in abstract if missing
-                            abstract = COALESCE(works.abstract, EXCLUDED.abstract),
-                            -- Fill in external IDs if missing
-                            doi = COALESCE(works.doi, EXCLUDED.doi),
-                            arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id)
-                    """).bindparams(
-                        bindparam("authors_json", type_=JSONB),
-                        bindparam("topics_json", type_=JSONB),
-                    ),
-                    row,
+        from psycopg2.extras import execute_batch
+        batch_tuples = [
+            (
+                row["work_id"],
+                row["title"],
+                row["year"],
+                row["cited_by_count"],
+                json.dumps(row["authors_json"]),
+                row["venue"],
+                row["primary_topic_id"],
+                row["primary_topic_score"],
+                json.dumps(row["topics_json"]),
+                row["is_retracted"],
+                row["abstract"],
+                row["doi"],
+                row["arxiv_id"],
+            )
+            for row in rows_to_insert
+        ]
+        raw_cursor = conn.connection.dbapi_connection.cursor()
+        try:
+            execute_batch(
+                raw_cursor,
+                """
+                INSERT INTO works (
+                    work_id, title, year, cited_by_count,
+                    authors_json, venue, primary_topic_id,
+                    primary_topic_score, topics_json, is_retracted,
+                    abstract, doi, arxiv_id
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s::jsonb, %s, %s,
+                    %s, %s::jsonb, %s,
+                    %s, %s, %s
                 )
-            except Exception as e:
-                logger.warning(f"Failed to ingest S2 paper {row['work_id']}: {e}")
+                ON CONFLICT (work_id) DO UPDATE
+                SET
+                    cited_by_count = GREATEST(
+                        COALESCE(works.cited_by_count, 0),
+                        COALESCE(EXCLUDED.cited_by_count, 0)
+                    ),
+                    year = CASE
+                        WHEN works.year IS NULL THEN EXCLUDED.year
+                        WHEN EXCLUDED.year IS NULL THEN works.year
+                        WHEN EXCLUDED.year < works.year THEN EXCLUDED.year
+                        ELSE works.year
+                    END,
+                    title = COALESCE(works.title, EXCLUDED.title),
+                    venue = COALESCE(works.venue, EXCLUDED.venue),
+                    abstract = COALESCE(works.abstract, EXCLUDED.abstract),
+                    doi = COALESCE(works.doi, EXCLUDED.doi),
+                    arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id)
+                """,
+                batch_tuples,
+                page_size=200,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to batch ingest S2 papers: {e}")
+        finally:
+            raw_cursor.close()
 
     return work_ids, title_to_work_id, arxiv_id_to_work_id
 
@@ -1972,6 +1992,93 @@ def _retrieve_topic_pool(conn: Connection, topic_id: str, k: int) -> List[Tuple[
         {"topic": topic_id, "k": k},
     ).mappings().all()
     return [(r["work_id"], float(r["score"])) for r in rows]
+
+def _backfill_abstracts_from_s2(conn: Connection, work_ids: List[str]) -> int:
+    """Batch-fetch abstracts from Semantic Scholar for papers with NULL abstract.
+
+    Uses the S2 POST /paper/batch endpoint (up to 500 papers per call) to
+    efficiently look up abstracts by DOI or ArXiv ID. Only targets papers
+    that already exist in the DB but have NULL abstract.
+
+    Returns the number of abstracts filled.
+    """
+    if not work_ids:
+        return 0
+
+    # Find papers with NULL abstract that have a DOI or arxiv_id we can look up
+    rows = conn.execute(
+        text("""
+            SELECT work_id, doi, arxiv_id
+            FROM works
+            WHERE work_id = ANY(:ids)
+              AND abstract IS NULL
+              AND (doi IS NOT NULL OR arxiv_id IS NOT NULL)
+        """),
+        {"ids": work_ids},
+    ).fetchall()
+
+    if not rows:
+        return 0
+
+    # Build S2 lookup identifiers (prefer DOI, fallback to ArXiv ID)
+    lookup_ids = []  # (work_id, s2_identifier)
+    for row in rows:
+        wid, doi, arxiv_id = row[0], row[1], row[2]
+        if doi:
+            clean_doi = doi.replace("https://doi.org/", "")
+            lookup_ids.append((wid, f"DOI:{clean_doi}"))
+        elif arxiv_id:
+            lookup_ids.append((wid, f"ArXiv:{arxiv_id}"))
+
+    if not lookup_ids:
+        return 0
+
+    s2_api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
+    headers = {"Content-Type": "application/json"}
+    if s2_api_key:
+        headers["x-api-key"] = s2_api_key
+
+    filled = 0
+    BATCH_SIZE = 500  # S2 batch endpoint max
+
+    for i in range(0, len(lookup_ids), BATCH_SIZE):
+        batch = lookup_ids[i:i + BATCH_SIZE]
+        s2_ids = [sid for _, sid in batch]
+
+        try:
+            resp = requests.post(
+                "https://api.semanticscholar.org/graph/v1/paper/batch",
+                json={"ids": s2_ids},
+                params={"fields": "abstract"},
+                headers=headers,
+                timeout=30,
+            )
+            if resp.status_code == 429:
+                logger.warning("S2 batch abstract backfill rate limited (429), skipping")
+                continue
+            if resp.status_code != 200:
+                logger.warning(f"S2 batch abstract backfill failed: HTTP {resp.status_code}")
+                continue
+
+            data = resp.json()
+            for j, paper_data in enumerate(data):
+                if not paper_data or not isinstance(paper_data, dict):
+                    continue
+                abstract = paper_data.get("abstract")
+                if abstract:
+                    wid = batch[j][0]
+                    conn.execute(
+                        text("UPDATE works SET abstract = :abstract WHERE work_id = :wid AND abstract IS NULL"),
+                        {"abstract": abstract, "wid": wid},
+                    )
+                    filled += 1
+        except Exception as e:
+            logger.warning(f"S2 batch abstract backfill error: {e}")
+
+    if filled > 0:
+        logger.info(f"Abstract backfill: filled {filled}/{len(lookup_ids)} NULL abstracts from S2")
+    return filled
+
 
 def generate_candidates_direct(
     conn: Connection,
@@ -2777,38 +2884,59 @@ def generate_candidates_direct(
             candidate_map[final_wid].append(prov_entry)
             return False
 
-    # First: Search for foundational works using title.search filter
-    # This is CRITICAL for finding THE papers like "Attention Is All You Need"
-    for fw_title in unique_fw_titles:
-        title_results = _search_openalex_by_title(fw_title, k=5)
-        for idx, (wid, citations) in enumerate(title_results):
-            prov_entry = {
-                "source": "foundational_title",
-                "rank": idx + 1,
-                "score": 1.0 / (idx + 1),
-                "citations": int(citations),
-                "query": fw_title,
-            }
-            # Use the foundational work title itself for dedup (it's the paper title)
-            add_highly_cited_paper(wid, {"title": fw_title}, prov_entry)
-
-    # Second: Regular highly-cited search for original query and synonyms
-    # For these, we need to fetch titles from DB for deduplication
+    # Foundational title searches + highly-cited searches — run ALL in parallel
+    # OpenAlex handles concurrency fine (100k calls/day, no per-second throttle)
     hc_work_ids_to_fetch: List[str] = []
     hc_results_pending: List[Tuple[str, int, str, Dict]] = []  # (wid, idx, query, prov)
 
-    for hc_query in highly_cited_queries:
-        highly_cited_results = _search_openalex_highly_cited(hc_query, OPENALEX_HIGHLY_CITED_LIMIT)
-        for idx, (wid, citations) in enumerate(highly_cited_results):
-            prov_entry = {
-                "source": "highly_cited",
-                "rank": idx + 1,
-                "score": 1.0 / (idx + 1),
-                "citations": int(citations),
-                "query": hc_query,
-            }
-            hc_work_ids_to_fetch.append(wid)
-            hc_results_pending.append((wid, idx, hc_query, prov_entry))
+    with ThreadPoolExecutor(max_workers=max(len(unique_fw_titles) + len(highly_cited_queries), 1)) as hc_executor:
+        # Submit foundational title searches
+        fw_futures = {
+            hc_executor.submit(_search_openalex_by_title, fw_title, 5): fw_title
+            for fw_title in unique_fw_titles
+        }
+        # Submit highly-cited searches
+        hc_futures = {
+            hc_executor.submit(_search_openalex_highly_cited, hc_query, OPENALEX_HIGHLY_CITED_LIMIT): hc_query
+            for hc_query in highly_cited_queries
+        }
+
+        # Process foundational title results as they complete
+        for future in as_completed(fw_futures):
+            fw_title = fw_futures[future]
+            try:
+                title_results = future.result()
+            except Exception as e:
+                logger.warning(f"Foundational title search failed for '{fw_title[:30]}': {e}")
+                continue
+            for idx, (wid, citations) in enumerate(title_results):
+                prov_entry = {
+                    "source": "foundational_title",
+                    "rank": idx + 1,
+                    "score": 1.0 / (idx + 1),
+                    "citations": int(citations),
+                    "query": fw_title,
+                }
+                add_highly_cited_paper(wid, {"title": fw_title}, prov_entry)
+
+        # Process highly-cited results as they complete
+        for future in as_completed(hc_futures):
+            hc_query = hc_futures[future]
+            try:
+                highly_cited_results = future.result()
+            except Exception as e:
+                logger.warning(f"Highly-cited search failed for '{hc_query[:30]}': {e}")
+                continue
+            for idx, (wid, citations) in enumerate(highly_cited_results):
+                prov_entry = {
+                    "source": "highly_cited",
+                    "rank": idx + 1,
+                    "score": 1.0 / (idx + 1),
+                    "citations": int(citations),
+                    "query": hc_query,
+                }
+                hc_work_ids_to_fetch.append(wid)
+                hc_results_pending.append((wid, idx, hc_query, prov_entry))
 
     # Fetch metadata (title, DOI, arxiv_id) for deduplication
     hc_metadata: Dict[str, Dict[str, Optional[str]]] = {}
@@ -2851,6 +2979,10 @@ def generate_candidates_direct(
     all_wids = list(candidate_map.keys())
     logger.info(f"Total unique candidates: {len(all_wids)}")
     WorkStore.ensure_works_present(conn, all_wids)
+
+    # Backfill abstracts from S2 for papers still missing them
+    # This catches papers where OpenAlex has no abstract but S2 does
+    _backfill_abstracts_from_s2(conn, all_wids)
 
     # Validate and correct suspicious metadata (future years, wrong papers, etc.)
     # This is a GENERAL fix that runs for ALL queries, not specific papers
@@ -2951,6 +3083,7 @@ def generate_candidates_direct_legacy(
 
     all_wids = list(candidate_map.keys())
     WorkStore.ensure_works_present(conn, all_wids)
+    _backfill_abstracts_from_s2(conn, all_wids)
 
     # Apply year filters
     year_min = filters_json.get("year_min")
