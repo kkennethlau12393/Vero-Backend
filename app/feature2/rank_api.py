@@ -45,6 +45,7 @@ from app.feature2.rank_service import direct_rank_prod
 from app.feature2.subtopic_service import generate_subtopics
 from app.feature2.temporal_map_service import build_temporal_map
 from app.feature2.title_to_query import extract_display_title, generate_topic_query_from_title
+from app.feature3.schemas import NoveltyAssessment
 
 
 router = APIRouter(prefix="/v1/rank", tags=["rank"])
@@ -567,4 +568,86 @@ def get_temporal_map_endpoint(
         raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
         logger.exception("Unexpected error in temporal_map endpoint")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/{rank_job_id}/nodes/{work_id}/novelty",
+    response_model=NoveltyAssessment,
+)
+def rank_novelty_endpoint(
+    rank_job_id: UUID,
+    work_id: str,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    """
+    Run novelty assessment for a paper in a ranked result list.
+
+    Validates that the rank job exists, belongs to the tenant, and
+    that the work_id is present in the job's results. Then delegates
+    to the Feature 3 novelty pipeline (same LLM, caching, grounding).
+
+    Returns 404 if rank job or work not found.
+    Returns 422 if novelty assessment is unavailable for this paper.
+    """
+    try:
+        from sqlalchemy import text as sql_text
+
+        with engine.connect() as conn:
+            # Verify rank job exists and belongs to tenant
+            job_row = conn.execute(
+                sql_text("""
+                    SELECT rank_job_id FROM rank_jobs
+                    WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
+                """),
+                {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
+            ).first()
+
+            if not job_row:
+                raise HTTPException(status_code=404, detail="rank_job_not_found")
+
+            # Verify work_id is in this job's results
+            work_row = conn.execute(
+                sql_text("""
+                    SELECT 1 FROM rank_results
+                    WHERE rank_job_id = :rank_job_id AND work_id = :work_id
+                    LIMIT 1
+                """),
+                {"rank_job_id": rank_job_id, "work_id": work_id},
+            ).first()
+
+            if not work_row:
+                raise HTTPException(status_code=404, detail="work_not_in_rank_results")
+
+        # Delegate to Feature 3 novelty pipeline
+        from app.feature3.node_details_service import get_novelty_for_work
+
+        result = get_novelty_for_work(engine, work_id=work_id)
+
+        if result["novelty_assessment"] is None:
+            raise HTTPException(
+                status_code=422,
+                detail=result.get("assessment_unavailable_reason", "Novelty assessment unavailable"),
+            )
+
+        # Build response from dict
+        from app.feature3.schemas import GroundingPaper
+        assessment = result["novelty_assessment"]
+        grounding_papers_data = assessment.pop("grounding_papers", [])
+
+        return NoveltyAssessment(
+            **assessment,
+            grounding_papers=[GroundingPaper(**gp) for gp in grounding_papers_data],
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        msg = str(e)
+        if msg == "work_not_found":
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+    except Exception as e:
+        logger.exception("Unexpected error in rank_novelty endpoint")
         raise HTTPException(status_code=500, detail=str(e))
