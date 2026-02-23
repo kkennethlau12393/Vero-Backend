@@ -28,8 +28,7 @@ from openai import OpenAI
 from sqlalchemy.engine import Connection
 
 from app.feature3.json_utils import extract_json_from_llm_response_with_repair
-from app.feature3.paper_identity import decode_openalex_abstract
-from app.feature3.methodology import get_methodology, is_methodology_mismatch
+from app.feature3.paper_identity import decode_openalex_abstract, content_word_overlap
 from app.feature3.paper_cache import (
     get_landmarks,
     cache_landmarks,
@@ -491,12 +490,6 @@ def _resolve_suggestions(
         target_title: Title of target paper for methodology filtering.
         target_abstract: Abstract of target paper for methodology filtering.
     """
-    def check_methodology_mismatch(paper: Dict[str, Any]) -> bool:
-        if is_methodology_mismatch(target_title, target_abstract, paper.get('title'), paper.get('abstract')):
-            logger.info(f"Methodology mismatch: {paper.get('title', '')[:40]}...")
-            return True
-        return False
-
     # Filter out already-existing titles first
     to_lookup = [
         s for s in suggestions
@@ -528,17 +521,16 @@ def _resolve_suggestions(
 
             paper = future.result()
             if paper and paper["title"].lower() not in existing_titles:
-                # FIRST: Check methodology mismatch (most precise filter)
-                if check_methodology_mismatch(paper):
-                    continue
-
-                # SECOND: Use SUBFIELD comparison as fallback
-                # Topic IDs are too specific: related papers have different topics
-                paper_field = paper.get("field_name")
-                if target_field and paper_field and paper_field != target_field:
+                # Content-based cross-domain filtering (robust to wrong topic_ids)
+                paper_title = paper.get("title", "")
+                title_overlap = content_word_overlap(target_title or "", paper_title) if target_title and paper_title else 1.0
+                abstract_overlap = 0
+                if target_abstract and paper.get("abstract"):
+                    abstract_overlap = content_word_overlap(target_abstract, paper["abstract"])
+                if title_overlap < 0.05 and abstract_overlap < 0.05:
                     logger.info(
-                        f"Skipping cross-domain paper: {paper['title'][:40]}... "
-                        f"(field: {paper_field}, target: {target_field})"
+                        f"Skipping irrelevant paper: {paper_title[:40]}... "
+                        f"(title_overlap={title_overlap:.3f})"
                     )
                     continue
 
@@ -1658,43 +1650,29 @@ def supplement_grounding_papers(
                 f"(need {MIN_TOTAL}). Accepting fewer to avoid cross-domain contamination."
             )
 
-    # Use centralized methodology mismatch detection
-    def _check_methodology_mismatch(paper: Dict[str, Any]) -> bool:
-        """Check if a paper uses a different methodology than the target."""
-        if is_methodology_mismatch(title, abstract, paper.get('title'), paper.get('abstract')):
-            logger.debug(f"Methodology mismatch: {paper.get('title', '')[:40]}...")
-            return True
-        return False
-
-    # Cross-domain filtering using SUBFIELD (not topic_id - too strict)
-    # Topic IDs are too specific: related papers have different topics
-    # Stale DB data (wrong topics like XGBoost) is caught by landmark_retrieval verification
+    # Content-based cross-domain filtering (robust to wrong topic_ids)
     def _is_cross_domain(paper: Dict[str, Any]) -> bool:
-        # First check methodology mismatch (more specific than subfield)
-        if _check_methodology_mismatch(paper):
-            return True
-
-        if not target_field_name:
+        if not title and not abstract:
             return False
 
-        paper_field = paper.get("field_name")  # Set when resolved to OpenAlex
-        work_id = paper.get("work_id", "")
+        paper_title = paper.get("title", "")
+        paper_abstract = paper.get("abstract", "")
 
-        # If paper has field_name, compare directly
-        if paper_field:
-            if paper_field != target_field_name:
-                logger.debug(f"Cross-domain (subfield): {paper_field} != {target_field_name}")
-                return True
+        # Check content overlap between supplement paper and target
+        title_overlap = content_word_overlap(title or "", paper_title) if title and paper_title else 0
+        abstract_overlap = 0
+        if abstract and paper_abstract:
+            abstract_overlap = content_word_overlap(abstract, paper_abstract)
+
+        # Keep if meaningful overlap exists
+        if title_overlap >= 0.05 or abstract_overlap >= 0.05:
             return False
 
-        # Paper has no field_name - it wasn't resolved to OpenAlex
-        # S2/ArXiv field filtering is too loose (keyword matching), so exclude
-        # unresolved papers when we have a target field to prevent contamination
-        if work_id.startswith("S2:") or work_id.startswith("ArXiv:"):
-            logger.debug(f"Excluding unresolved {work_id[:20]}... (no OpenAlex field_name)")
-            return True
-
-        return False
+        logger.debug(
+            f"Cross-domain supplement: '{paper_title[:40]}...' "
+            f"(title_overlap={title_overlap:.3f}, abstract_overlap={abstract_overlap:.3f})"
+        )
+        return True
 
     # Filter refs and landmarks - remove cross-domain and duplicates by work_id
     def _is_duplicate(paper: Dict[str, Any]) -> bool:

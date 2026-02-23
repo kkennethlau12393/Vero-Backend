@@ -147,6 +147,13 @@ _TITLE_STOP_WORDS = frozenset({
     "a", "an", "the", "in", "of", "and", "or", "to", "for", "with",
     "on", "by", "from", "as", "at", "is", "are", "was", "were", "be",
     "its", "their", "this", "that", "via", "using", "based", "new",
+    # Common academic words that don't indicate topical relevance
+    "we", "our", "paper", "propose", "proposed", "method", "approach",
+    "results", "show", "study", "also", "can", "may", "use", "used",
+    "two", "one", "first", "which", "these", "each", "both", "such",
+    "than", "more", "most", "well", "has", "have", "been", "not",
+    "but", "they", "it", "will", "would", "could", "should", "do",
+    "does", "did", "had", "being", "over", "into",
 })
 
 

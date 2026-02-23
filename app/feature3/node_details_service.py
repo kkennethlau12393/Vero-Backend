@@ -23,7 +23,6 @@ from sqlalchemy.engine import Connection, Engine
 
 from app.feature3.abstract_enrichment import ensure_valid_abstract
 from app.feature3.grounding_supplement import supplement_grounding_papers, get_field_from_topic_id
-from app.feature3.methodology import get_methodology, is_methodology_mismatch
 from app.feature3.json_utils import extract_json_from_llm_response
 from app.feature3.paper_identity import title_word_overlap, content_word_overlap
 from app.feature3.landmark_retrieval import get_topic_landmarks
@@ -55,7 +54,7 @@ MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Bump this when model OR prompt changes to auto-invalidate cached assessments
-ASSESSMENT_VERSION = "maverick-v12"
+ASSESSMENT_VERSION = "maverick-v13"
 
 
 def get_cached_details(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
@@ -583,15 +582,19 @@ PIONEERING is EXTREMELY RARE - requires:
 1. A task/application that NOBODY was working on before
 2. The grounding papers are from different domains being COMBINED into something new
 3. NOT just a new method for an existing task
+4. NOT a dataset, benchmark, tool, or resource — these ENABLE research, they don't shift paradigms
 
 HIGH means:
 - The task/problem already existed (grounding papers work on it)
 - This paper provided a major improvement (new method, better results)
+- This paper created an influential dataset, benchmark, or resource that became widely adopted
 
 CRITICAL - Default to "high" unless evidence strongly supports "pioneering":
 - Most influential papers are "high" (major improvements to existing tasks)
 - "Pioneering" is RARE - reserved for papers that DEFINED new fields
 - If ANY grounding paper addresses the same task → "high" not "pioneering"
+- Datasets and benchmarks are ALWAYS "high" at most — they are resources, not methodological paradigm shifts
+- Even extremely highly-cited datasets (e.g., ImageNet, CIFAR, COCO) are "high" — they enabled breakthroughs but didn't create a new research paradigm
 
 CRITICAL - NOT high (these are "medium"):
 - Systematizing or providing guidelines for an EXISTING method → "medium"
@@ -881,151 +884,71 @@ def _filter_cross_domain_papers(
     target_title: Optional[str] = None,
     target_abstract: Optional[str] = None,
 ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Filter cross-domain papers from references and landmarks.
+    """Filter cross-domain papers from landmarks only.
 
-    ROOT CAUSE FIX: Uses METHODOLOGY-based filtering to catch papers
-    that are in the same subfield but use different methods (e.g.,
-    neural network papers for ensemble methods).
+    References are NEVER filtered — the author cited them, so they are
+    inherently relevant regardless of OpenAlex field classification.
+    OpenAlex topic assignments can be wrong (e.g., a robotics paper
+    classified under "Automotive Engineering"), and filtering references
+    based on potentially-wrong topics removes correct papers.
 
-    FALLBACK: If strict filtering removes too many papers (OpenAlex sometimes
-    misclassifies papers), keep the top-cited references anyway. Author-declared
-    citations are inherently relevant.
+    Landmarks are filtered using content overlap with the target paper's
+    title and abstract, NOT by subfield comparison. This ensures that
+    even when the target paper's topic_id is wrong, relevant landmarks
+    survive and irrelevant ones are removed.
 
     Args:
-        referenced_works: Papers the target work cites
-        landmarks: Field landmark papers
-        target_field_name: OpenAlex subfield name (fallback if no topic_id)
-        target_topic_id: OpenAlex topic ID of target paper (most precise filter)
-        target_title: Title of target paper for methodology detection
-        target_abstract: Abstract of target paper for methodology detection
+        referenced_works: Papers the target work cites (never filtered)
+        landmarks: Field landmark papers (filtered by content relevance)
+        target_field_name: OpenAlex subfield name (unused, kept for API compat)
+        target_topic_id: OpenAlex topic ID (unused, kept for API compat)
+        target_title: Title of target paper for content overlap check
+        target_abstract: Abstract of target paper for content overlap check
 
     Returns:
-        (filtered_refs, filtered_landmarks) with cross-domain papers removed
+        (referenced_works, filtered_landmarks)
     """
-    MIN_REFS_AFTER_FILTER = 3  # Keep at least this many refs if available
+    # References are author-curated — never filter them
+    # The author chose to cite these papers, so they're relevant by definition
+    filtered_refs = referenced_works
 
-    # Use centralized methodology detection
-    target_methodology = get_methodology(f"{target_title or ''} {target_abstract or ''}")
-    if target_methodology:
-        logger.info(f"Target methodology: {target_methodology} (from: {target_title[:50] if target_title else 'no title'}...)")
+    # Filter landmarks using content overlap with the target paper
+    # This is robust to wrong topic_ids because it checks actual content
+    target_text = f"{target_title or ''} {target_abstract or ''}"
+    if not target_text.strip():
+        return filtered_refs, landmarks
 
-    def check_methodology_mismatch(paper: Dict[str, Any]) -> bool:
-        """Check if paper uses a different methodology than target."""
-        if is_methodology_mismatch(target_title, target_abstract, paper.get('title'), paper.get('abstract')):
+    filtered_landmarks = []
+    for lm in landmarks:
+        lm_title = lm.get("title", "")
+        lm_abstract = lm.get("abstract", "")
+        lm_text = f"{lm_title} {lm_abstract}"
+
+        # Check content overlap between landmark and target paper
+        # Uses title-to-title overlap (most reliable signal)
+        title_overlap = content_word_overlap(target_title or "", lm_title) if target_title and lm_title else 0
+
+        # Also check abstract overlap if available (catches cases where
+        # titles are different but papers are about the same topic)
+        abstract_overlap = 0
+        if target_abstract and lm_abstract:
+            abstract_overlap = content_word_overlap(target_abstract, lm_abstract)
+
+        # Keep landmark if it has meaningful content overlap with target
+        # Title overlap >= 0.05 OR abstract overlap >= 0.05
+        if title_overlap >= 0.05 or abstract_overlap >= 0.05:
+            filtered_landmarks.append(lm)
+        else:
             logger.info(
-                f"FILTERING methodology mismatch: {paper.get('title', '')[:50]}..."
-            )
-            return True
-        return False
-
-    # If we don't know either the target field or topic, can't do subfield filtering
-    # but we can still do methodology filtering
-    if not target_field_name and not target_topic_id and not target_methodology:
-        return referenced_works, landmarks
-
-    # Cache for topic_id -> subfield lookups to avoid repeated API calls
-    subfield_cache: Dict[str, Optional[str]] = {}
-
-    def get_paper_subfield(paper: Dict[str, Any]) -> Optional[str]:
-        """Get subfield for a paper, looking up from topic_id if needed."""
-        # First check if field_name is already set
-        if paper.get("field_name"):
-            return paper["field_name"]
-
-        # If paper has primary_topic_id, look up its subfield
-        topic_id = paper.get("primary_topic_id")
-        if topic_id:
-            if topic_id not in subfield_cache:
-                subfield_cache[topic_id] = get_field_from_topic_id(topic_id)
-            return subfield_cache[topic_id]
-
-        return None
-
-    def is_cross_domain(paper: Dict[str, Any]) -> bool:
-        work_id = paper.get("work_id", "")
-
-        # FIRST: Check methodology mismatch (most precise filter)
-        # This catches papers in the same subfield but different methods
-        # e.g., neural network papers vs ensemble methods
-        if check_methodology_mismatch(paper):
-            return True
-
-        # SECOND: Use SUBFIELD comparison as fallback
-        # Topic IDs are too specific: ResNet vs DenseNet have different topics but are related
-        # Subfield "Computer Vision and Pattern Recognition" correctly groups them
-        paper_field = get_paper_subfield(paper)
-
-        # If paper has subfield, compare directly
-        if paper_field and target_field_name:
-            if paper_field != target_field_name:
-                logger.debug(
-                    f"Cross-domain paper: {work_id} "
-                    f"(field: {paper_field}, target: {target_field_name})"
-                )
-                return True
-            return False
-
-        # Paper has no subfield - either no topic_id or couldn't resolve
-        # S2/ArXiv papers without OpenAlex field_name should be excluded
-        if work_id.startswith("S2:") or work_id.startswith("ArXiv:"):
-            logger.debug(
-                f"Excluding unresolved S2/ArXiv paper: {work_id} "
-                f"(no OpenAlex subfield for validation)"
-            )
-            return True
-
-        # OpenAlex papers without topic_id (often very old papers)
-        # Use content-word overlap as fallback — if no overlap, likely unrelated
-        # Uses stop-word-free overlap so "in", "a", "the" don't create false matches
-        paper_title = paper.get("title", "")
-        if target_title and paper_title:
-            overlap = content_word_overlap(target_title, paper_title)
-            if overlap < 0.05:  # Near-zero content overlap = unrelated field
-                logger.info(
-                    f"Excluding unrelated old paper (overlap={overlap:.2f}): "
-                    f"'{paper_title[:50]}...' vs target '{target_title[:50]}...'"
-                )
-                return True
-
-        return False
-
-    # First pass: strict subfield filtering
-    filtered_refs = [r for r in referenced_works if not is_cross_domain(r)]
-    filtered_landmarks = [lm for lm in landmarks if not is_cross_domain(lm)]
-
-    # FALLBACK: If strict filtering removed too many references, OpenAlex may
-    # have misclassified the target paper. Keep top-cited references anyway.
-    # Author-declared citations (from OpenAlex referenced_works) are inherently
-    # relevant - the author chose to cite them.
-    if len(filtered_refs) < MIN_REFS_AFTER_FILTER and len(referenced_works) >= MIN_REFS_AFTER_FILTER:
-        # Sort by citation count and take top refs
-        sorted_refs = sorted(
-            referenced_works,
-            key=lambda x: x.get("cited_by_count", 0),
-            reverse=True
-        )
-        # Only keep OpenAlex refs with SOME keyword overlap to target
-        # (prevents re-adding clearly unrelated papers like Brownian Motion)
-        openalex_refs = [
-            r for r in sorted_refs
-            if r.get("work_id", "").startswith("W")
-            and (not target_title or content_word_overlap(target_title, r.get("title", "")) >= 0.05)
-        ]
-        if openalex_refs:
-            filtered_refs = openalex_refs[:max(MIN_REFS_AFTER_FILTER, len(filtered_refs))]
-            logger.info(
-                f"Cross-domain fallback: strict filter left {len([r for r in referenced_works if not is_cross_domain(r)])} refs, "
-                f"keeping {len(filtered_refs)} top-cited refs (OpenAlex misclassification likely)"
+                f"Filtering irrelevant landmark: '{lm_title[:50]}...' "
+                f"(title_overlap={title_overlap:.3f}, abstract_overlap={abstract_overlap:.3f})"
             )
 
-    # Log filtering results
-    ref_filtered = len(referenced_works) - len(filtered_refs)
     lm_filtered = len(landmarks) - len(filtered_landmarks)
-    if ref_filtered > 0 or lm_filtered > 0:
+    if lm_filtered > 0:
         logger.info(
-            f"Cross-domain filtering: refs {len(referenced_works)}->{len(filtered_refs)} "
-            f"(-{ref_filtered}), landmarks {len(landmarks)}->{len(filtered_landmarks)} "
-            f"(-{lm_filtered})"
+            f"Content-based landmark filtering: {len(landmarks)}->{len(filtered_landmarks)} "
+            f"(-{lm_filtered} irrelevant)"
         )
 
     return filtered_refs, filtered_landmarks
