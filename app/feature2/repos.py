@@ -318,31 +318,39 @@ class CandidateSetRepo:
         """
         if not items:
             return
-        # Prepare rows, converting provenance to JSON
+        import json
+        from psycopg2.extras import execute_batch
+
+        # Prepare rows, converting provenance to JSON strings
         payload = []
         for itm in items:
             wid = itm.get("work_id")
             prov = itm.get("provenance") or []
             if wid is None:
                 continue
-            payload.append({
-                "candidate_set_id": candidate_set_id,
-                "work_id": wid,
-                "provenance_json": prov,
-            })
-        stmt = text(
-            """
-            INSERT INTO candidate_set_items (
-                candidate_set_id, work_id, provenance_json
-            ) VALUES (
-                :candidate_set_id, :work_id, :provenance_json
+            payload.append((
+                str(candidate_set_id),
+                wid,
+                json.dumps(prov),
+            ))
+        if not payload:
+            return
+
+        raw_cursor = conn.connection.dbapi_connection.cursor()
+        try:
+            execute_batch(
+                raw_cursor,
+                """
+                INSERT INTO candidate_set_items (
+                    candidate_set_id, work_id, provenance_json
+                ) VALUES (%s, %s, %s::jsonb)
+                ON CONFLICT (candidate_set_id, work_id) DO NOTHING
+                """,
+                payload,
+                page_size=200,
             )
-            ON CONFLICT (candidate_set_id, work_id) DO NOTHING
-            """
-        ).bindparams(
-            bindparam("provenance_json", type_=JSONB)
-        )
-        conn.execute(stmt, payload)
+        finally:
+            raw_cursor.close()
 
 class RankRepo:
 

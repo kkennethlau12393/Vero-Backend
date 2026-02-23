@@ -167,6 +167,17 @@ class WorkStore:
         ).scalars().all()
         existing_set = set(existing)
         to_fetch = [wid for wid in missing_work_ids if wid not in existing_set]
+
+        # Also re-fetch OpenAlex papers that exist but have NULL abstract
+        # (self-healing: papers from prior runs that were ingested without abstract)
+        oa_ids_in_list = [wid for wid in missing_work_ids if wid.startswith("W") and wid in existing_set]
+        if oa_ids_in_list:
+            null_abstract_rows = conn.execute(
+                text("SELECT work_id FROM works WHERE work_id = ANY(:ids) AND abstract IS NULL"),
+                {"ids": oa_ids_in_list},
+            ).scalars().all()
+            to_fetch.extend(null_abstract_rows)
+
         if not to_fetch:
             return
         # Batch up to 50 IDs per request

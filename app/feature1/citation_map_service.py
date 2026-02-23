@@ -276,13 +276,16 @@ def _search_openalex_by_title(
         except Exception as e:
             logger.warning(f"OpenAlex title search error: {e}")
 
+    # Strip commas — OpenAlex interprets them as filter value separators
+    safe_title = title_query.replace(",", "")
+
     # Search 1: Title search without year (catches papers with wrong year in OpenAlex)
-    do_search(f'title.search:"{title_query}"')
+    do_search(f'title.search:"{safe_title}"')
 
     # Search 2: Title search with year filter if provided
     if year:
         year_filter = f",publication_year:{year - year_range}-{year + year_range}"
-        do_search(f'title.search:"{title_query}"{year_filter}')
+        do_search(f'title.search:"{safe_title}"{year_filter}')
 
     # Sort by citation count
     out = list(all_results.values())
