@@ -41,6 +41,7 @@ from app.feature3.schemas import (
 )
 from app.feature3.topic_inference import ensure_topic
 from app.feature3.topic_lookup import get_topic_display_name
+from app.shared.pdf_utils import download_and_extract_pdf, extract_paper_sections
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
@@ -54,7 +55,7 @@ MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Bump this when model OR prompt changes to auto-invalidate cached assessments
-ASSESSMENT_VERSION = "maverick-v9"
+ASSESSMENT_VERSION = "maverick-v10"
 
 
 def get_cached_details(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
@@ -426,10 +427,12 @@ def _build_grounded_prompt(
     referenced_works: List[Dict[str, Any]],
     landmarks: List[Dict[str, Any]],
     cited_by_count: int = 0,
+    full_text_sections: Optional[Dict[str, str]] = None,
 ) -> str:
     """Build the LLM prompt with grounded paper context."""
     year_str = f" ({year})" if year else ""
-    abstract_text = _truncate_text(abstract or "No abstract available.", 800)
+    # Use full abstract — we have room in 128k context
+    abstract_text = abstract or "No abstract available."
 
     # Detect potential pioneering work based on citation impact
     # High citation count is a strong signal of paradigm-shifting work
@@ -456,6 +459,19 @@ Key question: Did the field fundamentally change how it operates AFTER this pape
 - If NO (important but coexists with alternatives) → HIGH
 """
 
+    # Build full text context block if available
+    full_text_block = ""
+    if full_text_sections:
+        parts = []
+        if full_text_sections.get("introduction"):
+            parts.append(f"=== INTRODUCTION ===\n{full_text_sections['introduction']}")
+        if full_text_sections.get("methods"):
+            parts.append(f"=== METHODOLOGY ===\n{full_text_sections['methods']}")
+        if full_text_sections.get("results_conclusion"):
+            parts.append(f"=== RESULTS & CONCLUSIONS ===\n{full_text_sections['results_conclusion']}")
+        if parts:
+            full_text_block = "\n\nFULL TEXT SECTIONS (extracted from PDF — use these for detailed analysis):\n" + "\n\n".join(parts)
+
     # Build references section
     refs_section = ""
     if referenced_works:
@@ -465,7 +481,7 @@ Key question: Did the field fundamentally change how it operates AFTER this pape
             ref_year = ref.get("year") or "?"
             ref_category = ref.get("category", "")
             category_label = f" [{ref_category}]" if ref_category else ""
-            ref_abstract = _truncate_text(ref.get("abstract") or "", 350)
+            ref_abstract = _truncate_text(ref.get("abstract") or "", 600)
             refs_lines.append(
                 f"{i}. [{ref.get('work_id')}]{category_label} {ref_title} ({ref_year})"
             )
@@ -487,7 +503,7 @@ Key question: Did the field fundamentally change how it operates AFTER this pape
             lm_cites = lm.get("cited_by_count") or 0
             lm_category = lm.get("category", "")
             category_label = f" [{lm_category}]" if lm_category else ""
-            lm_abstract = _truncate_text(lm.get("abstract") or "", 350)
+            lm_abstract = _truncate_text(lm.get("abstract") or "", 600)
             landmark_lines.append(
                 f"{i}. [{lm.get('work_id')}]{category_label} {lm_title} ({lm_year}, {lm_cites:,} citations)"
             )
@@ -508,6 +524,7 @@ Key question: Did the field fundamentally change how it operates AFTER this pape
 ## Target Paper
 Title: {title}{year_str}
 Abstract: {abstract_text}
+{full_text_block}
 {pioneering_context}
 ## Papers This Work Cites (References)
 {refs_section}
@@ -685,6 +702,7 @@ def generate_node_details_llm(
     landmarks: List[Dict[str, Any]],
     target_work_id: Optional[str] = None,
     cited_by_count: int = 0,
+    full_text_sections: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Call LLM to generate summary, keywords, and grounded novelty assessment."""
     api_key = os.environ.get("GROQ_API_KEY")
@@ -694,7 +712,8 @@ def generate_node_details_llm(
 
     client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
     prompt = _build_grounded_prompt(
-        title, abstract, year, referenced_works, landmarks, cited_by_count
+        title, abstract, year, referenced_works, landmarks, cited_by_count,
+        full_text_sections=full_text_sections,
     )
 
     for attempt in range(MAX_RETRIES):
@@ -1773,6 +1792,52 @@ def get_node_details(
         referenced_works = filtered_refs
         landmarks = filtered_landmarks
 
+        # Attempt to fetch full text for richer novelty assessment
+        full_text_sections = None
+        context_depth = "abstract_only"
+
+        try:
+            cached_ft = conn.execute(
+                text("SELECT methods_text, full_text_available FROM paper_full_text_cache WHERE work_id = :wid"),
+                {"wid": work_id},
+            ).mappings().first()
+
+            if cached_ft and cached_ft["full_text_available"] and cached_ft["methods_text"]:
+                full_text_sections = extract_paper_sections(cached_ft["methods_text"])
+                context_depth = "full_text"
+                logger.info(f"Using cached full text for {work_id}")
+            else:
+                # Try to download PDF
+                pdf_url = work_data.get("oa_pdf_url")
+                if not pdf_url and work_data.get("arxiv_id"):
+                    pdf_url = f"https://arxiv.org/pdf/{work_data['arxiv_id']}.pdf"
+
+                if pdf_url:
+                    logger.info(f"Attempting PDF download for novelty assessment: {pdf_url[:80]}")
+                    full_text = download_and_extract_pdf(pdf_url)
+                    if full_text:
+                        full_text_sections = extract_paper_sections(full_text)
+                        context_depth = "full_text"
+                        logger.info(f"Full text extracted for {work_id}: {sum(len(v) for v in full_text_sections.values())} chars")
+                        # Cache for future use
+                        try:
+                            conn.execute(
+                                text("""
+                                    INSERT INTO paper_full_text_cache (work_id, methods_text, full_text_available, fetched_at)
+                                    VALUES (:wid, :text, true, now())
+                                    ON CONFLICT (work_id) DO UPDATE SET
+                                        methods_text = EXCLUDED.methods_text,
+                                        full_text_available = true,
+                                        fetched_at = now()
+                                """),
+                                {"wid": work_id, "text": full_text[:50000]},
+                            )
+                            conn.commit()
+                        except Exception as e:
+                            logger.warning(f"Failed to cache full text for {work_id}: {e}")
+        except Exception as e:
+            logger.warning(f"Full text retrieval failed for {work_id}: {e}")
+
         # Generate via LLM with grounded context
         logger.info(f"Generating grounded node details via LLM for: {work_id}")
         llm_result = generate_node_details_llm(
@@ -1783,6 +1848,7 @@ def get_node_details(
             landmarks=landmarks,
             target_work_id=work_id,  # Prevent self-citation in grounding papers
             cited_by_count=work_data.get("cited_by_count", 0),
+            full_text_sections=full_text_sections,
         )
 
         # Log quality metrics
@@ -1865,6 +1931,7 @@ def get_node_details(
                     GroundingPaper(**gp)
                     for gp in llm_result["novelty_assessment"]["grounding_papers"]
                 ],
+                context_depth=context_depth,
             ),
             connected_works=connected_works,
             timeline=timeline_obj,
@@ -2038,6 +2105,52 @@ def get_novelty_for_work(
                 target_abstract=work_data.get("abstract"),
             )
 
+        # Attempt to fetch full text for richer novelty assessment
+        full_text_sections = None
+        context_depth = "abstract_only"
+
+        try:
+            cached_ft = conn.execute(
+                text("SELECT methods_text, full_text_available FROM paper_full_text_cache WHERE work_id = :wid"),
+                {"wid": work_id},
+            ).mappings().first()
+
+            if cached_ft and cached_ft["full_text_available"] and cached_ft["methods_text"]:
+                full_text_sections = extract_paper_sections(cached_ft["methods_text"])
+                context_depth = "full_text"
+                logger.info(f"Using cached full text for {work_id}")
+            else:
+                # Try to download PDF
+                pdf_url = work_data.get("oa_pdf_url")
+                if not pdf_url and work_data.get("arxiv_id"):
+                    pdf_url = f"https://arxiv.org/pdf/{work_data['arxiv_id']}.pdf"
+
+                if pdf_url:
+                    logger.info(f"Attempting PDF download for novelty assessment: {pdf_url[:80]}")
+                    full_text = download_and_extract_pdf(pdf_url)
+                    if full_text:
+                        full_text_sections = extract_paper_sections(full_text)
+                        context_depth = "full_text"
+                        logger.info(f"Full text extracted for {work_id}: {sum(len(v) for v in full_text_sections.values())} chars")
+                        # Cache for future use
+                        try:
+                            conn.execute(
+                                text("""
+                                    INSERT INTO paper_full_text_cache (work_id, methods_text, full_text_available, fetched_at)
+                                    VALUES (:wid, :text, true, now())
+                                    ON CONFLICT (work_id) DO UPDATE SET
+                                        methods_text = EXCLUDED.methods_text,
+                                        full_text_available = true,
+                                        fetched_at = now()
+                                """),
+                                {"wid": work_id, "text": full_text[:50000]},
+                            )
+                            conn.commit()
+                        except Exception as e:
+                            logger.warning(f"Failed to cache full text for {work_id}: {e}")
+        except Exception as e:
+            logger.warning(f"Full text retrieval failed for {work_id}: {e}")
+
         # LLM assessment
         llm_result = generate_node_details_llm(
             title=work_data["title"] or "Untitled",
@@ -2047,6 +2160,7 @@ def get_novelty_for_work(
             landmarks=filtered_landmarks,
             target_work_id=work_id,
             cited_by_count=cited_by_count,
+            full_text_sections=full_text_sections,
         )
 
         # Cache
@@ -2060,4 +2174,5 @@ def get_novelty_for_work(
         return {
             "novelty_assessment": llm_result["novelty_assessment"],
             "assessment_unavailable_reason": None,
+            "context_depth": context_depth,
         }
