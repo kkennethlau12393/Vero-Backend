@@ -219,6 +219,34 @@ def _validate_work_ids_in_map(
     return found
 
 
+def _validate_work_ids_in_rank_results(
+    conn: Connection, rank_job_id: str, work_ids: list[str]
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Verify all work_ids belong to a rank job's results. Returns metadata dict keyed by work_id.
+    Raises ValueError if any work_id is missing.
+    """
+    rows = conn.execute(
+        sa_text("""
+            SELECT rr.work_id, w.title, w.year, w.venue, w.cited_by_count,
+                   w.doi, w.arxiv_id, w.abstract, w.referenced_works_json
+            FROM rank_results rr
+            JOIN works w ON w.work_id = rr.work_id
+            WHERE rr.rank_job_id = :rank_job_id
+              AND rr.work_id = ANY(:ids)
+        """),
+        {"rank_job_id": rank_job_id, "ids": work_ids},
+    ).mappings().all()
+
+    found = {row["work_id"]: dict(row) for row in rows}
+    missing = set(work_ids) - set(found.keys())
+    if missing:
+        raise ValueError(
+            f"work_ids not found in rank job {rank_job_id}: {sorted(missing)}"
+        )
+    return found
+
+
 # ---------------------------------------------------------------------------
 # LLM Call 1: Methodology Extraction
 # ---------------------------------------------------------------------------
@@ -970,182 +998,209 @@ def _synthesize(
 # Public API
 # ---------------------------------------------------------------------------
 
+def _run_comparison_pipeline(
+    conn: Connection,
+    tenant_id: UUID,
+    work_ids: list[str],
+    papers_meta_map: Dict[str, Dict[str, Any]],
+    map_id: Optional[str] = None,
+) -> MethodologyComparisonResponse:
+    """
+    Shared comparison pipeline (post-validation).
+
+    Steps:
+    1. Check comparison cache
+    2. Stage 1A + 1B: Fetch content + build lineage (parallel)
+    3. Stage 2: Extract fingerprints (LLM call 1)
+    4. Stage 3: Synthesize comparison (LLM call 2)
+    5. Cache and return
+    """
+    papers_meta = [papers_meta_map[wid] for wid in work_ids]
+
+    # 1. Check comparison cache
+    cached = _get_cached_comparison(conn, work_ids)
+    if cached:
+        logger.info(f"Comparison cache hit for {work_ids}")
+        return MethodologyComparisonResponse(**cached)
+
+    # 2. Stage 1A + 1B (parallel)
+    contents: list[PaperContent] = []
+    lineage: Optional[CitationLineage] = None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        future_content = pool.submit(fetch_papers_content, conn, work_ids)
+        future_lineage = pool.submit(
+            build_citation_lineage, conn, work_ids, map_id
+        )
+        contents = future_content.result()
+        lineage = future_lineage.result()
+
+    # 3. Stage 2: Extract fingerprints
+    fingerprints = _extract_fingerprints(conn, papers_meta, contents)
+
+    # 4. Stage 3: Synthesize comparison
+    synthesis = _synthesize(papers_meta, fingerprints, contents, lineage)
+
+    # 5. Compute confidence
+    content_map = {c.work_id: c for c in contents}
+    full_text_count = sum(
+        1 for c in contents if c.source_quality == "full_text"
+    )
+    if full_text_count == len(work_ids):
+        confidence = "high"
+    elif full_text_count > 0:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    # 6. Assemble response
+    paper_profiles = []
+    for wid in work_ids:
+        meta = papers_meta_map[wid]
+        fp_data = fingerprints.get(wid, {})
+        sq = content_map[wid].source_quality if wid in content_map else "abstract_only"
+        paper_profiles.append(PaperMethodProfile(
+            work_id=wid,
+            title=meta.get("title", "Unknown"),
+            year=meta.get("year"),
+            source_quality=sq,
+            methodology_fingerprint=MethodologyFingerprint(**fp_data),
+        ))
+
+    # Build convergence_divergence from synthesis
+    conv_div_data = synthesis.get("convergence_divergence", {})
+    common_prob_data = conv_div_data.get("common_problem", {})
+    convergence_divergence = ConvergenceDivergence(
+        common_problem=CommonProblem(
+            domain=common_prob_data.get("domain", "Unknown"),
+            challenge=common_prob_data.get("challenge", "Unknown"),
+            why_hard=common_prob_data.get("why_hard", "Unknown"),
+        ),
+        paradigms=[
+            Paradigm(
+                name=p.get("name", "Unknown"),
+                papers=p.get("papers", []),
+                mechanism=p.get("mechanism", "Unknown"),
+                philosophy=p.get("philosophy", "Unknown"),
+            )
+            for p in conv_div_data.get("paradigms", [])
+            if isinstance(p, dict)
+        ],
+        divergence_summary=conv_div_data.get("divergence_summary", ""),
+    )
+
+    # Build strengths_weaknesses_matrix from synthesis
+    sw_matrix_data = synthesis.get("strengths_weaknesses_matrix", [])
+    strengths_weaknesses_matrix = []
+    for sw in sw_matrix_data:
+        if not isinstance(sw, dict):
+            continue
+        strengths_weaknesses_matrix.append(PaperStrengthsWeaknesses(
+            work_id=sw.get("work_id", ""),
+            title=sw.get("title", ""),
+            handles_well=[
+                Capability(
+                    capability=h.get("capability", ""),
+                    mechanism=h.get("mechanism", ""),
+                    evidence=h.get("evidence", ""),
+                )
+                for h in sw.get("handles_well", [])
+                if isinstance(h, dict)
+            ],
+            struggles_with=[
+                Limitation(
+                    limitation=s.get("limitation", ""),
+                    cause=s.get("cause", ""),
+                    consequence=s.get("consequence", ""),
+                )
+                for s in sw.get("struggles_with", [])
+                if isinstance(s, dict)
+            ],
+            assumptions=[
+                Assumption(
+                    assumption=a.get("assumption", ""),
+                    if_violated=a.get("if_violated", ""),
+                )
+                for a in sw.get("assumptions", [])
+                if isinstance(a, dict)
+            ],
+            complemented_by=[
+                Complement(
+                    other_work_id=c.get("other_work_id", ""),
+                    coverage=c.get("coverage", ""),
+                )
+                for c in sw.get("complemented_by", [])
+                if isinstance(c, dict)
+            ],
+        ))
+
+    # Build recommendation from synthesis
+    rec_data = synthesis.get("recommendation", {})
+    if isinstance(rec_data, str):
+        # Fallback if recommendation is a string (old format)
+        recommendation = Recommendation(
+            summary=rec_data,
+            decision_matrix=[],
+            can_combine=False,
+            combination_notes=None,
+        )
+    else:
+        recommendation = Recommendation(
+            summary=rec_data.get("summary", ""),
+            decision_matrix=[
+                DecisionScenario(
+                    scenario=d.get("scenario", ""),
+                    use=d.get("use", ""),
+                    why=d.get("why", ""),
+                )
+                for d in rec_data.get("decision_matrix", [])
+                if isinstance(d, dict)
+            ],
+            can_combine=rec_data.get("can_combine", False),
+            combination_notes=rec_data.get("combination_notes"),
+        )
+
+    response = MethodologyComparisonResponse(
+        work_ids=work_ids,
+        papers=paper_profiles,
+        lineage=lineage,
+        convergence_divergence=convergence_divergence,
+        strengths_weaknesses_matrix=strengths_weaknesses_matrix,
+        recommendation=recommendation,
+        confidence=confidence,
+    )
+
+    # 7. Cache
+    _cache_comparison(conn, tenant_id, work_ids, response.model_dump())
+
+    return response
+
+
 def compare_methodologies(
     engine: Engine,
     tenant_id: UUID,
     map_id: str,
     work_ids: list[str],
 ) -> MethodologyComparisonResponse:
-    """
-    Full methodology comparison pipeline.
-
-    Steps:
-    1. Validate work_ids belong to map
-    2. Check comparison cache
-    3. Stage 1A + 1B: Fetch content + build lineage (parallel)
-    4. Stage 2: Extract fingerprints (LLM call 1)
-    5. Stage 3: Synthesize comparison (LLM call 2)
-    6. Cache and return
-    """
+    """Compare methodologies of 2-4 papers from a citation map."""
     with engine.connect() as conn:
-        # 1. Validate
         papers_meta_map = _validate_work_ids_in_map(conn, map_id, work_ids)
-        papers_meta = [papers_meta_map[wid] for wid in work_ids]
-
-        # 2. Check comparison cache
-        cached = _get_cached_comparison(conn, work_ids)
-        if cached:
-            logger.info(f"Comparison cache hit for {work_ids}")
-            return MethodologyComparisonResponse(**cached)
-
-        # 3. Stage 1A + 1B (parallel)
-        contents: list[PaperContent] = []
-        lineage: Optional[CitationLineage] = None
-
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            future_content = pool.submit(fetch_papers_content, conn, work_ids)
-            future_lineage = pool.submit(
-                build_citation_lineage, conn, work_ids, map_id
-            )
-            contents = future_content.result()
-            lineage = future_lineage.result()
-
-        # 4. Stage 2: Extract fingerprints
-        fingerprints = _extract_fingerprints(conn, papers_meta, contents)
-
-        # 5. Stage 3: Synthesize comparison
-        synthesis = _synthesize(papers_meta, fingerprints, contents, lineage)
-
-        # 6. Compute confidence
-        content_map = {c.work_id: c for c in contents}
-        full_text_count = sum(
-            1 for c in contents if c.source_quality == "full_text"
-        )
-        if full_text_count == len(work_ids):
-            confidence = "high"
-        elif full_text_count > 0:
-            confidence = "medium"
-        else:
-            confidence = "low"
-
-        # 7. Assemble response
-        paper_profiles = []
-        for wid in work_ids:
-            meta = papers_meta_map[wid]
-            fp_data = fingerprints.get(wid, {})
-            sq = content_map[wid].source_quality if wid in content_map else "abstract_only"
-            paper_profiles.append(PaperMethodProfile(
-                work_id=wid,
-                title=meta.get("title", "Unknown"),
-                year=meta.get("year"),
-                source_quality=sq,
-                methodology_fingerprint=MethodologyFingerprint(**fp_data),
-            ))
-
-        # Build convergence_divergence from synthesis
-        conv_div_data = synthesis.get("convergence_divergence", {})
-        common_prob_data = conv_div_data.get("common_problem", {})
-        convergence_divergence = ConvergenceDivergence(
-            common_problem=CommonProblem(
-                domain=common_prob_data.get("domain", "Unknown"),
-                challenge=common_prob_data.get("challenge", "Unknown"),
-                why_hard=common_prob_data.get("why_hard", "Unknown"),
-            ),
-            paradigms=[
-                Paradigm(
-                    name=p.get("name", "Unknown"),
-                    papers=p.get("papers", []),
-                    mechanism=p.get("mechanism", "Unknown"),
-                    philosophy=p.get("philosophy", "Unknown"),
-                )
-                for p in conv_div_data.get("paradigms", [])
-                if isinstance(p, dict)
-            ],
-            divergence_summary=conv_div_data.get("divergence_summary", ""),
+        return _run_comparison_pipeline(
+            conn, tenant_id, work_ids, papers_meta_map, map_id=map_id
         )
 
-        # Build strengths_weaknesses_matrix from synthesis
-        sw_matrix_data = synthesis.get("strengths_weaknesses_matrix", [])
-        strengths_weaknesses_matrix = []
-        for sw in sw_matrix_data:
-            if not isinstance(sw, dict):
-                continue
-            strengths_weaknesses_matrix.append(PaperStrengthsWeaknesses(
-                work_id=sw.get("work_id", ""),
-                title=sw.get("title", ""),
-                handles_well=[
-                    Capability(
-                        capability=h.get("capability", ""),
-                        mechanism=h.get("mechanism", ""),
-                        evidence=h.get("evidence", ""),
-                    )
-                    for h in sw.get("handles_well", [])
-                    if isinstance(h, dict)
-                ],
-                struggles_with=[
-                    Limitation(
-                        limitation=s.get("limitation", ""),
-                        cause=s.get("cause", ""),
-                        consequence=s.get("consequence", ""),
-                    )
-                    for s in sw.get("struggles_with", [])
-                    if isinstance(s, dict)
-                ],
-                assumptions=[
-                    Assumption(
-                        assumption=a.get("assumption", ""),
-                        if_violated=a.get("if_violated", ""),
-                    )
-                    for a in sw.get("assumptions", [])
-                    if isinstance(a, dict)
-                ],
-                complemented_by=[
-                    Complement(
-                        other_work_id=c.get("other_work_id", ""),
-                        coverage=c.get("coverage", ""),
-                    )
-                    for c in sw.get("complemented_by", [])
-                    if isinstance(c, dict)
-                ],
-            ))
 
-        # Build recommendation from synthesis
-        rec_data = synthesis.get("recommendation", {})
-        if isinstance(rec_data, str):
-            # Fallback if recommendation is a string (old format)
-            recommendation = Recommendation(
-                summary=rec_data,
-                decision_matrix=[],
-                can_combine=False,
-                combination_notes=None,
-            )
-        else:
-            recommendation = Recommendation(
-                summary=rec_data.get("summary", ""),
-                decision_matrix=[
-                    DecisionScenario(
-                        scenario=d.get("scenario", ""),
-                        use=d.get("use", ""),
-                        why=d.get("why", ""),
-                    )
-                    for d in rec_data.get("decision_matrix", [])
-                    if isinstance(d, dict)
-                ],
-                can_combine=rec_data.get("can_combine", False),
-                combination_notes=rec_data.get("combination_notes"),
-            )
-
-        response = MethodologyComparisonResponse(
-            work_ids=work_ids,
-            papers=paper_profiles,
-            lineage=lineage,
-            convergence_divergence=convergence_divergence,
-            strengths_weaknesses_matrix=strengths_weaknesses_matrix,
-            recommendation=recommendation,
-            confidence=confidence,
+def compare_methodologies_for_rank_job(
+    engine: Engine,
+    tenant_id: UUID,
+    rank_job_id: str,
+    work_ids: list[str],
+) -> MethodologyComparisonResponse:
+    """Compare methodologies of 2-4 papers from a rank job's results."""
+    with engine.connect() as conn:
+        papers_meta_map = _validate_work_ids_in_rank_results(
+            conn, rank_job_id, work_ids
         )
-
-        # 8. Cache
-        _cache_comparison(conn, tenant_id, work_ids, response.model_dump())
-
-        return response
+        return _run_comparison_pipeline(
+            conn, tenant_id, work_ids, papers_meta_map, map_id=None
+        )
