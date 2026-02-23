@@ -553,6 +553,27 @@ CREATE TABLE IF NOT EXISTS public.novelty_assessments (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- ---------------------------------------------------------------------
+-- Saved papers (workspace-level paper library)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.saved_papers (
+    workspace_id uuid NOT NULL,
+    paper_work_id text NOT NULL,
+    user_id uuid NOT NULL,
+    source text NOT NULL DEFAULT 'manual',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (workspace_id, paper_work_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_saved_papers_workspace
+    ON public.saved_papers (workspace_id);
+CREATE INDEX IF NOT EXISTS idx_saved_papers_user
+    ON public.saved_papers (user_id);
+
+-- Migration: add source column for existing tables
+ALTER TABLE public.saved_papers
+    ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'manual';
+
 -- ==========================================================================
 -- Feature 4: Methodology Comparison
 -- ==========================================================================

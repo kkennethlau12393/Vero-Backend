@@ -51,6 +51,59 @@ from app.feature3.schemas import NoveltyAssessment
 router = APIRouter(prefix="/v1/rank", tags=["rank"])
 
 
+def _save_grounding_papers_to_workspace(
+    conn, workspace_id: UUID, grounding_papers: list
+) -> None:
+    """Auto-save grounding papers to the workspace's saved_papers table."""
+    from sqlalchemy import text as sql_text
+
+    # Look up workspace owner
+    owner_row = conn.execute(
+        sql_text("SELECT owner_user_id FROM workspaces WHERE workspace_id = :wid"),
+        {"wid": workspace_id},
+    ).first()
+    if not owner_row:
+        return
+
+    user_id = owner_row[0]
+
+    for gp in grounding_papers:
+        wid = gp.get("work_id", "")
+        if not wid.startswith("W"):
+            continue  # Skip non-OpenAlex IDs
+
+        # Ensure work exists in works table
+        conn.execute(
+            sql_text("""
+                INSERT INTO works (work_id, title, year, cited_by_count)
+                VALUES (:work_id, :title, :year, :cited_by_count)
+                ON CONFLICT (work_id) DO NOTHING
+            """),
+            {
+                "work_id": wid,
+                "title": gp.get("title"),
+                "year": gp.get("year"),
+                "cited_by_count": gp.get("cited_by_count", 0),
+            },
+        )
+
+        # Link to workspace
+        conn.execute(
+            sql_text("""
+                INSERT INTO saved_papers (workspace_id, paper_work_id, user_id, source)
+                VALUES (:workspace_id, :paper_work_id, :user_id, 'novelty_grounding')
+                ON CONFLICT (workspace_id, paper_work_id, user_id) DO NOTHING
+            """),
+            {
+                "workspace_id": workspace_id,
+                "paper_work_id": wid,
+                "user_id": user_id,
+            },
+        )
+
+    conn.commit()
+
+
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
     """Lazily construct the database engine once per process."""
@@ -625,6 +678,18 @@ def rank_novelty_endpoint(
         from app.feature3.node_details_service import get_novelty_for_work
 
         result = get_novelty_for_work(engine, work_id=work_id, force_regenerate=force_regenerate)
+
+        # Auto-save grounding papers to workspace
+        if result["novelty_assessment"] is not None:
+            grounding = result["novelty_assessment"].get("grounding_papers", [])
+            if grounding:
+                try:
+                    with engine.connect() as save_conn:
+                        _save_grounding_papers_to_workspace(
+                            save_conn, tenant_id, grounding
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to auto-save grounding papers: {e}")
 
         if result["novelty_assessment"] is None:
             raise HTTPException(
