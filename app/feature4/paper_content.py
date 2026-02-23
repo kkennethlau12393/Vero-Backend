@@ -23,6 +23,8 @@ import requests
 from sqlalchemy import text as sa_text
 from sqlalchemy.engine import Connection
 
+from app.shared.pdf_utils import download_and_extract_pdf as _download_and_extract_pdf
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -380,74 +382,6 @@ def _fetch_from_s2(
 
     # Fall back to title search
     return _fetch_from_s2_by_title(title, year=year)
-
-
-# ---------------------------------------------------------------------------
-# PDF download & text extraction
-# ---------------------------------------------------------------------------
-
-PDF_TIMEOUT = 30
-MAX_PDF_BYTES = 20 * 1024 * 1024  # 20 MB cap
-
-
-def _download_and_extract_pdf(pdf_url: str) -> Optional[str]:
-    """
-    Download a PDF from a URL and extract full text using PyMuPDF.
-
-    Returns the extracted text or None on failure.
-    """
-    if not pdf_url:
-        return None
-
-    try:
-        import pymupdf
-    except ImportError:
-        logger.warning("pymupdf not installed — cannot extract PDF text")
-        return None
-
-    try:
-        resp = requests.get(
-            pdf_url,
-            timeout=PDF_TIMEOUT,
-            stream=True,
-            headers={"User-Agent": "Alexandria-Research-Tool/1.0"},
-        )
-        if resp.status_code != 200:
-            logger.warning(f"PDF download failed ({resp.status_code}): {pdf_url[:80]}")
-            return None
-
-        # Read with size cap
-        content = resp.content
-        if len(content) > MAX_PDF_BYTES:
-            logger.warning(f"PDF too large ({len(content)} bytes): {pdf_url[:80]}")
-            return None
-
-        if len(content) < 1000:
-            logger.warning(f"PDF too small ({len(content)} bytes): {pdf_url[:80]}")
-            return None
-
-        # Extract text with PyMuPDF
-        doc = pymupdf.open(stream=content, filetype="pdf")
-        pages_text = []
-        for page in doc:
-            pages_text.append(page.get_text())
-        doc.close()
-
-        full_text = "\n".join(pages_text)
-        # Strip NUL bytes (PostgreSQL TEXT columns cannot contain them)
-        full_text = full_text.replace("\x00", "")
-        if len(full_text) < 200:
-            logger.warning(f"PDF text extraction yielded very little text: {pdf_url[:80]}")
-            return None
-
-        logger.info(
-            f"PDF extracted: {len(full_text)} chars from {len(pages_text)} pages"
-        )
-        return full_text
-
-    except Exception as e:
-        logger.warning(f"PDF download/extraction failed: {e}")
-        return None
 
 
 # ---------------------------------------------------------------------------
