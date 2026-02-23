@@ -1349,3 +1349,128 @@ class TestMethodologyDetection:
     def test_graph_network_prioritized_over_neural(self):
         """'graph neural network' should match graph_network, not neural_network."""
         assert get_methodology("Graph neural network for node classification") == "graph_network"
+
+
+# ── Grounding Paper Auto-Save ─────────────────────────────────────────────
+
+
+@pytest.mark.integration
+class TestGroundingPaperAutoSave:
+    """Tests for auto-saving grounding papers to workspace saved_papers table."""
+
+    def test_grounding_papers_saved_to_workspace(self, db_engine):
+        """Grounding papers are saved to saved_papers with correct workspace/user."""
+        from uuid import uuid4
+        from app.feature2.rank_api import _save_grounding_papers_to_workspace
+
+        workspace_id = uuid4()
+        user_id = uuid4()
+        gp_work_id_1 = _unique_work_id("Wgp1")
+        gp_work_id_2 = _unique_work_id("Wgp2")
+
+        with db_engine.connect() as conn:
+            # Setup: create auth user, workspace, and grounding paper works
+            conn.execute(
+                text("INSERT INTO auth.users (id) VALUES (:uid) ON CONFLICT DO NOTHING"),
+                {"uid": user_id},
+            )
+            conn.execute(
+                text("""
+                    INSERT INTO workspaces (workspace_id, owner_user_id, workspace_name)
+                    VALUES (:wid, :uid, 'Test Workspace')
+                    ON CONFLICT DO NOTHING
+                """),
+                {"wid": workspace_id, "uid": user_id},
+            )
+            conn.commit()
+
+            # Grounding papers to save
+            grounding_papers = [
+                {"work_id": gp_work_id_1, "title": "Grounding Paper 1", "year": 2018, "cited_by_count": 500},
+                {"work_id": gp_work_id_2, "title": "Grounding Paper 2", "year": 2015, "cited_by_count": 1200},
+                {"work_id": "AX:2001.00001", "title": "ArXiv Paper", "year": 2020, "cited_by_count": 50},  # Should be skipped
+            ]
+
+            _save_grounding_papers_to_workspace(conn, workspace_id, grounding_papers)
+
+            # Verify works were inserted
+            works = conn.execute(
+                text("SELECT work_id FROM works WHERE work_id = ANY(:ids)"),
+                {"ids": [gp_work_id_1, gp_work_id_2]},
+            ).scalars().all()
+            assert set(works) == {gp_work_id_1, gp_work_id_2}
+
+            # Verify saved_papers rows
+            saved = conn.execute(
+                text("""
+                    SELECT paper_work_id, user_id, source
+                    FROM saved_papers
+                    WHERE workspace_id = :wid
+                    ORDER BY paper_work_id
+                """),
+                {"wid": workspace_id},
+            ).mappings().all()
+            assert len(saved) == 2
+            saved_ids = {r["paper_work_id"] for r in saved}
+            assert saved_ids == {gp_work_id_1, gp_work_id_2}
+            assert all(r["source"] == "novelty_grounding" for r in saved)
+            assert all(r["user_id"] == user_id for r in saved)
+
+            # Verify non-W papers were skipped
+            arxiv_saved = conn.execute(
+                text("SELECT 1 FROM saved_papers WHERE paper_work_id = 'AX:2001.00001'"),
+            ).first()
+            assert arxiv_saved is None
+
+            # Cleanup
+            conn.execute(text("DELETE FROM saved_papers WHERE workspace_id = :wid"), {"wid": workspace_id})
+            conn.execute(text("DELETE FROM works WHERE work_id = ANY(:ids)"), {"ids": [gp_work_id_1, gp_work_id_2]})
+            conn.execute(text("DELETE FROM workspaces WHERE workspace_id = :wid"), {"wid": workspace_id})
+            conn.execute(text("DELETE FROM auth.users WHERE id = :uid"), {"uid": user_id})
+            conn.commit()
+
+    def test_idempotent_save(self, db_engine):
+        """Saving the same grounding papers twice doesn't create duplicates."""
+        from uuid import uuid4
+        from app.feature2.rank_api import _save_grounding_papers_to_workspace
+
+        workspace_id = uuid4()
+        user_id = uuid4()
+        gp_work_id = _unique_work_id("Wgp_idem")
+
+        with db_engine.connect() as conn:
+            conn.execute(
+                text("INSERT INTO auth.users (id) VALUES (:uid) ON CONFLICT DO NOTHING"),
+                {"uid": user_id},
+            )
+            conn.execute(
+                text("""
+                    INSERT INTO workspaces (workspace_id, owner_user_id, workspace_name)
+                    VALUES (:wid, :uid, 'Test Workspace')
+                    ON CONFLICT DO NOTHING
+                """),
+                {"wid": workspace_id, "uid": user_id},
+            )
+            conn.commit()
+
+            grounding_papers = [
+                {"work_id": gp_work_id, "title": "Idempotent Paper", "year": 2019, "cited_by_count": 300},
+            ]
+
+            # Save twice
+            _save_grounding_papers_to_workspace(conn, workspace_id, grounding_papers)
+            _save_grounding_papers_to_workspace(conn, workspace_id, grounding_papers)
+
+            # Should still be exactly 1 row
+            count = conn.execute(
+                text("SELECT count(*) FROM saved_papers WHERE workspace_id = :wid"),
+                {"wid": workspace_id},
+            ).scalar()
+            assert count == 1
+
+            # Cleanup
+            conn.execute(text("DELETE FROM saved_papers WHERE workspace_id = :wid"), {"wid": workspace_id})
+            conn.execute(text("DELETE FROM works WHERE work_id = :wid"), {"wid": gp_work_id})
+            conn.execute(text("DELETE FROM workspaces WHERE workspace_id = :wid"), {"wid": workspace_id})
+            conn.execute(text("DELETE FROM auth.users WHERE id = :uid"), {"uid": user_id})
+            conn.commit()
