@@ -1418,6 +1418,41 @@ def get_node_details(
         # Load connected works (from map edges)
         connected_works = load_connected_works(conn, map_id, work_id)
 
+        # Abstract is REQUIRED for novelty assessment — LLM produces garbage without it
+        if include_novelty and not work_data.get("abstract"):
+            logger.warning(f"No abstract available for {work_id} - novelty assessment unavailable")
+            basic_summary = _generate_summary_from_abstract(None, work_data["title"])
+            basic_keywords = _extract_keywords_from_abstract(None)
+            unavailable_reason = (
+                "No abstract available for this paper. Novelty assessment requires "
+                "at least an abstract to provide accurate analysis."
+            )
+            cache_details(
+                conn, work_id, basic_summary, basic_keywords, None,
+                assessment_unavailable_reason=unavailable_reason,
+            )
+            return NodeDetailsResponse(
+                work_id=work_data["work_id"],
+                title=work_data["title"],
+                year=work_data["year"],
+                authors=work_data["authors"],
+                venue=work_data["venue"],
+                cited_by_count=work_data["cited_by_count"],
+                abstract=None,
+                summary=basic_summary,
+                keywords=basic_keywords,
+                novelty_assessment=None,
+                connected_works=connected_works,
+                assessment_unavailable_reason=unavailable_reason,
+                timeline=None,
+                primary_topic_id=work_data.get("primary_topic_id"),
+                topic_display_name=topic_display_name,
+                access_status=access_info["access_status"],
+                pdf_url=access_info["pdf_url"],
+                doi_url=access_info["doi_url"],
+                oa_status=work_data.get("oa_status"),
+            )
+
         # Lightweight metadata-only response (no LLM call)
         if not include_novelty:
             basic_summary = _generate_summary_from_abstract(
