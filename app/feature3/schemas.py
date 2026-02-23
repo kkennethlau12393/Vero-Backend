@@ -33,6 +33,7 @@ class NoveltyAssessment(BaseModel):
     confidence: Literal["low", "medium", "high"]
     novelty_explanation: str  # For pioneering: explains WHY it's pioneering
     grounding_papers: list[GroundingPaper] = []  # Papers that support the assessment
+    context_depth: Literal["abstract_only", "full_text"] = "abstract_only"
 
 
 class ConnectedWork(BaseModel):
