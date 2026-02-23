@@ -578,6 +578,7 @@ def get_temporal_map_endpoint(
 def rank_novelty_endpoint(
     rank_job_id: UUID,
     work_id: str,
+    force_regenerate: bool = False,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
 ):
@@ -623,7 +624,7 @@ def rank_novelty_endpoint(
         # Delegate to Feature 3 novelty pipeline
         from app.feature3.node_details_service import get_novelty_for_work
 
-        result = get_novelty_for_work(engine, work_id=work_id)
+        result = get_novelty_for_work(engine, work_id=work_id, force_regenerate=force_regenerate)
 
         if result["novelty_assessment"] is None:
             raise HTTPException(

@@ -40,6 +40,7 @@ def get_node_details_endpoint(
     work_id: str,
     include_novelty: bool = False,
     include_timeline: bool = False,
+    force_regenerate: bool = False,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
 ):
@@ -54,6 +55,8 @@ def get_node_details_endpoint(
             (summary, keywords, grounding papers). Triggered by user action.
         include_timeline: If True, includes a temporal timeline showing
             references, landmarks, and citing papers grouped by era.
+        force_regenerate: If True, clears persisted assessment and regenerates
+            via LLM. Use when the assessment version or prompts have changed.
     """
     try:
         return get_node_details(
@@ -63,6 +66,7 @@ def get_node_details_endpoint(
             work_id=work_id,
             include_novelty=include_novelty,
             include_timeline=include_timeline,
+            force_regenerate=force_regenerate,
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
