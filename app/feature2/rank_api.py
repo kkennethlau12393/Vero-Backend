@@ -46,6 +46,7 @@ from app.feature2.subtopic_service import generate_subtopics
 from app.feature2.temporal_map_service import build_temporal_map
 from app.feature2.title_to_query import extract_display_title, generate_topic_query_from_title
 from app.feature3.schemas import NoveltyAssessment
+from app.feature4.schemas import MethodologyCompareRequest, MethodologyComparisonResponse
 
 
 router = APIRouter(prefix="/v1/rank", tags=["rank"])
@@ -651,4 +652,58 @@ def rank_novelty_endpoint(
         raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
         logger.exception("Unexpected error in rank_novelty endpoint")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/{rank_job_id}/compare-methodologies",
+    response_model=MethodologyComparisonResponse,
+)
+def rank_compare_methodologies_endpoint(
+    rank_job_id: UUID,
+    req: MethodologyCompareRequest,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    """
+    Compare methodologies of 2-4 papers from a rank job's results.
+
+    Validates that the rank job exists and belongs to the tenant, then
+    delegates to the Feature 4 methodology comparison pipeline.
+    """
+    try:
+        from sqlalchemy import text as sql_text
+        from app.feature4.compare_service import compare_methodologies_for_rank_job
+
+        with engine.connect() as conn:
+            # Verify rank job exists and belongs to tenant
+            job_row = conn.execute(
+                sql_text("""
+                    SELECT rank_job_id FROM rank_jobs
+                    WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
+                """),
+                {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
+            ).first()
+
+            if not job_row:
+                raise HTTPException(status_code=404, detail="rank_job_not_found")
+
+        return compare_methodologies_for_rank_job(
+            engine=engine,
+            tenant_id=tenant_id,
+            rank_job_id=str(rank_job_id),
+            work_ids=req.work_ids,
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        msg = str(e)
+        if "not found in rank job" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        logger.exception("Unexpected error in rank_compare_methodologies endpoint")
         raise HTTPException(status_code=500, detail=str(e))
