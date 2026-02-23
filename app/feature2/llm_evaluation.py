@@ -1,11 +1,11 @@
 """
-LLM-generated evaluation paragraphs for ranked papers.
+LLM-generated query-relevance explanations for ranked papers.
 
-Each paper in the ranked results gets a 3-5 sentence evaluative paragraph
-explaining WHY it matters for the user's query — not a generic summary,
-but a query-contextual assessment of significance, contribution, and role.
+Each paper in the ranked results gets a 1-2 sentence explanation of
+WHY it appeared in results for this specific query — the topical
+connection, not a novelty assessment or impact statement.
 
-Uses Groq/Llama 4 Maverick with batched calls and DB caching.
+Uses Groq/Llama 3.3 70B with batched calls and DB caching.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
-EVAL_MODEL_VERSION = "eval-v3"
+EVAL_MODEL_VERSION = "eval-v5"
 EVAL_BATCH_SIZE = 8
 MAX_PARALLEL_BATCHES = 4
 MAX_RETRIES = 3
@@ -138,38 +138,41 @@ def _generate_evaluation_batch(
     papers_json = json.dumps(papers_for_prompt, indent=2)
 
     system_message = (
-        "You are an expert academic reviewer, not a summarizer. "
-        "When evaluating a paper's significance, you write like a senior researcher "
-        "explaining to a colleague why this paper matters for their specific research question. "
-        "You are direct, opinionated, and specific. You never write generic descriptions."
+        "You are a search result annotator. For each paper, write exactly what "
+        "topics it covers that match the user's query. Describe WHAT the paper "
+        "is about, not what it achieved or why it matters. Use present tense only: "
+        "'covers', 'addresses', 'focuses on', 'presents', 'proposes'. "
+        "Never use past tense like 'proved', 'established', 'enabled', 'advanced'."
     )
 
-    prompt = f"""For each paper below, write an evaluative paragraph (3-5 sentences) explaining its significance FOR THIS SPECIFIC QUERY. Return ONLY a JSON object mapping paper ID to evaluation string.
+    prompt = f"""For each paper below, write 1 sentence stating what it covers that matches the query. Return ONLY a JSON object mapping paper ID to explanation string.
 
 QUERY: {query_text}
 
-YOUR TASK: Evaluate — do NOT summarize.
-- WHY does this paper matter for someone researching this exact query?
-- What specific contribution did it make that the reader needs to know about?
-- What did it enable or change in the field? What would be missing without it?
-- If the paper is only tangentially related, say so directly — explain the connection honestly.
+RULES (strict):
+1. Describe WHAT the paper covers — its topic, method, or subject matter.
+2. State which query term(s) it matches.
+3. Use ONLY present tense: "covers", "addresses", "focuses on", "presents", "proposes", "applies", "uses", "models", "studies".
+4. If the connection is indirect, say "indirectly related" or "partially relevant".
+5. Maximum 1 sentence. No compound sentences joined by "and" or "which".
 
-BAD (summary-style, generic — DO NOT write like this):
-- "This foundational paper introduced the Transformer architecture, revolutionizing the field of deep learning by demonstrating that attention mechanisms alone can achieve state-of-the-art results."
-- "This work proposed a novel approach that has been influential in the field."
-- "This paper presents an important contribution to the area of neural networks."
-Why bad: Just restates what the paper did. Says "revolutionizing" and "influential" without substance. Could describe any paper.
+BANNED (any of these = failure):
+- Past tense verbs: "proved", "showed", "established", "enabled", "advanced", "paved", "pioneered", "introduced", "demonstrated", "achieved", "revolutionized", "changed", "contributed", "shifted"
+- Impact words: "groundbreaking", "seminal", "influential", "pivotal", "crucial", "profound", "significant", "important", "key contribution", "paradigm shift"
+- Phrases: "paving the way", "building upon", "subsequent work", "widely adopted", "state-of-the-art results"
 
-GOOD (evaluative, query-specific, opinionated — write like this):
-- "This is the work that proved attention alone — without recurrence or convolution — is sufficient for sequence modeling. Every transformer variant in this query's scope descends from this architectural decision. The multi-head attention mechanism it introduced remains the core building block that subsequent work either refines or extends."
-- "This paper's contribution to the query is indirect but important: it established that features learned by deep networks transfer across tasks, which is the theoretical basis for the pre-trained transformer paradigm. Without this insight, the fine-tuning approach that defines modern NLP would lack empirical justification."
-Why good: States a clear judgment. Names the specific technical contribution. Connects it to the query. Has an opinion about the paper's role.
+GOOD examples:
+- "Covers self-attention for sequence modeling, addressing the 'attention mechanisms' query term."
+- "Focuses on pre-trained language representations via masked token prediction, matching the 'transformers NLP' query terms."
+- "Studies Li-ion cell aging processes, addressing the 'degradation mechanisms' query term."
+- "Proposes a graph convolution method for node-level classification, matching the 'graph neural networks' query term."
+- "Partially relevant — covers batch training optimization, not transformer architectures directly."
 
 PAPERS:
 {papers_json}
 
-OUTPUT (JSON only — paper_id maps to evaluation string):
-{{"paper_id": "evaluation paragraph", ...}}"""
+OUTPUT (JSON only — paper_id maps to 1 sentence):
+{{"paper_id": "...", ...}}"""
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -179,8 +182,8 @@ OUTPUT (JSON only — paper_id maps to evaluation string):
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.5,
-                max_tokens=4096,
+                temperature=0.3,
+                max_tokens=2048,
             )
 
             content = response.choices[0].message.content.strip()
