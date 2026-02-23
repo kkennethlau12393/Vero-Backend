@@ -1192,7 +1192,10 @@ def _search_arxiv(query: str, k: int = ARXIV_LIMIT) -> List[Tuple[str, Dict[str,
 
     from urllib.parse import quote
     base_url = "https://export.arxiv.org/api/query"
-    words = query.split()[:5]
+    sanitized = _sanitize_arxiv_query(query)
+    words = [w for w in sanitized.split() if len(w) > 1][:5]
+    if not words:
+        return []
     search_terms = [f"all:{quote(word)}" for word in words]
     search_query = "+AND+".join(search_terms)
     url = f"{base_url}?search_query={search_query}&max_results={k}&sortBy=relevance"
@@ -1203,6 +1206,17 @@ def _search_arxiv(query: str, k: int = ARXIV_LIMIT) -> List[Tuple[str, Dict[str,
     except Exception as e:
         logger.warning(f"ArXiv search failed: {e}")
         return []
+
+
+def _sanitize_arxiv_query(q: str) -> str:
+    """Strip characters that break ArXiv's Lucene query parser.
+
+    Brackets, parentheses, colons, and other Lucene special chars
+    cause 400 errors when they appear in expanded queries from the LLM
+    (e.g. "La[O1-xFx]FeAs" or "high-Tc superconductors (cuprates)").
+    """
+    import re
+    return re.sub(r'[\[\]\(\)\{\}:!^~\\"/+]', ' ', q).strip()
 
 
 _ARXIV_STOPWORDS = frozenset({
@@ -1241,7 +1255,7 @@ def _search_arxiv_combined(
     # Build OR-combined query: (ti:"query one") OR (ti:"query two") OR ...
     or_parts = []
     for q in queries:
-        q = q.strip()
+        q = _sanitize_arxiv_query(q)
         if not q:
             continue
         if field == "ti":
