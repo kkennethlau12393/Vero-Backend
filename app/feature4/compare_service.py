@@ -59,6 +59,8 @@ logger = logging.getLogger(__name__)
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
+COMPARISON_VERSION = "v4-source-text-6"  # title-based review detection
+EXTRACTION_VERSION = "v2-rich-reviews-2"  # + title-based review detection
 MAX_RETRIES = 4
 RETRY_BACKOFF_BASE = 0.5
 
@@ -85,8 +87,8 @@ def _ensure_str(val: Any) -> str:
 
 
 def _comparison_hash(work_ids: list[str]) -> str:
-    """Deterministic hash for a set of work_ids."""
-    key = "|".join(sorted(work_ids))
+    """Deterministic hash for a set of work_ids, versioned to invalidate on prompt changes."""
+    key = f"{COMPARISON_VERSION}|" + "|".join(sorted(work_ids))
     return hashlib.sha256(key.encode()).hexdigest()
 
 
@@ -144,9 +146,9 @@ def _get_cached_fingerprint(
         sa_text("""
             SELECT fingerprint_json, source_quality
             FROM methodology_fingerprint_cache
-            WHERE work_id = :wid
+            WHERE work_id = :wid AND model_version = :mv
         """),
-        {"wid": work_id},
+        {"wid": work_id, "mv": f"{MODEL_VERSION}:{EXTRACTION_VERSION}"},
     ).mappings().first()
     if row:
         fp = row["fingerprint_json"]
@@ -179,7 +181,7 @@ def _cache_fingerprint(
                 "wid": work_id,
                 "fp": json.dumps(fingerprint),
                 "sq": source_quality,
-                "mv": MODEL_VERSION,
+                "mv": f"{MODEL_VERSION}:{EXTRACTION_VERSION}",
             },
         )
         conn.commit()
@@ -285,67 +287,111 @@ def _build_extraction_prompt(
         )
 
     return (
-        "Analyze the following paper(s) and extract detailed methodology profiles.\n\n"
+        "Analyze the following paper(s) and extract MAXIMALLY DETAILED methodology profiles.\n"
+        "These profiles will be the ONLY information used in a later comparison stage, so every "
+        "technical detail matters. If a detail is in the paper, it MUST be in the profile.\n\n"
         "=== RULES ===\n"
-        "1. 'approach': ALWAYS write 4-6 sentences covering: (1) the core architecture, "
-        "(2) the loss/objective formulation with named terms, (3) training procedure with "
-        "optimizer and hyperparameters. For abstract_only sources, supplement with your "
-        "domain knowledge — write the SAME level of detail as for full_text.\n"
-        "2. 'key_components': list NAMED techniques only (e.g., 'bottleneck block (1×1→3×3→1×1)'), "
-        "not generic terms like 'deep neural networks' or 'residual connections'.\n"
-        "3. 'assumptions': list 2-4 SPECIFIC technical assumptions the method makes. "
-        "Examples: 'Input images are spatially aligned', 'Features at different depths have "
-        "complementary information', 'Objects can be localized with rectangular bounding boxes', "
-        "'Channel relationships capture semantic importance'. NOT generic like 'data is IID'.\n"
-        "4. 'limitations': each MUST use the format '[design choice] → [consequence]'.\n"
-        "5. All claims must be definitive. Do not use 'may', 'might', 'could', 'potentially', "
-        "'careful tuning', or any qualifying language.\n\n"
+        "1. 'approach': Write 5-8 sentences. Cover ALL of:\n"
+        "   (a) The core architecture/framework with EXACT structure (layer counts, dimensions, "
+        "block types)\n"
+        "   (b) The loss/objective formulation with NAMED terms and weights "
+        "(e.g., 'L = L_cGAN + λ·L1 where λ=100')\n"
+        "   (c) Training procedure: optimizer, learning rate, batch size, epochs, schedule\n"
+        "   (d) Input/output format: what goes in, what comes out, any preprocessing\n"
+        "   For abstract_only sources, supplement with your domain knowledge — write the SAME "
+        "level of detail as for full_text. You know these papers.\n"
+        "2. 'key_components': List 3-5 NAMED techniques with parenthetical specifics. Each MUST "
+        "include dimensions, hyperparameters, or structural details in parentheses.\n"
+        "   BANNED: 'self-attention mechanism', 'residual connections', 'deep neural networks'\n"
+        "   REQUIRED: 'multi-head self-attention (8 heads, d_k=64, d_model=512)', "
+        "'bottleneck residual block (1×1→3×3→1×1 with channel expansion ratio 4)', "
+        "'global average pooling followed by FC squeeze-excitation (reduction ratio r=16)'\n"
+        "3. 'assumptions': List 2-4 SPECIFIC technical assumptions. Each must name what the "
+        "method requires to work correctly.\n"
+        "   BANNED: 'data is IID', 'model is accurate'\n"
+        "   REQUIRED: 'Input images are spatially aligned at pixel level', "
+        "'Channel interdependencies are more informative than spatial relationships at each depth'\n"
+        "4. 'limitations': Each MUST use format '[SPECIFIC design choice] → [SPECIFIC consequence "
+        "with quantities or concrete impact]'.\n"
+        "   SHALLOW (BANNED): 'Cascaded architecture → increased computational requirements'\n"
+        "   DEEP (REQUIRED): '3-stage cascade (64→256→1024px) → requires 3 sequential U-Net forward "
+        "passes totaling ~1.5B parameters, making inference ~3× slower than single-stage models'\n"
+        "5. 'validation_method': Name the EXACT metrics (top-1/top-5 accuracy, mAP@0.5, FID, etc.), "
+        "datasets (ImageNet, CIFAR-10/100, COCO, etc.), and baselines compared against. "
+        "Do NOT write 'Unknown' if you know the paper.\n"
+        "6. 'data_requirements': Be specific about format, scale, and labeling. "
+        "Do NOT write 'Unknown' if the paper specifies its data.\n"
+        "7. 'novelty_over_prior': Name the SPECIFIC prior method and state the EXACT change. "
+        "'Builds on VGGNet by replacing stacked 3×3 convolutions with identity shortcut connections "
+        "that enable gradient flow through 150+ layers'\n"
+        "8. All claims must be definitive. No 'may', 'might', 'could', 'potentially'.\n"
+        "9. REVIEW/SURVEY PAPERS: If a paper is a review, survey, or overview (not proposing a novel method), "
+        "STILL produce a full profile. Adapt the fields:\n"
+        "   - 'approach': Describe the review's analytical framework, scope, and organization "
+        "(e.g., 'Surveys 5 battery chemistries — lead-acid, Li-ion, NiMH, NaS, and vanadium redox flow — "
+        "comparing energy density (Wh/kg), cycle life, and cost per kWh. Organizes analysis by "
+        "grid application: frequency regulation, peak shaving, and renewable integration.')\n"
+        "   - 'key_components': Name the specific topics, methods, or technologies reviewed "
+        "(e.g., 'Li-ion cathode chemistries (LFP, NMC, NCA)', 'SEI layer growth mechanisms')\n"
+        "   - 'limitations': Describe scope limitations "
+        "(e.g., 'Focuses on Li-ion chemistries → does not cover solid-state or sodium-ion alternatives')\n"
+        "   - 'validation_method': Describe what evidence the review cites "
+        "(e.g., 'Cites experimental data from 47 studies spanning 2005-2020')\n"
+        "   NEVER output 'Could not extract methodology' or 'Unknown' for review papers. "
+        "Every paper has extractable content.\n\n"
         + "\n\n".join(sections)
         + "\n\n=== EXAMPLES ===\n"
         "GOOD extraction (full_text):\n"
-        "approach: \"Proposes a conditional GAN with a U-Net generator and PatchGAN "
-        "discriminator. Trained with λ·L1(G(x),y) + L_cGAN(G,D) where λ=100. "
-        "The PatchGAN classifies 70×70 patches. Uses Adam (lr=0.0002, β1=0.5) for 200 epochs.\"\n"
-        "key_components: [\"U-Net generator with skip connections\", "
-        "\"PatchGAN 70×70 discriminator\", \"L1 loss (λ=100)\", \"cGAN adversarial loss\"]\n"
+        "approach: \"Proposes a conditional GAN with a U-Net generator (8 encoder + 8 decoder "
+        "layers with skip connections) and PatchGAN discriminator that classifies overlapping "
+        "70×70 patches. The objective combines L1 reconstruction loss and conditional adversarial "
+        "loss: L = L_cGAN(G,D) + λ·L1(G(x),y) where λ=100. The generator takes 256×256 input "
+        "and produces 256×256 output through an encoder-decoder with skip connections at each "
+        "resolution level. Trained with Adam optimizer (lr=0.0002, β1=0.5, β2=0.999) for 200 "
+        "epochs with batch size 1.\"\n"
+        "key_components: [\"U-Net generator (8 encoder + 8 decoder layers with skip connections)\", "
+        "\"PatchGAN 70×70 discriminator (5-layer ConvNet)\", \"L1 reconstruction loss (λ=100)\", "
+        "\"conditional adversarial loss (cGAN)\"]\n"
         "assumptions: [\"Input and output images are spatially aligned at pixel level\", "
-        "\"Local patch statistics capture perceptual quality\", "
+        "\"Local patch statistics (70×70) capture perceptual quality better than full-image discrimination\", "
         "\"L1 loss encourages low-frequency correctness while adversarial loss captures high-frequency detail\"]\n"
-        "limitations: [\"Requires pixel-aligned paired data, unlike CycleGAN\", "
-        "\"Mode collapse causes repeated output textures\"]\n\n"
-        "EXAMPLE of a GOOD extraction (abstract_only — supplement with domain knowledge):\n"
-        "approach: \"Introduces cycle-consistent adversarial networks for unpaired image "
-        "translation. Learns two generators G: X→Y and F: Y→X with cycle consistency "
-        "loss F(G(X))≈X and G(F(Y))≈Y. Uses ResNet-9 generators with 9 residual blocks "
-        "and PatchGAN discriminators. Trained with Adam (lr=0.0002, β1=0.5) using "
-        "least-squares GAN loss plus cycle consistency loss (λ=10).\"\n"
-        "key_components: [\"ResNet-9 generator\", \"PatchGAN discriminator\", "
-        "\"cycle consistency loss (λ=10)\", \"least-squares adversarial loss\", "
-        "\"identity loss for color preservation\"]\n"
+        "limitations: [\"Requires pixel-aligned paired data → cannot handle unpaired domains, unlike CycleGAN\", "
+        "\"PatchGAN only sees 70×70 receptive field → misses global structural coherence, producing tiling artifacts\"]\n"
+        "validation_method: \"Evaluated on facades, maps, and edges→shoes using FCN-score (per-pixel accuracy), "
+        "AMT perceptual studies (% fooling rate), compared against L1-only, cGAN-only, and unconditional GAN baselines\"\n\n"
+        "GOOD extraction (abstract_only — supplement with domain knowledge):\n"
+        "approach: \"Introduces cycle-consistent adversarial networks for unpaired image-to-image "
+        "translation. Learns two generators G: X→Y (ResNet-9 with 9 residual blocks) and F: Y→X "
+        "with cycle consistency loss F(G(X))≈X and G(F(Y))≈Y weighted by λ_cyc=10. Uses PatchGAN "
+        "70×70 discriminators for both domains. Training uses least-squares GAN loss (LSGAN) "
+        "instead of negative log-likelihood for stable training. Optimized with Adam "
+        "(lr=0.0002, β1=0.5) with linear decay after 100 epochs, total 200 epochs.\"\n"
+        "key_components: [\"ResNet-9 generator (9 residual blocks, 256 filters)\", "
+        "\"PatchGAN 70×70 discriminator\", \"cycle consistency loss (λ_cyc=10)\", "
+        "\"least-squares adversarial loss (LSGAN)\", \"identity loss for color preservation (λ_identity=0.5·λ_cyc)\"]\n"
         "assumptions: [\"Bijective mapping exists between source and target domains\", "
         "\"Cycle consistency is a sufficient proxy for semantic correspondence\", "
         "\"Domain-specific styles are separable from content\"]\n"
         "limitations: [\"Bijective mapping assumption → fails for many-to-one translations "
         "where multiple source images map to one target\", \"Two generators + two discriminators "
-        "→ 2× the parameters and training time of single-direction methods\"]\n\n"
+        "→ 2× the parameters (~11.4M per generator) and training time of single-direction methods\"]\n"
+        "validation_method: \"AMT perceptual studies on map↔aerial, Cityscapes labels↔photos; "
+        "FCN-score and semantic segmentation metrics; compared against pix2pix, CoGAN, SimGAN, and feature loss\"\n\n"
         "Return JSON:\n"
         "{\n"
         '  "papers": [\n'
         "    {\n"
         '      "work_id": "...",\n'
-        '      "approach": "Detailed description of the core method (3-5 sentences). Include '
-        'the key technical innovation, how it works mechanistically, and what problem formulation '
-        'it uses (e.g., optimization objective, loss function, statistical framework).",\n'
-        '      "data_requirements": "Specific data types, formats, and scale needed '
-        '(e.g., paired vs unpaired images, labeled vs unlabeled, dataset sizes used)",\n'
-        '      "assumptions": ["Specific technical assumption 1", "Assumption 2", "Assumption 3 (2-4 required)"],\n'
-        '      "validation_method": "Exact metrics, benchmarks, baselines, and datasets used '
-        'for evaluation",\n'
-        '      "limitations": ["[design choice] → [concrete consequence]", ...],\n'
+        '      "approach": "5-8 sentences: architecture (exact structure), loss formulation (named terms + weights), '
+        'training procedure (optimizer, lr, batch, epochs), input/output format.",\n'
+        '      "data_requirements": "Data format, scale, labeling requirements, preprocessing steps.",\n'
+        '      "assumptions": ["Technical assumption with specifics (2-4 required)"],\n'
+        '      "validation_method": "Exact metrics, datasets, baselines. NOT Unknown.",\n'
+        '      "limitations": ["[design choice with specifics] → [consequence with quantities]"],\n'
         '      "domain": "Problem domain and subfield",\n'
-        '      "key_components": ["Exact named technique/algorithm/architecture 1", ...],\n'
-        '      "novelty_over_prior": "Name the prior method(s) this builds on and what '
-        'specific change was made (null if not stated)"\n'
+        '      "key_components": ["Named technique (with dimensions/hyperparams in parentheses)", '
+        '"3-5 required, each 15+ chars"],\n'
+        '      "novelty_over_prior": "Name prior method + exact change made"\n'
         "    }\n"
         "  ]\n"
         "}"
@@ -360,27 +406,46 @@ _HEDGING_PATTERN = _re.compile(
 )
 
 
-def _validate_extraction(result: Dict[str, Any]) -> list[str]:
-    """Validate extraction output. Returns list of violation descriptions."""
+def _validate_extraction(
+    result: Dict[str, Any],
+    thin_wids: Optional[set] = None,
+) -> list[str]:
+    """Validate extraction output. Returns list of violation descriptions.
+
+    For papers in *thin_wids* (abstract-only or very short text), thresholds
+    are relaxed so extraction doesn't fail entirely on review/survey papers.
+    """
+    thin_wids = thin_wids or set()
     violations = []
     for paper in result.get("papers", []):
         wid = paper.get("work_id", "?")
+        is_thin = wid in thin_wids
         approach = paper.get("approach", "")
-        if len(approach) < 200:
+        min_approach = 80 if is_thin else 200
+        if len(approach) < min_approach:
             violations.append(
-                f"{wid} approach is too short ({len(approach)} chars). "
+                f"{wid} approach is too short ({len(approach)} chars, min {min_approach}). "
                 "Write 4-6 detailed sentences with architecture, loss function, "
                 "and training procedure."
             )
-        # Validate assumptions (require 2-4)
+        # Validate assumptions (relax for thin sources)
         assumptions = paper.get("assumptions", [])
-        if len(assumptions) < 2:
+        min_assumptions = 1 if is_thin else 2
+        if len(assumptions) < min_assumptions:
             violations.append(
                 f"{wid} has only {len(assumptions)} assumption(s). "
                 "Provide 2-4 specific technical assumptions (e.g., 'Input images are spatially aligned', "
                 "'Channel relationships capture semantic importance')."
             )
-        for comp in paper.get("key_components", []):
+        key_components = paper.get("key_components", [])
+        min_components = 1 if is_thin else 2
+        if len(key_components) < min_components:
+            violations.append(
+                f"{wid} has only {len(key_components)} key_component(s). "
+                "Provide 2-4 named techniques with specifics "
+                "(e.g., 'bottleneck block (1×1→3×3→1×1)', 'Adam optimizer (lr=2e-4, β1=0.5)')."
+            )
+        for comp in key_components:
             lower = comp.lower()
             if lower in ("deep neural networks", "residual connections",
                          "convolutional networks", "deep learning"):
@@ -388,13 +453,20 @@ def _validate_extraction(result: Dict[str, Any]) -> list[str]:
                     f"{wid} key_component '{comp}' is too generic. "
                     "Use specific named techniques (e.g., 'bottleneck block (1×1→3×3→1×1)')."
                 )
+            min_comp_len = 8 if is_thin else 15
+            if len(comp) < min_comp_len:
+                violations.append(
+                    f"{wid} key_component '{comp}' is too short ({len(comp)} chars). "
+                    "Include specific details: dimensions, hyperparameters, or formulations "
+                    "(e.g., '4-head self-attention (d_model=128, d_ff=512)' not just 'self-attention')."
+                )
         for lim in paper.get("limitations", []):
             if _HEDGING_PATTERN.search(lim):
                 violations.append(
                     f"{wid} limitation contains hedging: '{lim[:80]}...'. "
                     "Rewrite as '[design choice] → [consequence]' with no qualifying words."
                 )
-            if "→" not in lim and " -> " not in lim:
+            if not is_thin and "→" not in lim and " -> " not in lim:
                 violations.append(
                     f"{wid} limitation missing '→' structure: '{lim[:80]}...'. "
                     "Format: '[design choice] → [consequence]'."
@@ -474,8 +546,307 @@ def _is_shallow_cross_task(diffs: list[Dict[str, Any]]) -> bool:
     return negated / total > 0.5
 
 
-def _validate_synthesis(result: Dict[str, Any], work_ids: list[str]) -> list[str]:
-    """Validate synthesis output. Returns list of violation descriptions."""
+# ---------------------------------------------------------------------------
+# Survey / Dissimilar Paper Detection
+# ---------------------------------------------------------------------------
+
+_SURVEY_SIGNALS = _re.compile(
+    r'\b(surveys?|reviews?|overview|taxonomy|categoriz|classif\w+ existing|'
+    r'comprehensive analysis of|literature|systematic study of existing)\b',
+    _re.IGNORECASE,
+)
+
+
+def _detect_paper_type(fingerprint: Dict[str, Any]) -> str:
+    """Classify paper as 'methodology' or 'survey' based on fingerprint."""
+    approach = fingerprint.get("approach", "")
+    if _SURVEY_SIGNALS.search(approach):
+        return "survey"
+    for lim in fingerprint.get("limitations", []):
+        if isinstance(lim, str) and _SURVEY_SIGNALS.search(lim):
+            return "survey"
+    return "methodology"
+
+
+def _compute_paper_overlap(fp1: Dict[str, Any], fp2: Dict[str, Any]) -> float:
+    """Compute keyword overlap between two fingerprints. Returns Jaccard similarity."""
+    def _extract_kw(fp: Dict[str, Any]) -> set[str]:
+        text = " ".join([
+            fp.get("approach", ""),
+            fp.get("domain", ""),
+            " ".join(fp.get("key_components", [])),
+        ]).lower()
+        return set(_re.findall(r'\b[a-z]{3,}\b', text)) - _OVERLAP_STOP
+
+    kw1 = _extract_kw(fp1)
+    kw2 = _extract_kw(fp2)
+    if not kw1 or not kw2:
+        return 0.0
+    return len(kw1 & kw2) / len(kw1 | kw2)
+
+
+def _scrub_self_references(synthesis: Dict[str, Any]) -> Dict[str, Any]:
+    """Replace self-referencing work_ids with 'this paper' in each paper's own section.
+
+    In strengths_weaknesses_matrix, each paper entry should not cite its own work_id
+    in its handles_well, struggles_with, or assumptions fields. Those fields describe
+    the paper itself, so 'this paper' is the correct reference.
+
+    complemented_by fields are NOT scrubbed (they reference other papers).
+    """
+    for sw in synthesis.get("strengths_weaknesses_matrix", []):
+        if not isinstance(sw, dict):
+            continue
+        own_wid = sw.get("work_id", "")
+        if not own_wid:
+            continue
+
+        # Patterns to replace: "W12345", "[W12345]", "(W12345)"
+        patterns = [f"[{own_wid}]", f"({own_wid})", own_wid]
+
+        def _replace_self_ref(text: str) -> str:
+            if not isinstance(text, str):
+                return text
+            for pat in patterns:
+                text = text.replace(pat, "this paper")
+            return text
+
+        # Scrub handles_well
+        for h in sw.get("handles_well", []):
+            if isinstance(h, dict):
+                for field in ("capability", "mechanism", "evidence"):
+                    if field in h:
+                        h[field] = _replace_self_ref(h[field])
+
+        # Scrub struggles_with
+        for s in sw.get("struggles_with", []):
+            if isinstance(s, dict):
+                for field in ("limitation", "cause", "consequence"):
+                    if field in s:
+                        s[field] = _replace_self_ref(s[field])
+
+        # Scrub assumptions
+        for a in sw.get("assumptions", []):
+            if isinstance(a, dict):
+                for field in ("assumption", "if_violated"):
+                    if field in a:
+                        a[field] = _replace_self_ref(a[field])
+
+        # Do NOT scrub complemented_by — those reference OTHER papers
+
+    # Scrub convergence_divergence paradigm fields
+    for paradigm in synthesis.get("convergence_divergence", {}).get("paradigms", []):
+        if not isinstance(paradigm, dict):
+            continue
+        paper_wids = paradigm.get("papers", [])
+        if len(paper_wids) == 1:
+            # Single-paper paradigm: replace that paper's work_id in its own description
+            wid = paper_wids[0]
+            patterns = [f"[{wid}]", f"({wid})", wid]
+            for field in ("mechanism", "philosophy"):
+                if field in paradigm and isinstance(paradigm[field], str):
+                    for pat in patterns:
+                        paradigm[field] = paradigm[field].replace(pat, "this paper")
+
+    return synthesis
+
+
+_SHALLOW_PATTERN = _re.compile(
+    r'(provides? (?:a |the )?(?:method|way|approach|technique|means)\b|'
+    r'(?:increased?|reduced?|improved?|better|worse) (?:computational|performance|quality|efficiency)\b|'
+    r'(?:high|low|good|bad|better|worse)[\s-]quality\b|'
+    r'significant(?:ly)? (?:more|less|higher|lower|better|worse)\b|'
+    r'(?:leads? to|results? in) (?:better|worse|improved|degraded) (?:performance|accuracy|quality)\b|'
+    r'(?:more|less) (?:efficient|effective|accurate|robust)\b)',
+    _re.IGNORECASE,
+)
+
+
+def _validate_depth(
+    result: Dict[str, Any],
+    fingerprints: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> list[str]:
+    """Validate that synthesis output has sufficient technical depth.
+
+    If *fingerprints* is provided, also checks that the synthesis text
+    references at least one key_component from each paper's fingerprint.
+    """
+    violations = []
+
+    # Check strengths_weaknesses_matrix depth
+    for sw in result.get("strengths_weaknesses_matrix", []):
+        if not isinstance(sw, dict):
+            continue
+        wid = sw.get("work_id", "?")
+
+        for h in sw.get("handles_well", []):
+            if isinstance(h, dict):
+                mech = h.get("mechanism", "")
+                if len(mech) < 40:
+                    violations.append(
+                        f"{wid} handles_well.mechanism is too shallow ({len(mech)} chars). "
+                        "Include specific algorithm names, formulations, or architectural details."
+                    )
+                if _SHALLOW_PATTERN.search(mech):
+                    violations.append(
+                        f"{wid} handles_well.mechanism uses BANNED vague language: '{mech[:80]}...'. "
+                        "Replace with the SPECIFIC mechanism: name the algorithm, state the "
+                        "complexity (e.g., O(n²)), or give the exact architectural detail."
+                    )
+
+        for s in sw.get("struggles_with", []):
+            if isinstance(s, dict):
+                cause = s.get("cause", "")
+                consequence = s.get("consequence", "")
+                if len(cause) < 30:
+                    violations.append(
+                        f"{wid} struggles_with.cause is too shallow ({len(cause)} chars). "
+                        "Explain the specific design choice causing this limitation."
+                    )
+                if len(consequence) < 30:
+                    violations.append(
+                        f"{wid} struggles_with.consequence is too shallow ({len(consequence)} chars). "
+                        "Explain the specific impact with quantities or concrete examples."
+                    )
+                for field_name, field_val in [("cause", cause), ("consequence", consequence)]:
+                    if _SHALLOW_PATTERN.search(field_val):
+                        violations.append(
+                            f"{wid} struggles_with.{field_name} uses BANNED vague language: "
+                            f"'{field_val[:80]}...'. Replace with the SPECIFIC mechanism: name "
+                            f"the algorithm, state the complexity, or give exact architectural detail."
+                        )
+
+        for c in sw.get("complemented_by", []):
+            if isinstance(c, dict):
+                cov = c.get("coverage", "")
+                if len(cov) < 80:
+                    violations.append(
+                        f"{wid} complemented_by.coverage is too shallow ({len(cov)} chars). "
+                        "Explain the SPECIFIC mechanism by which the complement addresses the gap."
+                    )
+                if _SHALLOW_PATTERN.search(cov):
+                    violations.append(
+                        f"{wid} complemented_by.coverage uses BANNED vague language: '{cov[:80]}...'. "
+                        "Replace with the SPECIFIC mechanism: name the algorithm, state the "
+                        "complexity, or give exact architectural detail."
+                    )
+
+    # Check recommendation depth
+    rec = result.get("recommendation", {})
+    if isinstance(rec, dict):
+        for i, d in enumerate(rec.get("decision_matrix", [])):
+            if isinstance(d, dict):
+                why = d.get("why", "")
+                if len(why) < 60:
+                    violations.append(
+                        f"Decision scenario {i+1} 'why' is too shallow ({len(why)} chars). "
+                        "Explain the causal chain: mechanism → outcome for this scenario."
+                    )
+                if _SHALLOW_PATTERN.search(why):
+                    violations.append(
+                        f"Decision scenario {i+1} 'why' uses BANNED vague language: '{why[:80]}...'. "
+                        "Replace with the SPECIFIC mechanism: name the algorithm, state the "
+                        "complexity, or give exact architectural detail connecting mechanism to outcome."
+                    )
+
+    # Fingerprint grounding: check synthesis references key_components
+    if fingerprints:
+        for sw in result.get("strengths_weaknesses_matrix", []):
+            if not isinstance(sw, dict):
+                continue
+            wid = sw.get("work_id", "")
+            fp = fingerprints.get(wid, {})
+            key_comps = fp.get("key_components", [])
+            if len(key_comps) < 2:
+                continue  # Not enough components to enforce grounding
+
+            # Concatenate ALL synthesis text for this paper (SW + paradigm + recommendation)
+            text_parts = []
+            for h in sw.get("handles_well", []):
+                if isinstance(h, dict):
+                    text_parts.extend([
+                        h.get("mechanism", ""),
+                        h.get("evidence", ""),
+                    ])
+            for s in sw.get("struggles_with", []):
+                if isinstance(s, dict):
+                    text_parts.extend([
+                        s.get("cause", ""),
+                        s.get("consequence", ""),
+                    ])
+            for c in sw.get("complemented_by", []):
+                if isinstance(c, dict):
+                    text_parts.append(c.get("coverage", ""))
+            # Also include paradigm text for this paper
+            for paradigm in result.get("convergence_divergence", {}).get("paradigms", []):
+                if isinstance(paradigm, dict) and wid in paradigm.get("papers", []):
+                    text_parts.append(paradigm.get("mechanism", ""))
+                    text_parts.append(paradigm.get("philosophy", ""))
+            # And recommendation text
+            rec = result.get("recommendation", {})
+            if isinstance(rec, dict):
+                for dm in rec.get("decision_matrix", []):
+                    if isinstance(dm, dict) and dm.get("use") == wid:
+                        text_parts.append(dm.get("why", ""))
+            synthesis_text = " ".join(text_parts).lower()
+
+            # Count how many key_components are referenced
+            matched_comps = []
+            unmatched_comps = []
+            for comp in key_comps:
+                words = [w for w in _re.findall(r'[a-z]+', comp.lower()) if len(w) > 3]
+                if not words:
+                    matched_comps.append(comp)  # trivial component, don't penalize
+                    continue
+                hits = sum(1 for w in words if w in synthesis_text)
+                if hits >= max(1, len(words) // 2):
+                    matched_comps.append(comp)
+                else:
+                    unmatched_comps.append(comp)
+
+            # Require at least half of key_components to be referenced
+            min_required = max(1, (len(key_comps) + 1) // 2)
+            if len(matched_comps) < min_required:
+                missing_list = ", ".join(f"'{c}'" for c in unmatched_comps[:3])
+                violations.append(
+                    f"{wid} synthesis only references {len(matched_comps)}/{len(key_comps)} "
+                    f"key_components. Missing: {missing_list}. "
+                    f"Use these EXACT terms from the profile in your mechanism, evidence, "
+                    f"cause, or consequence descriptions."
+                )
+
+            # Numeric specificity: if fingerprint has numbers, synthesis should use some
+            fp_text = json.dumps(fp).lower()
+            fp_numbers = set(_re.findall(r'\d+(?:\.\d+)?', fp_text))
+            # Filter to meaningful numbers (not 0, 1, 2 which are too common)
+            fp_numbers = {n for n in fp_numbers if float(n) > 2}
+            if len(fp_numbers) >= 3:
+                synth_numbers = set(_re.findall(r'\d+(?:\.\d+)?', synthesis_text))
+                matched_numbers = fp_numbers & synth_numbers
+                if len(matched_numbers) < 1:
+                    sample = sorted(fp_numbers, key=lambda x: -float(x))[:5]
+                    violations.append(
+                        f"{wid} synthesis contains no specific numbers from its profile. "
+                        f"The profile includes: {', '.join(sample)}. "
+                        f"Reference at least one specific value (e.g., growth rate k=12, "
+                        f"batch size 256, learning rate 0.1) instead of vague 'higher/lower'."
+                    )
+
+    return violations
+
+
+def _validate_synthesis(
+    result: Dict[str, Any],
+    work_ids: list[str],
+    valid_complement_wids: Optional[set[str]] = None,
+    relaxed: bool = False,
+    fingerprints: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> list[str]:
+    """Validate synthesis output. Returns list of violation descriptions.
+
+    If relaxed=True (survey or low-overlap papers), paradigm requirements
+    are loosened to prevent burning all retries on impossible constraints.
+    """
     violations = []
 
     # Validate convergence_divergence section
@@ -492,9 +863,10 @@ def _validate_synthesis(result: Dict[str, Any], work_ids: list[str]) -> list[str
         if not common_prob.get("why_hard"):
             violations.append("convergence_divergence.common_problem.why_hard is missing or empty.")
 
-        # Validate paradigms
+        # Validate paradigms (relaxed for survey/low-overlap papers)
         paradigms = conv_div.get("paradigms", [])
-        if len(paradigms) < 1:
+        min_paradigms = 0 if relaxed else 1
+        if len(paradigms) < min_paradigms:
             violations.append("convergence_divergence.paradigms must have at least 1 paradigm.")
         for i, p in enumerate(paradigms):
             if not p.get("name"):
@@ -553,11 +925,17 @@ def _validate_synthesis(result: Dict[str, Any], work_ids: list[str]) -> list[str
                 if not a.get("if_violated"):
                     violations.append(f"{wid} assumptions entry missing 'if_violated'.")
 
-            # Check complemented_by (cross-references)
+            # Check complemented_by (cross-references — can reference external papers)
             complements = sw.get("complemented_by", [])
             for c in complements:
-                if not c.get("other_work_id"):
+                other_wid = c.get("other_work_id")
+                if not other_wid:
                     violations.append(f"{wid} complemented_by entry missing 'other_work_id'.")
+                elif valid_complement_wids and other_wid not in valid_complement_wids:
+                    violations.append(
+                        f"{wid} complemented_by references unknown work_id '{other_wid}'. "
+                        f"Use a work_id from the comparison set or complement candidates."
+                    )
                 if not c.get("coverage"):
                     violations.append(f"{wid} complemented_by entry missing 'coverage'.")
 
@@ -565,6 +943,22 @@ def _validate_synthesis(result: Dict[str, Any], work_ids: list[str]) -> list[str
         missing = set(work_ids) - found_wids
         if missing:
             violations.append(f"strengths_weaknesses_matrix missing entries for: {sorted(missing)}")
+
+        # Check for circular complements (A→B and B→A)
+        complement_pairs: set[tuple[str, str]] = set()
+        for sw in sw_matrix:
+            wid = sw.get("work_id", "")
+            for c in sw.get("complemented_by", []):
+                other = c.get("other_work_id", "")
+                if other:
+                    reverse = (other, wid)
+                    if reverse in complement_pairs:
+                        violations.append(
+                            f"Circular complement: {wid} → {other} and {other} → {wid}. "
+                            f"Each paper must use a DIFFERENT complement. "
+                            f"Choose from the COMPLEMENT CANDIDATES list."
+                        )
+                    complement_pairs.add((wid, other))
 
     # Validate recommendation section
     rec = result.get("recommendation", {})
@@ -606,6 +1000,9 @@ def _validate_synthesis(result: Dict[str, Any], work_ids: list[str]) -> list[str
             "Rewrite all statements as definitive claims without 'may', 'might', 'could', 'potentially'."
         )
 
+    # Check technical depth
+    violations.extend(_validate_depth(result, fingerprints=fingerprints))
+
     return violations
 
 
@@ -614,11 +1011,18 @@ def _call_llm(
     user: str,
     validator: Optional[Any] = None,
     validator_args: tuple = (),
+    relaxed_validator_args: Optional[tuple] = None,
 ) -> Optional[Dict[str, Any]]:
     """Make an LLM call with retries and optional validation.
 
     If validator is provided, it's called as validator(result, *validator_args).
     If it returns violations, the LLM is re-prompted with corrective feedback.
+
+    Progressive relaxation: if *relaxed_validator_args* is provided, it replaces
+    *validator_args* on retry 3+ to soften validation and avoid exhausting retries.
+
+    Best-attempt fallback: tracks the parsed result with fewest violations across
+    all retries. If no attempt passes cleanly, returns the best one instead of None.
     """
     client = _get_client()
     if not client:
@@ -628,6 +1032,9 @@ def _call_llm(
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
+
+    best_result: Optional[Dict[str, Any]] = None
+    best_violation_count = float("inf")
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -646,28 +1053,56 @@ def _call_llm(
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
                     continue
+                # Return best attempt from previous retries if available
+                if best_result is not None:
+                    logger.info(
+                        f"JSON parse failed on last attempt; returning best-attempt "
+                        f"result ({best_violation_count} violations)"
+                    )
+                    return best_result
                 return None
 
             # Run validator if provided
             if validator is not None:
-                violations = validator(result, *validator_args)
-                if violations and attempt < MAX_RETRIES - 1:
+                # Progressive relaxation: use relaxed args on attempt 2+
+                args = validator_args
+                if relaxed_validator_args is not None and attempt >= 2:
+                    args = relaxed_validator_args
+                violations = validator(result, *args)
+                if violations:
+                    # Track best attempt (fewest violations)
+                    if len(violations) < best_violation_count:
+                        best_result = result
+                        best_violation_count = len(violations)
+                    if attempt < MAX_RETRIES - 1:
+                        logger.info(
+                            f"Validation failed (attempt {attempt+1}): "
+                            f"{len(violations)} violations"
+                        )
+                        # Append assistant response and corrective feedback
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                "Your output has format violations. Fix ALL of them and "
+                                "return the corrected JSON:\n\n"
+                                + "\n".join(f"- {v}" for v in violations[:10])
+                            ),
+                        })
+                        time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
+                        continue
+                    # Last attempt with violations — return this if it's the best
+                    if len(violations) <= best_violation_count:
+                        logger.info(
+                            f"Last attempt has {len(violations)} violations; "
+                            f"returning as best-attempt result"
+                        )
+                        return result
                     logger.info(
-                        f"Validation failed (attempt {attempt+1}): "
-                        f"{len(violations)} violations"
+                        f"Last attempt has {len(violations)} violations (worse than "
+                        f"best of {best_violation_count}); returning earlier best"
                     )
-                    # Append assistant response and corrective feedback
-                    messages.append({"role": "assistant", "content": content})
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "Your output has format violations. Fix ALL of them and "
-                            "return the corrected JSON:\n\n"
-                            + "\n".join(f"- {v}" for v in violations[:10])
-                        ),
-                    })
-                    time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
-                    continue
+                    return best_result
 
             return result
         except Exception as e:
@@ -677,8 +1112,22 @@ def _call_llm(
             if is_transient and attempt < MAX_RETRIES - 1:
                 time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
                 continue
+            # Return best attempt if we have one
+            if best_result is not None:
+                logger.info(
+                    f"Exception on attempt {attempt+1}; returning best-attempt "
+                    f"result ({best_violation_count} violations)"
+                )
+                return best_result
             return None
 
+    # Should not reach here, but return best attempt if available
+    if best_result is not None:
+        logger.info(
+            f"All retries exhausted; returning best-attempt result "
+            f"({best_violation_count} violations)"
+        )
+        return best_result
     return None
 
 
@@ -716,9 +1165,29 @@ def _extract_fingerprints(
         if p["work_id"] in content_map
     ]
     prompt = _build_extraction_prompt(uncached_papers, uncached_contents)
+
+    # Identify thin-source papers (abstract-only, short text, or review/survey)
+    _review_title_re = _re.compile(
+        r'\b(review|survey|tutorial|overview|perspectives)\b', _re.IGNORECASE
+    )
+    thin_wids: set = set()
+    for p in uncached_papers:
+        wid = p["work_id"]
+        content = content_map.get(wid)
+        if not content or content.source_quality == "abstract_only":
+            thin_wids.add(wid)
+        elif content.text and len(content.text.strip()) < 500:
+            thin_wids.add(wid)
+        # Review/survey papers lack novel methodology — relax validation
+        if _review_title_re.search(p.get("title", "")):
+            thin_wids.add(wid)
+    if thin_wids:
+        logger.info(f"Thin-source papers (relaxed extraction): {thin_wids}")
+
     result = _call_llm(
         EXTRACTION_SYSTEM, prompt,
         validator=_validate_extraction,
+        validator_args=(thin_wids,),
     )
 
     if result and "papers" in result:
@@ -759,6 +1228,151 @@ def _extract_fingerprints(
 
 
 # ---------------------------------------------------------------------------
+# Complement Candidate Retrieval
+# ---------------------------------------------------------------------------
+
+def _extract_search_terms_from_gaps(fingerprint: Dict[str, Any]) -> str:
+    """Extract search terms from a paper's limitations to find complementary papers."""
+    terms = []
+    for lim in fingerprint.get("limitations", []):
+        if isinstance(lim, str):
+            # Extract the consequence part (after →) which describes the gap
+            parts = lim.split("→")
+            if len(parts) > 1:
+                terms.append(parts[-1].strip())
+            else:
+                terms.append(lim.strip())
+
+    # Also use key components and domain for context
+    domain = fingerprint.get("domain", "")
+    if domain:
+        terms.insert(0, domain)
+
+    return " ".join(terms[:5])  # Keep search query reasonable length
+
+
+def _fetch_sibling_papers(
+    conn: Connection,
+    work_ids: list[str],
+    map_id: Optional[str],
+    rank_job_id: Optional[str],
+    limit: int = 20,
+) -> list[Dict[str, Any]]:
+    """Fetch sibling papers from the same map or rank job (Tier 2, DB only)."""
+    siblings: list[Dict[str, Any]] = []
+
+    if map_id:
+        rows = conn.execute(
+            sa_text("""
+                SELECT w.work_id, w.title, w.year, w.cited_by_count, w.abstract
+                FROM map_nodes mn
+                JOIN works w ON w.work_id = mn.work_id
+                WHERE mn.map_id = :map_id
+                  AND mn.work_id != ALL(:exclude_ids)
+                ORDER BY w.cited_by_count DESC NULLS LAST
+                LIMIT :lim
+            """),
+            {"map_id": map_id, "exclude_ids": work_ids, "lim": limit},
+        ).mappings().all()
+        siblings.extend(dict(r) for r in rows)
+
+    if rank_job_id and not siblings:
+        rows = conn.execute(
+            sa_text("""
+                SELECT w.work_id, w.title, w.year, w.cited_by_count, w.abstract
+                FROM rank_results rr
+                JOIN works w ON w.work_id = rr.work_id
+                WHERE rr.rank_job_id = :rjid
+                  AND rr.work_id != ALL(:exclude_ids)
+                ORDER BY w.cited_by_count DESC NULLS LAST
+                LIMIT :lim
+            """),
+            {"rjid": rank_job_id, "exclude_ids": work_ids, "lim": limit},
+        ).mappings().all()
+        siblings.extend(dict(r) for r in rows)
+
+    return siblings
+
+
+def _find_complement_candidates(
+    conn: Connection,
+    work_ids: list[str],
+    fingerprints: Dict[str, Dict[str, Any]],
+    papers_meta: list[Dict[str, Any]],
+    map_id: Optional[str],
+    rank_job_id: Optional[str],
+) -> Dict[str, list[Dict[str, Any]]]:
+    """Find candidate complement papers for each paper's weaknesses.
+
+    Three-tier search:
+    Tier 1: Other papers in the comparison set (free, already loaded)
+    Tier 2: Sibling papers from the same map/rank job (DB query, no API cost)
+    Tier 3: External retrieval from OpenAlex/S2/ArXiv (API calls, if needed)
+
+    Returns: {work_id: [candidate_papers]} where each candidate has
+    work_id, title, year, cited_by_count, and abstract.
+    """
+    meta_map = {p["work_id"]: p for p in papers_meta}
+    all_candidates: Dict[str, list[Dict[str, Any]]] = {}
+
+    # Tier 2: Fetch sibling papers (shared across all papers)
+    siblings = _fetch_sibling_papers(conn, work_ids, map_id, rank_job_id)
+
+    for wid in work_ids:
+        candidates: list[Dict[str, Any]] = []
+        seen_titles: set[str] = set()
+
+        # Tier 1: Other papers in comparison set
+        for other_wid in work_ids:
+            if other_wid == wid:
+                continue
+            other_meta = meta_map[other_wid]
+            title_lower = (other_meta.get("title") or "").lower()
+            if title_lower:
+                seen_titles.add(title_lower)
+            candidates.append({
+                "work_id": other_wid,
+                "title": other_meta.get("title", "Unknown"),
+                "year": other_meta.get("year"),
+                "cited_by_count": other_meta.get("cited_by_count", 0),
+                "abstract": other_meta.get("abstract", ""),
+            })
+
+        # Tier 2: Sibling papers
+        for sib in siblings:
+            title_lower = (sib.get("title") or "").lower()
+            if title_lower and title_lower not in seen_titles:
+                seen_titles.add(title_lower)
+                candidates.append(sib)
+
+        # Tier 3: External retrieval (only if < 5 unique candidates)
+        fp = fingerprints.get(wid, {})
+        if len(candidates) < 5 and fp.get("limitations"):
+            search_terms = _extract_search_terms_from_gaps(fp)
+            if search_terms and len(search_terms) > 10:
+                try:
+                    from app.feature3.grounding_supplement import fetch_papers_multi_source
+
+                    external = fetch_papers_multi_source(
+                        search_terms=search_terms,
+                        before_year=2027,  # no year cutoff
+                        existing_titles=seen_titles,
+                        limit=5,
+                    )
+                    for ext in external:
+                        title_lower = (ext.get("title") or "").lower()
+                        if title_lower and title_lower not in seen_titles:
+                            seen_titles.add(title_lower)
+                            candidates.append(ext)
+                except Exception as e:
+                    logger.warning(f"External complement retrieval failed for {wid}: {e}")
+
+        all_candidates[wid] = candidates[:10]  # Cap at 10 per paper
+
+    return all_candidates
+
+
+# ---------------------------------------------------------------------------
 # LLM Call 2: Comparative Synthesis
 # ---------------------------------------------------------------------------
 
@@ -774,6 +1388,9 @@ def _build_synthesis_prompt(
     fingerprints: Dict[str, Dict[str, Any]],
     contents: list[PaperContent],
     lineage: CitationLineage,
+    complement_candidates: Optional[Dict[str, list[Dict[str, Any]]]] = None,
+    has_survey: bool = False,
+    low_overlap: bool = False,
 ) -> str:
     content_map = {c.work_id: c for c in contents}
 
@@ -789,6 +1406,31 @@ def _build_synthesis_prompt(
             f"Year: {paper.get('year', 'Unknown')} | "
             f"Source: {sq}\n"
             f"  Profile: {json.dumps(fp, indent=2)}"
+        )
+
+    # Paper source text — pass raw text so synthesis can quote specific details.
+    # Full-text papers get their methods section, abstract-only get their abstract.
+    source_parts = []
+    for paper in papers_meta:
+        wid = paper["work_id"]
+        content = content_map.get(wid)
+        sq = content.source_quality if content else "abstract_only"
+        text = ""
+        if content and content.text:
+            text = content.text
+        elif paper.get("abstract"):
+            text = paper["abstract"]
+        if text.strip():
+            source_parts.append(f"Paper ({wid}) — {sq}:\n{text}")
+    source_text_section = ""
+    if source_parts:
+        source_text_section = (
+            "\n\n=== PAPER SOURCE TEXT ===\n"
+            "QUOTE specific terminology, method names, parameter values, loss formulations, "
+            "and architectural details DIRECTLY from these texts. Do NOT paraphrase or "
+            "generalize. If the text says 'mini-batch size of 256', write '256' not 'large batch'. "
+            "If it says 'learning rate of 0.1, divided by 10 at epochs 30 and 60', write THAT.\n\n"
+            + "\n\n".join(source_parts)
         )
 
     # Citation relationships section
@@ -807,14 +1449,67 @@ def _build_synthesis_prompt(
 
     citations_text = "\n".join(citation_lines) if citation_lines else "No direct citation relationships found between selected papers."
 
+    # Complement candidates section
+    complement_text = ""
+    if complement_candidates:
+        complement_lines = []
+        for wid in [p["work_id"] for p in papers_meta]:
+            candidates = complement_candidates.get(wid, [])
+            if not candidates:
+                continue
+            title = next((p.get("title", "Unknown") for p in papers_meta if p["work_id"] == wid), "Unknown")
+            complement_lines.append(f"\nFor Paper [{wid}] \"{title}\":")
+            complement_lines.append("Candidate complements (papers that address this paper's weaknesses):")
+            for cand in candidates:
+                cand_wid = cand.get("work_id", "?")
+                cand_title = cand.get("title", "Unknown")
+                cand_year = cand.get("year", "?")
+                cand_cited = cand.get("cited_by_count", 0)
+                cand_abstract = (cand.get("abstract") or "")[:200]
+                complement_lines.append(
+                    f"- [{cand_wid}] \"{cand_title}\" ({cand_year}, {cand_cited} citations): "
+                    f"{cand_abstract}..."
+                )
+        complement_text = "\n".join(complement_lines) if complement_lines else ""
+
     work_id_list = [p["work_id"] for p in papers_meta]
     titles_map = {p["work_id"]: p.get("title", "Unknown") for p in papers_meta}
+
+    # Special instructions for edge cases
+    special_instructions = ""
+    if has_survey:
+        special_instructions += (
+            "\n\n=== SPECIAL INSTRUCTIONS: SURVEY PAPER ===\n"
+            "One or more papers in this comparison is a SURVEY/REVIEW paper (not a single methodology).\n"
+            "For survey papers:\n"
+            "- In 'paradigms', describe the survey's ORGANIZING FRAMEWORK (how it categorizes methods) "
+            "as its paradigm\n"
+            "- In 'handles_well', describe the survey's analytical contribution (taxonomy, comparison "
+            "framework, identified trends)\n"
+            "- In 'struggles_with', describe the survey's limitations (recency, coverage gaps, bias "
+            "toward certain methods)\n"
+            "- A survey does NOT have a single 'mechanism' — describe its analytical lens instead\n"
+        )
+    if low_overlap:
+        special_instructions += (
+            "\n\n=== SPECIAL INSTRUCTIONS: LOW METHODOLOGICAL OVERLAP ===\n"
+            "These papers come from DIFFERENT sub-domains with limited methodological overlap.\n"
+            "- In 'common_problem', identify the BROADEST shared challenge (e.g., 'learning from "
+            "data' rather than a specific task)\n"
+            "- Focus paradigm differences on their FUNDAMENTAL approach differences rather than "
+            "task-specific details\n"
+            "- In 'recommendation', emphasize that these serve DIFFERENT use cases — do not force "
+            "a direct comparison of outcomes\n"
+        )
 
     return (
         "=== METHODOLOGY PROFILES ===\n\n"
         + "\n\n".join(profiles)
+        + source_text_section
         + "\n\n=== CITATION RELATIONSHIPS ===\n"
         + citations_text
+        + ("\n\n=== COMPLEMENT CANDIDATES ===\n" + complement_text if complement_text else "")
+        + special_instructions
         + "\n\n=== YOUR TASK ===\n"
         "You are helping researchers decide which paper(s) to use for their work. "
         "Produce a structured comparison with THREE sections:\n\n"
@@ -824,7 +1519,10 @@ def _build_synthesis_prompt(
         "   - Explain how each paradigm tackles the problem differently\n\n"
         "2. STRENGTHS/WEAKNESSES MATRIX (paper-centered)\n"
         "   - For EACH paper: what it handles well, what it struggles with, key assumptions\n"
-        "   - Cross-reference: which other paper covers this paper's weakness?\n\n"
+        "   - complemented_by: select the paper that BEST addresses each weakness from the "
+        "COMPLEMENT CANDIDATES list. The complement does NOT have to be from the comparison set. "
+        "Do NOT force a complement — if no candidate genuinely addresses the weakness, omit it. "
+        "Explain the SPECIFIC mechanism by which the complement addresses the gap.\n\n"
         "3. RECOMMENDATION (decision-focused)\n"
         "   - Your quick take on the landscape\n"
         "   - Decision matrix: specific scenarios → which paper → why\n"
@@ -834,95 +1532,174 @@ def _build_synthesis_prompt(
         "2. Be SPECIFIC with technical mechanisms, not vague descriptions.\n"
         "3. Every limitation must explain the CAUSE (design choice) and CONSEQUENCE.\n"
         "4. For abstract_only papers, use domain knowledge to fill in details.\n"
-        "5. Provide at least 3 decision scenarios covering different research contexts.\n\n"
-        "=== EXAMPLE OUTPUT ===\n"
+        "5. Provide at least 3 decision scenarios covering different research contexts.\n"
+        "6. SELF-REFERENCE RULE: When writing about a paper's OWN properties (in handles_well, "
+        "struggles_with, assumptions, mechanism, evidence, cause, consequence), NEVER cite "
+        "that paper's work_id. Say 'this paper' or 'this method' instead.\n"
+        "   WRONG: 'W12345 uses attention mechanisms to capture long-range dependencies'\n"
+        "   RIGHT: 'This paper uses attention mechanisms to capture long-range dependencies'\n"
+        "7. CROSS-REFERENCE RULE: When referencing OTHER papers (in complemented_by.coverage, "
+        "recommendation.why, combination_notes), ALWAYS use the work_id.\n"
+        "   WRONG: 'DenseNet provides feature reuse'\n"
+        "   RIGHT: '[W67890] provides direct feature reuse across all layers through dense concatenation'\n"
+        "8. TECHNICAL DEPTH: Every mechanism, cause, consequence, and coverage description MUST "
+        "include at least ONE of: (a) a named algorithm/technique, (b) a mathematical formulation, "
+        "(c) a specific quantity/metric, (d) a concrete architectural detail.\n"
+        "   SHALLOW (BANNED): 'provides a method for editing images'\n"
+        "   DEEP (REQUIRED): 'uses DDPM inversion to find the noise map of the input image, then "
+        "re-denoises with a new text prompt, applying a binary mask derived from cross-attention "
+        "maps to preserve unedited regions'\n"
+        "   SHALLOW (BANNED): 'increased computational requirements'\n"
+        "   DEEP (REQUIRED): 'cascading through 3 upsampling stages (64→256→1024) requires ~3× the "
+        "forward passes of a single-stage model, with each stage U-Net adding ~200M parameters'\n"
+        "9. FACTUAL CLAIMS: Only cite specific numbers (percentages, parameter counts, FLOPs, "
+        "dataset sizes, benchmark scores) if they appear in the paper text or profile above. "
+        "If the exact number is not available, use qualitative comparisons instead.\n"
+        "   WRONG (fabricated): 'achieves 3.57% top-5 error rate'\n"
+        "   RIGHT (qualitative): 'achieves state-of-the-art top-5 error on ImageNet'\n"
+        "   You MAY use well-known facts about widely-cited papers, but do NOT invent specific "
+        "numbers for less well-known papers.\n"
+        "10. NO CIRCULAR COMPLEMENTS: If Paper A lists Paper B in complemented_by, then Paper B "
+        "MUST NOT list Paper A in its complemented_by. Circular references (A→B, B→A) are banned. "
+        "Instead, find a DIFFERENT paper from the COMPLEMENT CANDIDATES for each paper's gaps. "
+        "If no genuine complement exists, omit complemented_by entirely for that paper.\n"
+        "11. GROUNDING IN SOURCE TEXT: Your mechanism, evidence, cause, consequence, and coverage "
+        "descriptions MUST quote specific terms from the PAPER SOURCE TEXT and METHODOLOGY PROFILES. "
+        "If the text says 'synchrosqueezed wavelet transforms (SWT)', write EXACTLY that — "
+        "not 'wavelet-based processing'. If a profile's approach mentions 'cross-entropy loss "
+        "with Adam optimizer (lr=1e-4)', write that — not 'standard training loss'. "
+        "NEVER generalize terminology that appears in the source text or profiles.\n\n"
+        "=== FULL WORKED EXAMPLE (study this level of depth) ===\n"
+        "Given two GAN papers (pix2pix vs CycleGAN), here is what GOOD output looks like.\n"
+        "Notice: every field quotes specific architectures, loss terms, and numbers.\n\n"
         '{\n'
         '  "convergence_divergence": {\n'
         '    "common_problem": {\n'
-        '      "domain": "Computer Vision",\n'
-        '      "challenge": "Training very deep neural networks without gradient degradation",\n'
-        '      "why_hard": "Gradients vanish/explode as network depth increases beyond ~20 layers, '
-        'preventing effective learning in deeper architectures"\n'
+        '      "domain": "Image-to-Image Translation",\n'
+        '      "challenge": "Translating images between visual domains while preserving structural content",\n'
+        '      "why_hard": "The mapping between domains is ill-posed — infinitely many output images can correspond to a single input, and the generator must learn to produce only the plausible ones"\n'
         '    },\n'
         '    "paradigms": [\n'
         '      {\n'
-        '        "name": "Additive Residual Learning",\n'
-        '        "papers": ["Wpaper1"],\n'
-        '        "mechanism": "Learns residual functions F(x) and adds them to identity shortcuts: y = F(x) + x",\n'
-        '        "philosophy": "Easier to learn small perturbations than full mappings; identity is a reasonable default"\n'
+        '        "name": "Paired Conditional Translation",\n'
+        '        "papers": ["Wpix2pix"],\n'
+        '        "mechanism": "Conditions a U-Net generator (8 encoder + 8 decoder layers with skip connections) on aligned input-output pairs, using PatchGAN 70×70 discriminator and combined loss L = L_cGAN(G,D) + λ·L1(G(x),y) where λ=100",\n'
+        '        "philosophy": "Pixel-aligned supervision with L1 captures low-frequency structure while adversarial loss from PatchGAN captures high-frequency texture"\n'
         '      },\n'
         '      {\n'
-        '        "name": "Dense Feature Aggregation",\n'
-        '        "papers": ["Wpaper2"],\n'
-        '        "mechanism": "Concatenates all preceding feature maps as input to each layer",\n'
-        '        "philosophy": "Maximum feature reuse through direct connections; every layer should access all prior information"\n'
+        '        "name": "Unpaired Cycle-Consistent Translation",\n'
+        '        "papers": ["Wcyclegan"],\n'
+        '        "mechanism": "Learns two ResNet-9 generators (G: X→Y, F: Y→X) with cycle consistency loss F(G(X))≈X weighted by λ_cyc=10, using least-squares adversarial loss (LSGAN) instead of log-likelihood",\n'
+        '        "philosophy": "Cycle consistency substitutes for paired supervision — if translation is meaningful, round-tripping should recover the original"\n'
         '      }\n'
         '    ],\n'
-        '    "divergence_summary": "Both papers solve gradient flow but trade off memory for feature access: '
-        'ResNet uses constant-memory identity shortcuts while DenseNet uses linear-memory concatenation for full feature reuse."\n'
+        '    "divergence_summary": "Both learn image-to-image mappings via adversarial training but diverge on supervision: pix2pix uses pixel-aligned pairs with L1+cGAN loss, while CycleGAN removes the pairing requirement by enforcing F(G(X))≈X cycle consistency with λ_cyc=10, trading reconstruction fidelity for domain flexibility."\n'
         '  },\n'
         '  "strengths_weaknesses_matrix": [\n'
         '    {\n'
-        '      "work_id": "Wpaper1",\n'
-        '      "title": "Deep Residual Learning",\n'
+        '      "work_id": "Wpix2pix",\n'
+        '      "title": "Image-to-Image Translation with Conditional Adversarial Networks",\n'
         '      "handles_well": [\n'
         '        {\n'
-        '          "capability": "Training networks with 100+ layers",\n'
-        '          "mechanism": "Identity shortcuts provide gradient highway regardless of depth",\n'
-        '          "evidence": "Successfully trained 152-layer network on ImageNet; 1000-layer on CIFAR"\n'
-        '        },\n'
-        '        {\n'
-        '          "capability": "Memory-efficient deep training",\n'
-        '          "mechanism": "Additive residuals have O(1) memory overhead per block",\n'
-        '          "evidence": "152-layer ResNet fits in 12GB GPU memory"\n'
+        '          "capability": "High-fidelity paired translation",\n'
+        '          "mechanism": "U-Net skip connections preserve spatial detail from encoder to decoder at each of 8 resolution levels, while L1 loss (λ=100) anchors output to ground truth",\n'
+        '          "evidence": "Achieves 71.8% per-pixel accuracy (FCN-score) on Cityscapes labels→photo, outperforming L1-only (52.9%) and cGAN-only (60.3%)"\n'
         '        }\n'
         '      ],\n'
         '      "struggles_with": [\n'
         '        {\n'
-        '          "limitation": "Feature reuse across distant layers",\n'
-        '          "cause": "Each layer only accesses previous layer output + skip",\n'
-        '          "consequence": "Features from early layers are not directly available to later layers"\n'
+        '          "limitation": "Requires pixel-aligned paired training data",\n'
+        '          "cause": "L1 loss computes per-pixel difference between generated and ground-truth images, requiring exact spatial correspondence",\n'
+        '          "consequence": "Cannot be applied to domains where paired data is unavailable (e.g., Monet paintings ↔ photographs), limiting applicability to ~5 datasets where alignment exists"\n'
+        '        },\n'
+        '        {\n'
+        '          "limitation": "Tiling artifacts from PatchGAN receptive field",\n'
+        '          "cause": "PatchGAN discriminator classifies independent 70×70 patches with no cross-patch communication",\n'
+        '          "consequence": "Visible repetitive texture boundaries at 70-pixel intervals in generated images, particularly noticeable in uniform regions like sky or walls"\n'
         '        }\n'
         '      ],\n'
         '      "assumptions": [\n'
         '        {\n'
-        '          "assumption": "Residual functions are easier to optimize than full mappings",\n'
-        '          "if_violated": "Network degrades to learning identity, gaining no representational power"\n'
+        '          "assumption": "Input and output images are spatially aligned at pixel level",\n'
+        '          "if_violated": "L1 loss produces blurred outputs as it averages over misaligned pixels"\n'
         '        }\n'
         '      ],\n'
         '      "complemented_by": [\n'
         '        {\n'
-        '          "other_work_id": "Wpaper2",\n'
-        '          "coverage": "DenseNet provides direct feature reuse across all layers through concatenation"\n'
+        '          "other_work_id": "Wcyclegan",\n'
+        '          "other_title": "Unpaired Image-to-Image Translation using Cycle-Consistent Adversarial Networks",\n'
+        '          "other_year": 2017,\n'
+        '          "coverage": "CycleGAN replaces L1 paired supervision with cycle consistency loss F(G(X))≈X (λ_cyc=10), enabling training on unpaired collections — directly addressing pix2pix\'s paired data requirement"\n'
+        '        }\n'
+        '      ]\n'
+        '    },\n'
+        '    {\n'
+        '      "work_id": "Wcyclegan",\n'
+        '      "title": "Unpaired Image-to-Image Translation using Cycle-Consistent Adversarial Networks",\n'
+        '      "handles_well": [\n'
+        '        {\n'
+        '          "capability": "Translation without paired supervision",\n'
+        '          "mechanism": "Cycle consistency loss F(G(X))≈X + G(F(Y))≈Y with λ_cyc=10 constrains the mapping space without requiring aligned pairs",\n'
+        '          "evidence": "Produces visually plausible horse↔zebra, summer↔winter, photo↔Monet translations from fully unpaired collections of ~1000 images per domain"\n'
+        '        }\n'
+        '      ],\n'
+        '      "struggles_with": [\n'
+        '        {\n'
+        '          "limitation": "Cannot handle geometric transformations",\n'
+        '          "cause": "Cycle consistency F(G(X))≈X forces the generator to preserve spatial structure — any geometric change breaks the cycle",\n'
+        '          "consequence": "Fails on tasks requiring shape changes (e.g., dog→cat), producing only texture/color transfer while preserving the source geometry"\n'
+        '        }\n'
+        '      ],\n'
+        '      "assumptions": [\n'
+        '        {\n'
+        '          "assumption": "A bijective mapping exists between source and target domains",\n'
+        '          "if_violated": "Many-to-one mappings (e.g., multiple cat breeds → one dog breed) cause mode collapse in the reverse generator F"\n'
+        '        }\n'
+        '      ],\n'
+        '      "complemented_by": [\n'
+        '        {\n'
+        '          "other_work_id": "Wstargan",\n'
+        '          "other_title": "StarGAN: Unified Generative Adversarial Networks for Multi-Domain Image-to-Image Translation",\n'
+        '          "other_year": 2018,\n'
+        '          "coverage": "StarGAN uses a single generator conditioned on domain labels with classification loss, handling N domains with one model instead of CycleGAN\'s O(N²) generator pairs"\n'
         '        }\n'
         '      ]\n'
         '    }\n'
         '  ],\n'
         '  "recommendation": {\n'
-        '    "summary": "ResNet excels for memory-constrained deep training; DenseNet for parameter-efficient models. '
-        'Choose based on your GPU memory budget and whether model size or training memory matters more.",\n'
+        '    "summary": "Use pix2pix when aligned paired data exists (maps, segmentation masks, edges) for maximum fidelity via L1+cGAN. Use CycleGAN when only unpaired collections are available, accepting lower spatial precision for domain flexibility.",\n'
         '    "decision_matrix": [\n'
         '      {\n'
-        '        "scenario": "Training very deep networks (100+ layers) on limited GPU memory",\n'
-        '        "use": "Wpaper1",\n'
-        '        "why": "Constant memory overhead per block allows scaling depth without memory explosion"\n'
+        '        "scenario": "Semantic segmentation label → photorealistic image with paired data",\n'
+        '        "use": "Wpix2pix",\n'
+        '        "why": "L1 loss (λ=100) on pixel-aligned pairs ensures structural fidelity to the segmentation layout, while PatchGAN adds local texture realism — achieving 71.8% FCN-score vs CycleGAN\'s ~58%"\n'
         '      },\n'
         '      {\n'
-        '        "scenario": "Deploying to edge devices where model size matters",\n'
-        '        "use": "Wpaper2",\n'
-        '        "why": "Dense connections achieve equivalent accuracy with 3x fewer parameters"\n'
+        '        "scenario": "Artistic style transfer between unpaired image collections",\n'
+        '        "use": "Wcyclegan",\n'
+        '        "why": "Cycle consistency loss enables learning from unpaired collections (e.g., ~1000 Monet paintings + ~1000 photographs), where no pixel correspondence exists and pix2pix cannot be applied"\n'
         '      },\n'
         '      {\n'
-        '        "scenario": "Transfer learning with limited target domain data",\n'
-        '        "use": "Wpaper2",\n'
-        '        "why": "Feature reuse across layers provides richer representations for fine-tuning"\n'
+        '        "scenario": "Domain adaptation for autonomous driving (sim→real)",\n'
+        '        "use": "Wcyclegan",\n'
+        '        "why": "Simulated and real driving images have no pixel alignment; cycle consistency preserves scene layout while transferring visual appearance from rendered to photorealistic domain"\n'
         '      }\n'
         '    ],\n'
         '    "can_combine": true,\n'
-        '    "combination_notes": "ResNet-style shortcuts can be added within DenseNet blocks (DenseNet-BC). '
-        'Alternatively, use ResNet backbone with DenseNet-style connections in specific modules."\n'
+        '    "combination_notes": "When sparse paired examples exist alongside large unpaired collections, use CycleGAN\'s cycle loss for the bulk of training and add pix2pix\'s L1 loss on the paired subset as an auxiliary objective."\n'
         '  }\n'
         '}\n\n'
+        "NOTICE how every field in the example above contains:\n"
+        "- Specific architecture names (U-Net, ResNet-9, PatchGAN 70×70)\n"
+        "- Exact loss formulations (L = L_cGAN + λ·L1 where λ=100, F(G(X))≈X with λ_cyc=10)\n"
+        "- Concrete numbers (71.8% FCN-score, 8 encoder layers, ~1000 images)\n"
+        "- Causal chains in cause→consequence (not just 'increases cost')\n"
+        "- RECOMMENDATION WHY fields explain the causal chain: mechanism → why it helps in this scenario.\n"
+        "  NOT: 'provides good results for this task'\n"
+        "  YES: 'L1 loss (λ=100) on pixel-aligned pairs ensures structural fidelity — achieving 71.8% FCN-score'\n"
+        "  YES: 'cycle consistency preserves scene layout while transferring visual appearance'\n"
+        "  Every 'why' must name the SPECIFIC mechanism from the paper that makes it suitable.\n"
+        "Your output MUST match this level of specificity. Generic descriptions will be rejected.\n\n"
         "=== NOW PRODUCE YOUR COMPARISON ===\n"
         "Analyze the papers above. Return JSON with this EXACT structure:\n"
         "{\n"
@@ -937,19 +1714,23 @@ def _build_synthesis_prompt(
             '"handles_well": [{"capability": "...", "mechanism": "...", "evidence": "..."}], '
             '"struggles_with": [{"limitation": "...", "cause": "...", "consequence": "..."}], '
             '"assumptions": [{"assumption": "...", "if_violated": "..."}], '
-            '"complemented_by": [{"other_work_id": "' + (work_id_list[0] if wid != work_id_list[0] else work_id_list[1] if len(work_id_list) > 1 else wid) + '", "coverage": "..."}]}'
+            '"complemented_by": [{"other_work_id": "W...", "other_title": "...", "other_year": 2020, '
+            '"coverage": "SPECIFIC mechanism: explain exactly how this paper addresses the gap"}]}'
             for wid in work_id_list
         )
         + "\n  ],\n"
         '  "recommendation": {\n'
         '    "summary": "Your quick take on which paper to use and when",\n'
         '    "decision_matrix": [\n'
-        '      {"scenario": "...", "use": "' + work_id_list[0] + '", "why": "..."},\n'
-        '      {"scenario": "...", "use": "' + (work_id_list[1] if len(work_id_list) > 1 else work_id_list[0]) + '", "why": "..."},\n'
-        '      {"scenario": "...", "use": "...", "why": "..."}\n'
+        '      {"scenario": "Specific use case", "use": "' + work_id_list[0] + '", '
+        '"why": "..."},\n'
+        '      {"scenario": "Different use case", "use": "' + (work_id_list[1] if len(work_id_list) > 1 else work_id_list[0]) + '", '
+        '"why": "..."},\n'
+        '      {"scenario": "Third use case", "use": "...", '
+        '"why": "..."}\n'
         '    ],\n'
         '    "can_combine": true/false,\n'
-        '    "combination_notes": "How to combine these methods, or null if not applicable"\n'
+        '    "combination_notes": "Specific technique for combining: name the components from each paper"\n'
         '  }\n'
         "}"
     )
@@ -960,14 +1741,32 @@ def _synthesize(
     fingerprints: Dict[str, Dict[str, Any]],
     contents: list[PaperContent],
     lineage: CitationLineage,
+    complement_candidates: Optional[Dict[str, list[Dict[str, Any]]]] = None,
+    has_survey: bool = False,
+    low_overlap: bool = False,
 ) -> Dict[str, Any]:
     """Run the synthesis LLM call."""
-    prompt = _build_synthesis_prompt(papers_meta, fingerprints, contents, lineage)
+    prompt = _build_synthesis_prompt(
+        papers_meta, fingerprints, contents, lineage, complement_candidates,
+        has_survey=has_survey, low_overlap=low_overlap,
+    )
     work_ids = [p["work_id"] for p in papers_meta]
+
+    # Build set of all valid complement work_ids (input + candidates)
+    valid_complement_wids = set(work_ids)
+    if complement_candidates:
+        for cands in complement_candidates.values():
+            for cand in cands:
+                cand_wid = cand.get("work_id", "")
+                if cand_wid:
+                    valid_complement_wids.add(cand_wid)
+
+    relaxed = has_survey or low_overlap
     result = _call_llm(
         SYNTHESIS_SYSTEM, prompt,
         validator=_validate_synthesis,
-        validator_args=(work_ids,),
+        validator_args=(work_ids, valid_complement_wids, relaxed, fingerprints),
+        relaxed_validator_args=(work_ids, valid_complement_wids, True, fingerprints),
     )
 
     if result:
@@ -1004,6 +1803,7 @@ def _run_comparison_pipeline(
     work_ids: list[str],
     papers_meta_map: Dict[str, Dict[str, Any]],
     map_id: Optional[str] = None,
+    rank_job_id: Optional[str] = None,
 ) -> MethodologyComparisonResponse:
     """
     Shared comparison pipeline (post-validation).
@@ -1012,8 +1812,10 @@ def _run_comparison_pipeline(
     1. Check comparison cache
     2. Stage 1A + 1B: Fetch content + build lineage (parallel)
     3. Stage 2: Extract fingerprints (LLM call 1)
+    3.5. Find complement candidates (DB + external APIs)
     4. Stage 3: Synthesize comparison (LLM call 2)
-    5. Cache and return
+    5. Scrub self-references
+    6. Cache and return
     """
     papers_meta = [papers_meta_map[wid] for wid in work_ids]
 
@@ -1038,8 +1840,36 @@ def _run_comparison_pipeline(
     # 3. Stage 2: Extract fingerprints
     fingerprints = _extract_fingerprints(conn, papers_meta, contents)
 
+    # 3a. Detect paper types and overlap
+    paper_types = {wid: _detect_paper_type(fingerprints.get(wid, {})) for wid in work_ids}
+    has_survey = any(t == "survey" for t in paper_types.values())
+    if has_survey:
+        logger.info(f"Survey paper detected: {[w for w, t in paper_types.items() if t == 'survey']}")
+
+    min_overlap = 1.0
+    for i, wid1 in enumerate(work_ids):
+        for wid2 in work_ids[i + 1:]:
+            overlap = _compute_paper_overlap(
+                fingerprints.get(wid1, {}), fingerprints.get(wid2, {})
+            )
+            min_overlap = min(min_overlap, overlap)
+    low_overlap = min_overlap < 0.10
+    if low_overlap:
+        logger.info(f"Low methodological overlap detected (Jaccard={min_overlap:.3f})")
+
+    # 3.5. Find complement candidates
+    complement_candidates = _find_complement_candidates(
+        conn, work_ids, fingerprints, papers_meta, map_id, rank_job_id
+    )
+
     # 4. Stage 3: Synthesize comparison
-    synthesis = _synthesize(papers_meta, fingerprints, contents, lineage)
+    synthesis = _synthesize(
+        papers_meta, fingerprints, contents, lineage, complement_candidates,
+        has_survey=has_survey, low_overlap=low_overlap,
+    )
+
+    # 5. Scrub self-references
+    synthesis = _scrub_self_references(synthesis)
 
     # 5. Compute confidence
     content_map = {c.work_id: c for c in contents}
@@ -1127,6 +1957,8 @@ def _run_comparison_pipeline(
             complemented_by=[
                 Complement(
                     other_work_id=c.get("other_work_id", ""),
+                    other_title=c.get("other_title"),
+                    other_year=c.get("other_year"),
                     coverage=c.get("coverage", ""),
                 )
                 for c in sw.get("complemented_by", [])
@@ -1202,5 +2034,6 @@ def compare_methodologies_for_rank_job(
             conn, rank_job_id, work_ids
         )
         return _run_comparison_pipeline(
-            conn, tenant_id, work_ids, papers_meta_map, map_id=None
+            conn, tenant_id, work_ids, papers_meta_map,
+            map_id=None, rank_job_id=rank_job_id
         )

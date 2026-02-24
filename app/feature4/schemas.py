@@ -147,6 +147,8 @@ class Complement(BaseModel):
     """How another paper covers this paper's weakness."""
 
     other_work_id: str
+    other_title: Optional[str] = None  # Title (for external papers not in comparison set)
+    other_year: Optional[int] = None  # Year (for external papers not in comparison set)
     coverage: str  # How the other paper addresses the gap
 
 
