@@ -58,6 +58,7 @@ class TimelinePaper(BaseModel):
     cited_by_count: Optional[int] = None
     relationship: Literal["reference", "landmark", "citing"]
     abstract: Optional[str] = None
+    authors: list[str] = []
 
 
 class TimelineSection(BaseModel):

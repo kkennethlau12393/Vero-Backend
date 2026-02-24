@@ -68,6 +68,7 @@ def group_papers_by_era(
             "cited_by_count": paper.get("cited_by_count") or 0,
             "relationship": relationship,
             "abstract": paper.get("abstract"),
+            "authors": paper.get("authors", []),
         }
 
         if era not in era_map:
@@ -171,7 +172,7 @@ def _fetch_citing_papers_s2(doi: Optional[str], limit: int = 50) -> List[Dict[st
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{clean_doi}/citations"
         params = {
-            "fields": "paperId,title,year,citationCount,externalIds,abstract",
+            "fields": "paperId,title,year,citationCount,externalIds,abstract,authors",
             "limit": min(limit, 1000),
         }
         resp = requests.get(url, params=params, headers=headers, timeout=30)
@@ -184,6 +185,7 @@ def _fetch_citing_papers_s2(doi: Optional[str], limit: int = 50) -> List[Dict[st
             if not citing or not isinstance(citing, dict):
                 continue
             external_ids = citing.get("externalIds") or {}
+            s2_authors = [a.get("name") for a in (citing.get("authors") or []) if a.get("name")]
             result.append({
                 "doi": external_ids.get("DOI"),
                 "s2_id": citing.get("paperId"),
@@ -191,6 +193,7 @@ def _fetch_citing_papers_s2(doi: Optional[str], limit: int = 50) -> List[Dict[st
                 "year": citing.get("year"),
                 "cited_by_count": citing.get("citationCount") or 0,
                 "abstract": citing.get("abstract"),
+                "authors": s2_authors,
             })
         logger.info(f"S2 citing papers: {len(result)} for DOI:{clean_doi}")
         return result
@@ -242,12 +245,18 @@ def _resolve_s2_papers_to_openalex(
                 if not wid_full or "/" not in wid_full:
                     continue
                 wid = wid_full.rsplit("/", 1)[-1]
+                oa_authors = [
+                    au.get("author", {}).get("display_name") or au.get("display_name")
+                    for au in w.get("authorships", [])
+                    if au.get("author", {}).get("display_name") or au.get("display_name")
+                ]
                 resolved.append({
                     "work_id": wid,
                     "title": w.get("title"),
                     "year": w.get("publication_year"),
                     "cited_by_count": w.get("cited_by_count") or 0,
                     "abstract": decode_openalex_abstract(w.get("abstract_inverted_index")),
+                    "authors": oa_authors,
                 })
                 # Track which DOIs resolved
                 w_doi = w.get("doi")
@@ -281,6 +290,7 @@ def _s2_paper_to_dict(p: Dict[str, Any]) -> Dict[str, Any]:
         "year": p.get("year"),
         "cited_by_count": p.get("cited_by_count") or 0,
         "abstract": p.get("abstract"),
+        "authors": p.get("authors", []),
     }
 
 
