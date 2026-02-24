@@ -46,6 +46,7 @@ from app.feature2.subtopic_service import generate_subtopics
 from app.feature2.temporal_map_service import build_temporal_map
 from app.feature2.title_to_query import extract_display_title, generate_topic_query_from_title
 from app.feature3.schemas import NoveltyAssessment
+from app.feature4.schemas import MethodologyCompareRequest, MethodologyComparisonResponse
 
 
 router = APIRouter(prefix="/v1/rank", tags=["rank"])
@@ -652,3 +653,179 @@ def rank_novelty_endpoint(
     except Exception as e:
         logger.exception("Unexpected error in rank_novelty endpoint")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/{rank_job_id}/compare-methodologies",
+    response_model=MethodologyComparisonResponse,
+)
+def rank_compare_methodologies_endpoint(
+    rank_job_id: UUID,
+    req: MethodologyCompareRequest,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    """
+    Compare methodologies of 2-4 papers from a rank job's results.
+
+    Validates that the rank job exists and belongs to the tenant, then
+    delegates to the Feature 4 methodology comparison pipeline.
+    """
+    try:
+        from sqlalchemy import text as sql_text
+        from app.feature4.compare_service import compare_methodologies_for_rank_job
+
+        with engine.connect() as conn:
+            # Verify rank job exists and belongs to tenant
+            job_row = conn.execute(
+                sql_text("""
+                    SELECT rank_job_id FROM rank_jobs
+                    WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
+                """),
+                {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
+            ).first()
+
+            if not job_row:
+                raise HTTPException(status_code=404, detail="rank_job_not_found")
+
+        return compare_methodologies_for_rank_job(
+            engine=engine,
+            tenant_id=tenant_id,
+            rank_job_id=str(rank_job_id),
+            work_ids=req.work_ids,
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        msg = str(e)
+        if "not found in rank job" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        logger.exception("Unexpected error in rank_compare_methodologies endpoint")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# GET hydration endpoints (novelty assessments + methodology comparisons)
+# ---------------------------------------------------------------------------
+
+@router.get("/{rank_job_id}/novelty-assessments")
+def get_rank_novelty_assessments(
+    rank_job_id: UUID,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    """Return all persisted novelty assessments for papers in a rank job."""
+    from sqlalchemy import text as sql_text
+
+    with engine.connect() as conn:
+        # Verify rank job exists and belongs to tenant
+        job_row = conn.execute(
+            sql_text("""
+                SELECT rank_job_id FROM rank_jobs
+                WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
+            """),
+            {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
+        ).first()
+
+        if not job_row:
+            raise HTTPException(status_code=404, detail="rank_job_not_found")
+
+        # Get all work_ids in this rank job
+        work_id_rows = conn.execute(
+            sql_text("""
+                SELECT work_id FROM rank_results
+                WHERE rank_job_id = :rank_job_id
+            """),
+            {"rank_job_id": rank_job_id},
+        ).mappings().all()
+
+        wids = [r["work_id"] for r in work_id_rows]
+        if not wids:
+            return {"assessments": {}}
+
+        # Batch query novelty assessments
+        rows = conn.execute(
+            sql_text("""
+                SELECT work_id, novelty_level, confidence, whats_new,
+                       compared_to_prior_work, novelty_explanation,
+                       grounding_papers, context_depth,
+                       assessment_unavailable_reason
+                FROM novelty_assessments
+                WHERE work_id = ANY(:wids)
+            """),
+            {"wids": wids},
+        ).mappings().all()
+
+        assessments = {}
+        for row in rows:
+            wid = row["work_id"]
+            # Skip papers where assessment was unavailable
+            if row["assessment_unavailable_reason"]:
+                continue
+            gp = row["grounding_papers"]
+            if isinstance(gp, str):
+                import json as _json
+                gp = _json.loads(gp)
+            assessments[wid] = {
+                "novelty_level": row["novelty_level"],
+                "confidence": row["confidence"],
+                "whats_new": row["whats_new"],
+                "compared_to_prior_work": row["compared_to_prior_work"],
+                "novelty_explanation": row["novelty_explanation"],
+                "grounding_papers": gp or [],
+                "context_depth": row["context_depth"],
+            }
+
+        return {"assessments": assessments}
+
+
+@router.get("/{rank_job_id}/methodology-comparisons")
+def get_rank_methodology_comparisons(
+    rank_job_id: UUID,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    """Return all saved methodology comparisons for a rank job."""
+    from sqlalchemy import text as sql_text
+
+    with engine.connect() as conn:
+        # Verify rank job exists and belongs to tenant
+        job_row = conn.execute(
+            sql_text("""
+                SELECT rank_job_id FROM rank_jobs
+                WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
+            """),
+            {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
+        ).first()
+
+        if not job_row:
+            raise HTTPException(status_code=404, detail="rank_job_not_found")
+
+        rows = conn.execute(
+            sql_text("""
+                SELECT work_ids, result, created_at
+                FROM methodology_comparisons
+                WHERE rank_job_id = :rjid
+                ORDER BY created_at DESC
+            """),
+            {"rjid": str(rank_job_id)},
+        ).mappings().all()
+
+        comparisons = []
+        for row in rows:
+            result = row["result"]
+            if isinstance(result, str):
+                import json as _json
+                result = _json.loads(result)
+            comparisons.append({
+                "work_ids": row["work_ids"],
+                "result": result,
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            })
+
+        return {"comparisons": comparisons}
