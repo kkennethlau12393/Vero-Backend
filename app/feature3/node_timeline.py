@@ -327,6 +327,202 @@ def _get_citing_papers_dual_source(
 
 
 # ============================================================================
+# S2 Batch Abstract Enrichment
+# ============================================================================
+
+def _get_dois_for_work_ids(
+    conn: Connection, work_ids: List[str],
+) -> Dict[str, str]:
+    """Batch-fetch DOIs from the works table for W-prefixed work_ids."""
+    w_ids = [wid for wid in work_ids if wid.startswith("W")]
+    if not w_ids:
+        return {}
+
+    rows = conn.execute(
+        text("SELECT work_id, doi FROM works WHERE work_id = ANY(:ids) AND doi IS NOT NULL"),
+        {"ids": w_ids},
+    ).mappings().all()
+    return {row["work_id"]: row["doi"].replace("https://doi.org/", "") for row in rows if row["doi"]}
+
+
+def _fetch_s2_abstracts_batch(
+    dois: List[str],
+) -> Dict[str, str]:
+    """
+    Fetch abstracts from Semantic Scholar batch API for a list of DOIs.
+
+    Uses POST /paper/batch which accepts up to 500 IDs per call.
+    Returns dict: DOI -> abstract.
+    """
+    if not dois:
+        return {}
+
+    headers = {"Content-Type": "application/json"}
+    if SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+
+    result: Dict[str, str] = {}
+
+    # S2 batch API accepts up to 500 IDs per call
+    for i in range(0, len(dois), 500):
+        batch = dois[i:i + 500]
+        try:
+            resp = requests.post(
+                "https://api.semanticscholar.org/graph/v1/paper/batch",
+                params={"fields": "title,abstract,externalIds"},
+                json={"ids": [f"DOI:{d}" for d in batch]},
+                headers=headers,
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                logger.warning(f"S2 batch API returned {resp.status_code}")
+                continue
+
+            for paper in resp.json():
+                if not paper or not isinstance(paper, dict):
+                    continue
+                abstract = paper.get("abstract")
+                if not abstract or len(abstract) < 50:
+                    continue
+                ext_ids = paper.get("externalIds") or {}
+                doi = ext_ids.get("DOI")
+                if doi:
+                    result[doi.lower()] = abstract
+        except Exception as e:
+            logger.warning(f"S2 batch abstract fetch failed: {e}")
+
+    logger.info(f"S2 batch abstract enrichment: {len(result)}/{len(dois)} DOIs returned abstracts")
+    return result
+
+
+def _fetch_s2_abstract_by_title(title: str) -> Optional[str]:
+    """Search S2 by title and return abstract of the best match."""
+    if not title or len(title) < 10:
+        return None
+
+    headers = {}
+    if SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+
+    try:
+        resp = requests.get(
+            "https://api.semanticscholar.org/graph/v1/paper/search",
+            params={"query": title, "limit": 3, "fields": "title,abstract"},
+            headers=headers,
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return None
+
+        for paper in (resp.json() or {}).get("data") or []:
+            abstract = paper.get("abstract")
+            if not abstract or len(abstract) < 50:
+                continue
+            # Verify title matches (simple word overlap)
+            s2_title = (paper.get("title") or "").lower()
+            query_title = title.lower()
+            s2_words = set(s2_title.split())
+            q_words = set(query_title.split())
+            if len(s2_words & q_words) >= max(2, len(q_words) * 0.5):
+                return abstract
+    except Exception as e:
+        logger.warning(f"S2 title search failed for '{title[:40]}': {e}")
+    return None
+
+
+def _enrich_timeline_abstracts(
+    conn: Connection,
+    references: List[Dict[str, Any]],
+    landmarks: List[Dict[str, Any]],
+    citing_papers: List[Dict[str, Any]],
+) -> int:
+    """
+    Enrich papers with missing abstracts via S2 batch API + title search.
+
+    Strategy:
+    1. Batch-fetch by DOI (fast, one API call for all)
+    2. Title search for remaining (one call per paper, limited to 10)
+
+    Modifies paper dicts in-place. Persists enriched abstracts to the works table.
+    Returns the number of papers enriched.
+    """
+    # Collect papers missing abstracts
+    all_papers = references + landmarks + citing_papers
+    missing = [p for p in all_papers if not p.get("abstract") and p.get("work_id")]
+    if not missing:
+        return 0
+
+    logger.info(f"Timeline abstract enrichment: {len(missing)} papers missing abstracts")
+
+    # Get DOIs for W-prefixed papers from DB
+    missing_wids = [p["work_id"] for p in missing]
+    doi_map = _get_dois_for_work_ids(conn, missing_wids)
+
+    # Split into papers with DOIs and without
+    with_doi: List[Dict[str, Any]] = []
+    without_doi: List[Dict[str, Any]] = []
+    doi_to_papers: Dict[str, List[Dict[str, Any]]] = {}
+    for p in missing:
+        wid = p["work_id"]
+        doi = doi_map.get(wid)
+        if doi:
+            doi_lower = doi.lower()
+            if doi_lower not in doi_to_papers:
+                doi_to_papers[doi_lower] = []
+            doi_to_papers[doi_lower].append(p)
+            with_doi.append(p)
+        else:
+            without_doi.append(p)
+
+    enriched_count = 0
+
+    # Strategy 1: Batch-fetch by DOI (fast)
+    if doi_to_papers:
+        s2_abstracts = _fetch_s2_abstracts_batch(list(doi_to_papers.keys()))
+        for doi_lower, abstract in s2_abstracts.items():
+            for p in doi_to_papers.get(doi_lower, []):
+                p["abstract"] = abstract
+                enriched_count += 1
+                _persist_abstract(conn, p["work_id"], abstract)
+
+    # Strategy 2: Title search for remaining (capped at 10 to avoid rate limits)
+    still_missing = [p for p in missing if not p.get("abstract") and p.get("title")]
+    for p in still_missing[:10]:
+        abstract = _fetch_s2_abstract_by_title(p["title"])
+        if abstract:
+            p["abstract"] = abstract
+            enriched_count += 1
+            _persist_abstract(conn, p["work_id"], abstract)
+
+    if enriched_count > 0:
+        try:
+            conn.commit()
+        except Exception:
+            pass
+
+    logger.info(f"Timeline abstract enrichment: enriched {enriched_count}/{len(missing)} papers via S2")
+    return enriched_count
+
+
+def _persist_abstract(conn: Connection, work_id: str, abstract: str) -> None:
+    """Persist enriched abstract to works table for future reuse."""
+    if not work_id.startswith("W"):
+        return
+    try:
+        conn.execute(
+            text("""
+                UPDATE works SET abstract = :abstract,
+                    abstract_source = 'semantic_scholar',
+                    abstract_validated_at = now()
+                WHERE work_id = :wid AND (abstract IS NULL OR length(abstract) < 50)
+            """),
+            {"abstract": abstract, "wid": work_id},
+        )
+    except Exception as e:
+        logger.warning(f"Failed to persist S2 abstract for {work_id}: {e}")
+
+
+# ============================================================================
 # Timeline Builder
 # ============================================================================
 
@@ -365,6 +561,11 @@ def build_node_timeline(
 
     # Get citing papers (forward) - dual-source: OA + S2
     citing_papers = _get_citing_papers_dual_source(conn, work_id, limit=MAX_CITING_PAPERS)
+
+    # Enrich papers with missing abstracts via S2 batch API
+    # This improves narrative quality by giving the LLM more context
+    _enrich_timeline_abstracts(conn, references, landmarks, citing_papers)
+
     forward_eras = group_papers_by_era(citing_papers, "citing")
 
     # Convert to sections
