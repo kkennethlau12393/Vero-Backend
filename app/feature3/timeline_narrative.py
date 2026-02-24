@@ -35,7 +35,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
-NARRATIVE_VERSION = "narrative-v5"
+NARRATIVE_VERSION = "narrative-v6"
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MAX_RETRIES = 3
@@ -94,7 +94,25 @@ OpenAlex papers use [W...] (e.g., [W2163605009]), Semantic Scholar papers use [S
 CRITICAL CONSTRAINT: You are telling a VERTICAL EVOLUTION story — how ideas evolved over \
 time in a research lineage. Do NOT compare methods side-by-side. Do NOT recommend which \
 paper to use. Do NOT create strengths/weaknesses analyses. Those are methodology comparison \
-tasks, not timeline narratives."""
+tasks, not timeline narratives.
+
+CRITICAL: For era_commentaries, you MUST extract specific technical details from the paper \
+abstracts provided. Every sentence must name a concrete technique, architecture, metric, \
+or dataset. Read each paper's abstract and state what it actually did.
+
+BAD era narrative (vague, no technical content):
+"The era witnessed the resurgence of CNNs, with architectures like AlexNet achieving \
+state-of-the-art results in image classification. The introduction of datasets like \
+Microsoft COCO further accelerated progress in object detection and segmentation."
+
+GOOD era narrative (specific mechanisms extracted from abstracts):
+"AlexNet [W2163605009] stacked five convolutional layers with ReLU activations and \
+dropout regularization, training on two GPUs to classify ImageNet's 1.2M images into \
+1000 classes at 37.5% top-1 error — halving the previous best. Microsoft COCO \
+[W1861492603] introduced per-instance segmentation masks across 91 object categories \
+with 2.5M labeled instances, enabling dense prediction benchmarks beyond classification. \
+The remaining bottleneck was network depth: beyond ~20 layers, gradient degradation \
+prevented convergence."""
 
 
 def _format_paper_for_prompt(
@@ -208,14 +226,8 @@ applications in other domains.",
         {{
             "era": "{era_example}",
             "headline": "Short era title (e.g., 'The statistical learning era')",
-            "narrative": "For EACH work you cite, extract its key technical contribution \
-from its abstract and state it concretely — e.g., 'ResNet [W123] introduced skip \
-connections via identity mappings, enabling 152-layer networks at 3.57% ImageNet top-5 \
-error' or 'DDPM [W456] reversed a fixed Markov noising process with learned Gaussian \
-transitions, achieving log-likelihood competitive with autoregressive models on CIFAR-10'. \
-Cite 2-4 works per era. End with the specific technical bottleneck that the next era \
-addressed. No filler — every sentence must contain a named technique, architecture, \
-metric, or dataset.",
+            "narrative": "Technical era narrative citing 2-4 works with [W...] IDs. \
+Follow the BAD/GOOD examples in system instructions.",
             "key_work_ids": ["W123", "W456"]
         }}
     ],
