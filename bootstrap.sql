@@ -553,6 +553,27 @@ CREATE TABLE IF NOT EXISTS public.novelty_assessments (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- ---------------------------------------------------------------------
+-- Saved papers (workspace-level paper library)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.saved_papers (
+    workspace_id uuid NOT NULL,
+    paper_work_id text NOT NULL,
+    user_id uuid NOT NULL,
+    source text NOT NULL DEFAULT 'manual',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (workspace_id, paper_work_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_saved_papers_workspace
+    ON public.saved_papers (workspace_id);
+CREATE INDEX IF NOT EXISTS idx_saved_papers_user
+    ON public.saved_papers (user_id);
+
+-- Migration: add source column for existing tables
+ALTER TABLE public.saved_papers
+    ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'manual';
+
 -- ==========================================================================
 -- Feature 4: Methodology Comparison
 -- ==========================================================================
@@ -581,6 +602,19 @@ CREATE TABLE IF NOT EXISTS public.methodology_comparison_cache (
 
 CREATE INDEX IF NOT EXISTS idx_methodology_comparison_created
     ON public.methodology_comparison_cache (created_at DESC);
+
+-- Persistent methodology comparisons (survives version bumps)
+CREATE TABLE IF NOT EXISTS public.methodology_comparisons (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    rank_job_id text NOT NULL,
+    work_ids text[] NOT NULL,
+    result jsonb NOT NULL,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE(rank_job_id, work_ids)
+);
+
+CREATE INDEX IF NOT EXISTS idx_methodology_comparisons_rank_job
+    ON public.methodology_comparisons (rank_job_id);
 
 -- Paper full text cache (from Semantic Scholar)
 CREATE TABLE IF NOT EXISTS public.paper_full_text_cache (

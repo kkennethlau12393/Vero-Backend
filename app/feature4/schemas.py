@@ -147,6 +147,8 @@ class Complement(BaseModel):
     """How another paper covers this paper's weakness."""
 
     other_work_id: str
+    other_title: Optional[str] = None  # Title (for external papers not in comparison set)
+    other_year: Optional[int] = None  # Year (for external papers not in comparison set)
     coverage: str  # How the other paper addresses the gap
 
 
@@ -191,6 +193,7 @@ class MethodologyComparisonResponse(BaseModel):
 
     work_ids: list[str]
     papers: list[PaperMethodProfile]
+    referenced_works: dict[str, str] = {}  # work_id -> title for external papers mentioned
     lineage: CitationLineage
     convergence_divergence: ConvergenceDivergence
     strengths_weaknesses_matrix: list[PaperStrengthsWeaknesses]
