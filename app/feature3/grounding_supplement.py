@@ -452,6 +452,12 @@ def lookup_paper_in_openalex(
         if topic_url and "/" in topic_url:
             topic_id = topic_url.rsplit("/", 1)[-1]
 
+        authors = [
+            au.get("author", {}).get("display_name") or au.get("display_name")
+            for au in best_match.get("authorships", [])
+            if au.get("author", {}).get("display_name") or au.get("display_name")
+        ]
+
         return {
             "work_id": work_id,
             "title": best_match.get("title"),
@@ -462,6 +468,7 @@ def lookup_paper_in_openalex(
             "topic_id": topic_id,  # NEW: Topic ID for precise matching
             "domain_name": domain_info.get("display_name"),
             "broad_field": field_info.get("display_name"),  # Keep broad field for reference
+            "authors": authors,
         }
 
     except Exception as e:
@@ -618,6 +625,12 @@ def fetch_top_cited_papers_openalex(
             if work_id and "/" in work_id:
                 work_id = work_id.rsplit("/", 1)[-1]
 
+            oa_authors = [
+                au.get("author", {}).get("display_name") or au.get("display_name")
+                for au in r.get("authorships", [])
+                if au.get("author", {}).get("display_name") or au.get("display_name")
+            ]
+
             papers.append({
                 "work_id": work_id,
                 "title": paper_title,
@@ -626,6 +639,7 @@ def fetch_top_cited_papers_openalex(
                 "abstract": _extract_abstract(r),
                 "relationship": "field_landmark",
                 "why_relevant": f"Highly-cited foundational paper in this field",
+                "authors": oa_authors,
             })
             existing_titles.add(paper_title.lower())
 
@@ -902,7 +916,7 @@ def search_semantic_scholar_by_keywords(
     url = "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
     params = {
         "query": search_terms[:200],
-        "fields": "title,abstract,year,citationCount,externalIds,s2FieldsOfStudy",
+        "fields": "title,abstract,year,citationCount,externalIds,s2FieldsOfStudy,authors",
         "limit": min(1000, limit * 3),
     }
     if fields_of_study:
@@ -967,7 +981,7 @@ def _search_s2_regular(
         params = {
             "query": search_terms[:100],
             "limit": min(100, limit * 3),
-            "fields": "title,abstract,year,citationCount,externalIds,s2FieldsOfStudy",
+            "fields": "title,abstract,year,citationCount,externalIds,s2FieldsOfStudy,authors",
             "year": f"-{before_year - 1}",
         }
         if fields_of_study:
@@ -1033,6 +1047,7 @@ def _filter_s2_results(
         paper_id = paper.get("paperId", "")
 
         work_id = openalex_id if openalex_id else f"S{paper_id}"
+        s2_authors = [a.get("name") for a in (paper.get("authors") or []) if a.get("name")]
 
         papers.append({
             "work_id": work_id,
@@ -1043,6 +1058,7 @@ def _filter_s2_results(
             "relationship": "field_landmark",
             "why_relevant": "Highly-cited foundational paper (via Semantic Scholar)",
             "doi": doi,
+            "authors": s2_authors,
         })
         existing_titles.add(paper_title.lower())
 
@@ -1205,6 +1221,14 @@ def resolve_paper_to_openalex(
                     work_id = work_id.rsplit("/", 1)[-1]
                 paper["work_id"] = work_id
                 paper["cited_by_count"] = data.get("cited_by_count", paper.get("cited_by_count", 0))
+                # Extract authors from OpenAlex
+                oa_authors = [
+                    au.get("author", {}).get("display_name") or au.get("display_name")
+                    for au in data.get("authorships", [])
+                    if au.get("author", {}).get("display_name") or au.get("display_name")
+                ]
+                if oa_authors:
+                    paper["authors"] = oa_authors
                 # Extract field_name and topic_id for cross-domain filtering
                 primary_topic = data.get("primary_topic", {})
                 subfield_info = primary_topic.get("subfield", {})
@@ -1224,6 +1248,8 @@ def resolve_paper_to_openalex(
         paper["work_id"] = result["work_id"]
         paper["cited_by_count"] = result.get("cited_by_count", paper.get("cited_by_count", 0))
         paper["abstract"] = result.get("abstract") or paper.get("abstract")
+        if result.get("authors"):
+            paper["authors"] = result["authors"]
         # Copy field_name and topic_id for cross-domain filtering
         if result.get("field_name"):
             paper["field_name"] = result["field_name"]

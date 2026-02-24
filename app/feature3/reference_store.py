@@ -2,11 +2,11 @@
 Reference store for Feature 3.
 
 This module fetches and caches the papers that a work cites (its references)
-from OpenAlex, storing them in the works.referenced_works_json column.
+from OpenAlex and Semantic Scholar, storing them in the works.referenced_works_json column.
 
-Key design: We fetch ALL referenced work_ids, insert them all into the DB,
-then sort by citation count and return the top N. This ensures we get the
-most influential references, not arbitrary ones.
+Key design: We fetch ALL referenced work_ids from both sources, insert them
+all into the DB, then sort by citation count and return the top N. This ensures
+we get the most influential references, not arbitrary ones.
 """
 
 from __future__ import annotations
@@ -15,19 +15,22 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app.feature3.abstract_enrichment import S2_RATE_LIMITER
 from app.feature3.paper_identity import decode_openalex_abstract
 
 logger = logging.getLogger(__name__)
 
 OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
+SEMANTIC_SCHOLAR_API_KEY = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
 OPENALEX_BATCH_SIZE = 50
 OPENALEX_TIMEOUT = 15
+S2_TIMEOUT = 15
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 0.5
 
@@ -55,20 +58,46 @@ def get_referenced_works(
     if cached is not None:
         logger.info(f"Reference cache hit for {work_id}: {len(cached)} refs")
     else:
-        # Step 2: Fetch from OpenAlex
-        cached = _fetch_references_from_openalex(work_id)
+        # Step 2a: Fetch from OpenAlex (also get DOI for S2 cross-referencing)
+        oa_ref_ids, target_doi = _fetch_references_from_openalex(work_id)
+
+        # Step 2b: If no DOI from OpenAlex response, try DB
+        if not target_doi:
+            row = conn.execute(
+                text("SELECT doi FROM works WHERE work_id = :wid"),
+                {"wid": work_id},
+            ).mappings().first()
+            if row and row["doi"]:
+                raw_doi = row["doi"]
+                target_doi = raw_doi.replace("https://doi.org/", "") if raw_doi.startswith("https://") else raw_doi
+
+        # Step 2c: Cross-reference with S2
+        s2_refs = _fetch_references_from_s2(target_doi) if target_doi else []
+
+        # Step 2d: Merge reference lists
+        if s2_refs:
+            cached = _merge_s2_references(oa_ref_ids, s2_refs)
+            _insert_s2_only_papers(conn, s2_refs)
+            logger.info(
+                f"References for {work_id}: {len(oa_ref_ids)} from OpenAlex, "
+                f"{len(s2_refs)} from S2, {len(cached)} merged"
+            )
+        else:
+            cached = oa_ref_ids
+
         if not cached:
             logger.info(f"No references found for {work_id}")
             _cache_references(conn, work_id, [])
             return []
-        # Step 3: Cache all reference IDs
+
+        # Step 3: Cache merged reference IDs
         _cache_references(conn, work_id, cached)
 
-    # Step 4: Ensure ALL referenced works exist in our DB
-    # This is the key fix: fetch all, not just first N
-    _ensure_works_exist(conn, cached)
+    # Step 4: Ensure W* referenced works exist in DB (S* already inserted)
+    w_ids = [wid for wid in cached if wid.startswith("W")]
+    _ensure_works_exist(conn, w_ids)
 
-    # Step 5: Load ALL references, sort by citations, return top N
+    # Step 5: Load ALL references (W* and S*), sort by citations, return top N
     return _load_reference_details(conn, cached, limit=MAX_REFERENCES_TO_RETURN)
 
 
@@ -111,8 +140,12 @@ def _cache_references(conn: Connection, work_id: str, ref_ids: List[str]) -> Non
         logger.warning(f"Failed to cache references for {work_id}: {e}")
 
 
-def _fetch_references_from_openalex(work_id: str) -> List[str]:
-    """Fetch referenced_works from OpenAlex API with retry logic."""
+def _fetch_references_from_openalex(work_id: str) -> Tuple[List[str], Optional[str]]:
+    """Fetch referenced_works and DOI from OpenAlex API with retry logic.
+
+    Returns:
+        (ref_ids, doi) - ref_ids is list of W* work IDs, doi for S2 cross-referencing
+    """
     for attempt in range(MAX_RETRIES):
         try:
             url = f"https://api.openalex.org/works/{work_id}"
@@ -130,6 +163,11 @@ def _fetch_references_from_openalex(work_id: str) -> List[str]:
             resp.raise_for_status()
 
             data = resp.json()
+
+            # Extract DOI for S2 cross-referencing
+            doi_raw = data.get("doi")
+            doi = doi_raw.replace("https://doi.org/", "") if doi_raw else None
+
             referenced_works = data.get("referenced_works", [])
 
             ref_ids = []
@@ -138,15 +176,15 @@ def _fetch_references_from_openalex(work_id: str) -> List[str]:
                     ref_id = ref_url.rsplit("/", 1)[-1]
                     ref_ids.append(ref_id)
 
-            logger.info(f"Fetched {len(ref_ids)} references for {work_id} from OpenAlex")
-            return ref_ids
+            logger.info(f"Fetched {len(ref_ids)} references for {work_id} from OpenAlex (DOI: {doi})")
+            return ref_ids, doi
 
         except requests.exceptions.RequestException as e:
             if attempt < MAX_RETRIES - 1:
                 time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
             else:
                 logger.warning(f"Failed to fetch references from OpenAlex for {work_id}: {e}")
-    return []
+    return [], None
 
 
 def _ensure_works_exist(conn: Connection, work_ids: List[str]) -> None:
@@ -214,6 +252,12 @@ def _fetch_and_insert_works(conn: Connection, work_ids: List[str]) -> None:
 
                 abstract = decode_openalex_abstract(w.get("abstract_inverted_index"))
 
+                authors = [
+                    au.get("author", {}).get("display_name") or au.get("display_name")
+                    for au in w.get("authorships", [])
+                    if au.get("author", {}).get("display_name") or au.get("display_name")
+                ]
+
                 primary_topic = w.get("primary_topic", {})
                 topic_id = None
                 if primary_topic and primary_topic.get("id"):
@@ -223,9 +267,10 @@ def _fetch_and_insert_works(conn: Connection, work_ids: List[str]) -> None:
 
                 conn.execute(
                     text("""
-                        INSERT INTO works (work_id, title, year, cited_by_count, abstract, primary_topic_id)
-                        VALUES (:work_id, :title, :year, :cited_by_count, :abstract, :primary_topic_id)
-                        ON CONFLICT (work_id) DO NOTHING
+                        INSERT INTO works (work_id, title, year, cited_by_count, abstract, primary_topic_id, authors_json)
+                        VALUES (:work_id, :title, :year, :cited_by_count, :abstract, :primary_topic_id, :authors_json)
+                        ON CONFLICT (work_id) DO UPDATE SET
+                            authors_json = COALESCE(works.authors_json, EXCLUDED.authors_json)
                     """),
                     {
                         "work_id": wid,
@@ -234,6 +279,7 @@ def _fetch_and_insert_works(conn: Connection, work_ids: List[str]) -> None:
                         "cited_by_count": cited_by_count,
                         "abstract": abstract,
                         "primary_topic_id": topic_id,
+                        "authors_json": json.dumps(authors) if authors else None,
                     },
                 )
 
@@ -247,6 +293,152 @@ def _fetch_and_insert_works(conn: Connection, work_ids: List[str]) -> None:
                 logger.warning(f"Failed to fetch/insert works: {e}")
 
 
+def _fetch_references_from_s2(doi: str) -> List[Dict[str, Any]]:
+    """
+    Fetch references from Semantic Scholar by DOI.
+
+    Returns list of dicts with: work_id (W* if OpenAlex ID available, else S*),
+    title, year, cited_by_count, doi, authors.
+    """
+    if not doi:
+        return []
+
+    headers = {}
+    if SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            S2_RATE_LIMITER.wait()
+            url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}/references"
+            params = {
+                "fields": "paperId,title,year,citationCount,externalIds,authors",
+                "limit": 1000,
+            }
+            resp = requests.get(url, params=params, headers=headers, timeout=S2_TIMEOUT)
+
+            if resp.status_code == 404:
+                logger.debug(f"S2 references not found for DOI:{doi}")
+                return []
+            if resp.status_code == 429:
+                backoff = 2.0 * (2 ** attempt)
+                logger.info(f"S2 429 for references, waiting {backoff}s")
+                time.sleep(backoff)
+                continue
+
+            resp.raise_for_status()
+            data = resp.json()
+
+            results = []
+            for item in data.get("data") or []:
+                ref = item.get("citedPaper")
+                if not ref or not isinstance(ref, dict) or not ref.get("title"):
+                    continue
+
+                ext_ids = ref.get("externalIds") or {}
+                oa_id = ext_ids.get("OpenAlex")
+                ref_doi = ext_ids.get("DOI")
+                s2_id = ref.get("paperId")
+
+                # Use OpenAlex W* ID if available, else S* ID
+                if oa_id and oa_id.startswith("W"):
+                    work_id = oa_id
+                elif s2_id:
+                    work_id = f"S{s2_id}"
+                else:
+                    continue
+
+                s2_authors = [a.get("name") for a in (ref.get("authors") or []) if a.get("name")]
+
+                results.append({
+                    "work_id": work_id,
+                    "title": ref.get("title"),
+                    "year": ref.get("year"),
+                    "cited_by_count": ref.get("citationCount") or 0,
+                    "doi": ref_doi,
+                    "s2_paper_id": s2_id,
+                    "authors": s2_authors,
+                })
+
+            logger.info(f"S2 references: {len(results)} papers for DOI:{doi}")
+            return results
+
+        except requests.exceptions.RequestException as e:
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
+            else:
+                logger.warning(f"Failed to fetch S2 references for DOI:{doi}: {e}")
+    return []
+
+
+def _merge_s2_references(
+    oa_ref_ids: List[str],
+    s2_refs: List[Dict[str, Any]],
+) -> List[str]:
+    """
+    Merge S2 references into OpenAlex reference ID list.
+
+    S2 papers with OpenAlex externalId -> W* ID (already in list or added).
+    S2 papers without OpenAlex ID -> S* ID (new coverage).
+    Returns merged list of work_id strings (W* and S*).
+    """
+    existing = set(oa_ref_ids)
+    merged = list(oa_ref_ids)
+
+    s2_only_count = 0
+    for ref in s2_refs:
+        wid = ref.get("work_id")
+        if wid and wid not in existing:
+            merged.append(wid)
+            existing.add(wid)
+            if wid.startswith("S"):
+                s2_only_count += 1
+
+    if s2_only_count > 0:
+        logger.info(f"S2 added {s2_only_count} references (S* IDs) not in OpenAlex")
+
+    return merged
+
+
+def _insert_s2_only_papers(
+    conn: Connection,
+    s2_refs: List[Dict[str, Any]],
+) -> None:
+    """Insert S2-only papers (S* IDs) into the works table."""
+    s2_only = [r for r in s2_refs if r.get("work_id", "").startswith("S")]
+    if not s2_only:
+        return
+
+    for ref in s2_only:
+        wid = ref["work_id"]
+        authors = ref.get("authors", [])
+        try:
+            conn.execute(
+                text("""
+                    INSERT INTO works (work_id, title, year, cited_by_count, doi, authors_json)
+                    VALUES (:work_id, :title, :year, :cited_by_count, :doi, :authors_json)
+                    ON CONFLICT (work_id) DO NOTHING
+                """),
+                {
+                    "work_id": wid,
+                    "title": ref.get("title"),
+                    "year": ref.get("year"),
+                    "cited_by_count": ref.get("cited_by_count") or 0,
+                    "doi": ref.get("doi"),
+                    "authors_json": json.dumps(authors) if authors else None,
+                },
+            )
+        except Exception as e:
+            logger.debug(f"Failed to insert S2 paper {wid}: {e}")
+
+    try:
+        conn.commit()
+    except Exception:
+        pass
+
+    logger.info(f"Inserted {len(s2_only)} S2-only reference papers")
+
+
 def _load_reference_details(
     conn: Connection,
     ref_ids: List[str],
@@ -258,7 +450,7 @@ def _load_reference_details(
 
     rows = conn.execute(
         text("""
-            SELECT work_id, title, year, cited_by_count, abstract, category, primary_topic_id
+            SELECT work_id, title, year, cited_by_count, abstract, category, primary_topic_id, authors_json
             FROM works
             WHERE work_id = ANY(:ids)
             ORDER BY cited_by_count DESC NULLS LAST
@@ -275,6 +467,7 @@ def _load_reference_details(
             "abstract": row["abstract"],
             "category": row["category"],
             "primary_topic_id": row["primary_topic_id"],
+            "authors": row["authors_json"] or [],
         }
         for row in rows
     ]

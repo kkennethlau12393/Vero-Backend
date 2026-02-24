@@ -21,6 +21,7 @@ class GroundingPaper(BaseModel):
     cited_by_count: Optional[int] = None
     relationship: Literal["cited_reference", "field_landmark"]
     relevance: str  # How this paper relates to the novelty claim
+    authors: list[str] = []
 
 
 class NoveltyAssessment(BaseModel):

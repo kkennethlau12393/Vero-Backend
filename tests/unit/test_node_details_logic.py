@@ -223,14 +223,24 @@ class TestExtractKeywordsFromAbstract:
 @pytest.mark.unit
 class TestDefaultResponse:
     def test_includes_ref_and_landmark(self):
-        refs = [{"work_id": "W111", "title": "Ref 1", "year": 2015, "cited_by_count": 100}]
-        landmarks = [{"work_id": "W222", "title": "Landmark 1", "year": 2010, "cited_by_count": 5000}]
+        refs = [{"work_id": "W111", "title": "Ref 1", "year": 2015, "cited_by_count": 100, "authors": ["Alice", "Bob"]}]
+        landmarks = [{"work_id": "W222", "title": "Landmark 1", "year": 2010, "cited_by_count": 5000, "authors": ["Charlie"]}]
         result = _default_response("My Paper", refs, landmarks)
         assert result["novelty_assessment"]["novelty_level"] == "medium"
         assert result["novelty_assessment"]["confidence"] == "low"
         gp_ids = {gp["work_id"] for gp in result["novelty_assessment"]["grounding_papers"]}
         assert "W111" in gp_ids
         assert "W222" in gp_ids
+
+    def test_grounding_papers_include_authors(self):
+        refs = [{"work_id": "W111", "title": "Ref 1", "year": 2015, "cited_by_count": 100, "authors": ["Alice", "Bob"]}]
+        landmarks = [{"work_id": "W222", "title": "Landmark 1", "year": 2010, "cited_by_count": 5000, "authors": ["Charlie"]}]
+        result = _default_response("My Paper", refs, landmarks)
+        grounding = result["novelty_assessment"]["grounding_papers"]
+        ref_gp = [gp for gp in grounding if gp["work_id"] == "W111"]
+        lm_gp = [gp for gp in grounding if gp["work_id"] == "W222"]
+        assert ref_gp and ref_gp[0]["authors"] == ["Alice", "Bob"]
+        assert lm_gp and lm_gp[0]["authors"] == ["Charlie"]
 
     def test_empty_refs_and_landmarks(self):
         result = _default_response("My Paper", [], [])

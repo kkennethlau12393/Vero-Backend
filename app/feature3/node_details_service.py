@@ -1122,6 +1122,10 @@ def _validate_llm_response(
         valid_work_ids.discard(target_work_id)
         logger.info(f"Removed self-citation {target_work_id} from valid grounding papers")
 
+    # Build authors lookup from refs + landmarks for propagation to grounding papers
+    _papers_by_id = {r["work_id"]: r for r in filtered_refs}
+    _papers_by_id.update({lm["work_id"]: lm for lm in filtered_landmarks})
+
     for gp in raw_grounding:
         if isinstance(gp, dict) and gp.get("work_id") in valid_work_ids:
             grounding_papers.append({
@@ -1131,6 +1135,7 @@ def _validate_llm_response(
                 "cited_by_count": gp.get("cited_by_count"),
                 "relationship": gp.get("relationship", "cited_reference"),
                 "relevance": gp.get("relevance", ""),
+                "authors": _papers_by_id.get(gp["work_id"], {}).get("authors", []),
             })
 
     # Ensure we have sufficient grounding papers (target: 5-7)
@@ -1172,6 +1177,7 @@ def _validate_llm_response(
                     "cited_by_count": lm.get("cited_by_count"),
                     "relationship": lm.get("relationship", "field_landmark"),
                     "relevance": _generate_relevance(lm, "field_landmark"),
+                    "authors": lm.get("authors", []),
                 })
                 grounding_work_ids.add(lm["work_id"])
                 landmarks_needed -= 1
@@ -1194,6 +1200,7 @@ def _validate_llm_response(
                     "cited_by_count": ref.get("cited_by_count"),
                     "relationship": ref.get("relationship", "cited_reference"),
                     "relevance": _generate_relevance(ref, "cited_reference"),
+                    "authors": ref.get("authors", []),
                 })
                 grounding_work_ids.add(ref["work_id"])
 
@@ -1215,6 +1222,7 @@ def _validate_llm_response(
                     "cited_by_count": lm.get("cited_by_count"),
                     "relationship": lm.get("relationship", "field_landmark"),
                     "relevance": _generate_relevance(lm, "field_landmark"),
+                    "authors": lm.get("authors", []),
                 })
                 grounding_work_ids.add(lm["work_id"])
 
@@ -1316,6 +1324,7 @@ def _validate_llm_response(
                     "cited_by_count": paper.get("cited_by_count"),
                     "relationship": relationship,
                     "relevance": _generate_relevance(paper, relationship),
+                    "authors": paper.get("authors", []),
                 })
                 grounding_work_ids.add(orphan_id)
                 logger.info(f"Added orphaned citation {orphan_id} to grounding_papers")
@@ -1504,6 +1513,7 @@ def _default_response(
             "cited_by_count": top_ref.get("cited_by_count"),
             "relationship": "cited_reference",
             "relevance": "Primary reference",
+            "authors": top_ref.get("authors", []),
         })
 
     if landmarks:
@@ -1515,6 +1525,7 @@ def _default_response(
             "cited_by_count": top_lm.get("cited_by_count"),
             "relationship": "field_landmark",
             "relevance": "Key landmark in this field",
+            "authors": top_lm.get("authors", []),
         })
 
     return {
