@@ -45,7 +45,7 @@ from app.feature2.rank_service import direct_rank_prod
 from app.feature2.subtopic_service import generate_subtopics
 from app.feature2.temporal_map_service import build_temporal_map
 from app.feature2.title_to_query import extract_display_title, generate_topic_query_from_title
-from app.feature3.schemas import NoveltyAssessment
+from app.feature3.schemas import NodeTimeline, NoveltyAssessment
 from app.feature4.schemas import MethodologyCompareRequest, MethodologyComparisonResponse
 
 
@@ -652,6 +652,80 @@ def rank_novelty_endpoint(
         raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
         logger.exception("Unexpected error in rank_novelty endpoint")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/{rank_job_id}/nodes/{work_id}/timeline",
+    response_model=NodeTimeline,
+)
+def rank_timeline_endpoint(
+    rank_job_id: UUID,
+    work_id: str,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    """
+    Generate timeline narrative for a paper in a ranked result list.
+
+    Validates that the rank job exists, belongs to the tenant, and
+    that the work_id is present in the job's results. Then delegates
+    to the Feature 3 timeline pipeline (dual-source retrieval, LLM narrative).
+
+    Returns 404 if rank job or work not found.
+    Returns 422 if timeline generation fails.
+    """
+    try:
+        from sqlalchemy import text as sql_text
+
+        with engine.connect() as conn:
+            # Verify rank job exists and belongs to tenant
+            job_row = conn.execute(
+                sql_text("""
+                    SELECT rank_job_id FROM rank_jobs
+                    WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
+                """),
+                {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
+            ).first()
+
+            if not job_row:
+                raise HTTPException(status_code=404, detail="rank_job_not_found")
+
+            # Verify work_id is in this job's results
+            work_row = conn.execute(
+                sql_text("""
+                    SELECT 1 FROM rank_results
+                    WHERE rank_job_id = :rank_job_id AND work_id = :work_id
+                    LIMIT 1
+                """),
+                {"rank_job_id": rank_job_id, "work_id": work_id},
+            ).first()
+
+            if not work_row:
+                raise HTTPException(status_code=404, detail="work_not_in_rank_results")
+
+        # Delegate to Feature 3 timeline pipeline
+        from app.feature3.node_details_service import get_timeline_for_work
+
+        timeline = get_timeline_for_work(engine, work_id=work_id)
+
+        if timeline is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Timeline generation failed for this paper",
+            )
+
+        return timeline
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        msg = str(e)
+        if msg == "work_not_found":
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+    except Exception as e:
+        logger.exception("Unexpected error in rank_timeline endpoint")
         raise HTTPException(status_code=500, detail=str(e))
 
 
