@@ -30,11 +30,13 @@ from app.feature3.node_timeline import build_node_timeline
 from app.feature3.reference_store import get_referenced_works
 from app.feature3.schemas import (
     ConnectedWork,
+    EraCommentary,
     GroundingPaper,
     NodeDetailsResponse,
     NodeTimeline,
     NoveltyAssessment,
     PaperImpactAnalysis,
+    ResearchLineageNarrative,
     TimelinePaper,
     TimelineSection,
 )
@@ -1391,7 +1393,7 @@ def _validate_llm_response(
 
 
 def _build_impact_analysis_obj(impact_data: Optional[Dict[str, Any]]) -> Optional[PaperImpactAnalysis]:
-    """Convert impact_analysis dict to PaperImpactAnalysis Pydantic model."""
+    """Convert impact_analysis dict to PaperImpactAnalysis Pydantic model. Legacy."""
     if not impact_data:
         return None
     return PaperImpactAnalysis(
@@ -1400,6 +1402,88 @@ def _build_impact_analysis_obj(impact_data: Optional[Dict[str, Any]]) -> Optiona
         before_approach=impact_data.get("before_approach"),
         after_approach=impact_data.get("after_approach"),
         shift_description=impact_data.get("shift_description"),
+    )
+
+
+def _build_narrative_obj(narrative_data: Optional[Dict[str, Any]]) -> Optional[ResearchLineageNarrative]:
+    """Convert narrative dict from timeline_narrative.py to Pydantic model."""
+    if not narrative_data:
+        return None
+    return ResearchLineageNarrative(
+        historical_context=narrative_data.get("historical_context", ""),
+        contribution_statement=narrative_data.get("contribution_statement", ""),
+        downstream_impact=narrative_data.get("downstream_impact", ""),
+        era_commentaries=[
+            EraCommentary(**ec)
+            for ec in narrative_data.get("era_commentaries", [])
+        ],
+        cross_domain_influence=narrative_data.get("cross_domain_influence"),
+        paper_type=narrative_data.get("paper_type"),
+        is_paradigm_shift=narrative_data.get("is_paradigm_shift", False),
+        impact_score=narrative_data.get("impact_score", 0.0),
+    )
+
+
+def _build_timeline_if_requested(
+    conn: Connection,
+    include_timeline: bool,
+    work_id: str,
+    work_data: Dict[str, Any],
+    referenced_works: Optional[List[Dict[str, Any]]] = None,
+    landmarks: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[NodeTimeline]:
+    """Build timeline object if requested, loading data as needed."""
+    if not include_timeline:
+        return None
+
+    if referenced_works is None:
+        referenced_works = get_referenced_works(conn, work_id)
+    if landmarks is None:
+        # Check if grounding supplement already cached enriched landmarks
+        from app.feature3.paper_cache import get_landmarks as get_cached_landmarks
+        cached_landmarks = get_cached_landmarks(conn, work_id)
+        if cached_landmarks:
+            landmarks = cached_landmarks
+        else:
+            landmarks = get_topic_landmarks(
+                conn, work_data.get("primary_topic_id"),
+                work_data.get("year"), target_title=work_data.get("title"),
+            )
+
+    timeline_data = build_node_timeline(
+        conn, work_id, work_data["year"],
+        referenced_works, landmarks,
+        include_narrative=True,
+        target_title=work_data.get("title"),
+        target_abstract=work_data.get("abstract"),
+        target_cited_by_count=work_data.get("cited_by_count", 0),
+    )
+
+    narrative_data = timeline_data.get("narrative")
+
+    return NodeTimeline(
+        target_work_id=timeline_data["target_work_id"],
+        target_year=timeline_data["target_year"],
+        backward=[
+            TimelineSection(
+                era=s["era"],
+                papers=[TimelinePaper(**p) for p in s["papers"]],
+                commentary=s.get("commentary"),
+            )
+            for s in timeline_data["backward"]
+        ],
+        forward=[
+            TimelineSection(
+                era=s["era"],
+                papers=[TimelinePaper(**p) for p in s["papers"]],
+                commentary=s.get("commentary"),
+            )
+            for s in timeline_data["forward"]
+        ],
+        narrative=_build_narrative_obj(narrative_data),
+        before_approach=narrative_data.get("before_approach") if narrative_data else None,
+        after_approach=narrative_data.get("after_approach") if narrative_data else None,
+        shift_description=None,  # Legacy field, narrative has richer content
     )
 
 
@@ -1598,12 +1682,17 @@ def get_node_details(
                 oa_status=work_data.get("oa_status"),
             )
 
-        # Lightweight metadata-only response (no LLM call)
+        # Lightweight metadata-only response (no LLM call for novelty)
         if not include_novelty:
             basic_summary = _generate_summary_from_abstract(
                 work_data["abstract"], work_data["title"]
             )
             basic_keywords = _extract_keywords_from_abstract(work_data["abstract"])
+
+            # Build timeline even without novelty
+            timeline_obj = _build_timeline_if_requested(
+                conn, include_timeline, work_id, work_data,
+            )
 
             return NodeDetailsResponse(
                 work_id=work_data["work_id"],
@@ -1617,7 +1706,7 @@ def get_node_details(
                 keywords=basic_keywords,
                 novelty_assessment=None,
                 connected_works=connected_works,
-                timeline=None,
+                timeline=timeline_obj,
                 primary_topic_id=work_data.get("primary_topic_id"),
                 topic_display_name=topic_display_name,
                 access_status=access_info["access_status"],
@@ -1660,40 +1749,9 @@ def get_node_details(
                     keywords = _extract_keywords_from_abstract(work_data["abstract"])
 
                 # Build timeline if requested
-                timeline_obj = None
-                if include_timeline:
-                    referenced_works = get_referenced_works(conn, work_id)
-                    landmarks = get_topic_landmarks(
-                        conn, work_data.get("primary_topic_id"),
-                        work_data.get("year"), target_title=work_data.get("title"),
-                    )
-                    timeline_data = build_node_timeline(
-                        conn, work_id, work_data["year"],
-                        referenced_works, landmarks,
-                        include_impact_analysis=True,
-                        target_title=work_data.get("title"),
-                        target_abstract=work_data.get("abstract"),
-                        target_cited_by_count=work_data.get("cited_by_count", 0),
-                    )
-                    timeline_obj = NodeTimeline(
-                        target_work_id=timeline_data["target_work_id"],
-                        target_year=timeline_data["target_year"],
-                        backward=[
-                            TimelineSection(
-                                era=section["era"],
-                                papers=[TimelinePaper(**p) for p in section["papers"]],
-                            )
-                            for section in timeline_data["backward"]
-                        ],
-                        forward=[
-                            TimelineSection(
-                                era=section["era"],
-                                papers=[TimelinePaper(**p) for p in section["papers"]],
-                            )
-                            for section in timeline_data["forward"]
-                        ],
-                        impact_analysis=_build_impact_analysis_obj(timeline_data.get("impact_analysis")),
-                    )
+                timeline_obj = _build_timeline_if_requested(
+                    conn, include_timeline, work_id, work_data,
+                )
 
                 return NodeDetailsResponse(
                     work_id=work_data["work_id"],
@@ -1740,47 +1798,9 @@ def get_node_details(
                 )
 
             # Build timeline if requested (requires loading refs/landmarks)
-            timeline_obj = None
-            if include_timeline:
-                logger.info(f"Building timeline for cached {work_id}")
-                # Load references and landmarks for timeline
-                referenced_works = get_referenced_works(conn, work_id)
-                landmarks = get_topic_landmarks(
-                    conn,
-                    work_data.get("primary_topic_id"),
-                    work_data.get("year"),
-                    target_title=work_data.get("title"),
-                )
-                timeline_data = build_node_timeline(
-                    conn,
-                    work_id,
-                    work_data["year"],
-                    referenced_works,
-                    landmarks,
-                    include_impact_analysis=True,
-                    target_title=work_data.get("title"),
-                    target_abstract=work_data.get("abstract"),
-                    target_cited_by_count=work_data.get("cited_by_count", 0),
-                )
-                timeline_obj = NodeTimeline(
-                    target_work_id=timeline_data["target_work_id"],
-                    target_year=timeline_data["target_year"],
-                    backward=[
-                        TimelineSection(
-                            era=section["era"],
-                            papers=[TimelinePaper(**p) for p in section["papers"]],
-                        )
-                        for section in timeline_data["backward"]
-                    ],
-                    forward=[
-                        TimelineSection(
-                            era=section["era"],
-                            papers=[TimelinePaper(**p) for p in section["papers"]],
-                        )
-                        for section in timeline_data["forward"]
-                    ],
-                    impact_analysis=_build_impact_analysis_obj(timeline_data.get("impact_analysis")),
-                )
+            timeline_obj = _build_timeline_if_requested(
+                conn, include_timeline, work_id, work_data,
+            )
 
             return NodeDetailsResponse(
                 work_id=work_data["work_id"],
@@ -1884,39 +1904,10 @@ def get_node_details(
                 basic_keywords = _extract_keywords_from_abstract(work_data["abstract"])
 
                 # Build timeline if requested (even without grounding data)
-                timeline_obj = None
-                if include_timeline:
-                    logger.info(f"Building timeline for {work_id} (no grounding data)")
-                    timeline_data = build_node_timeline(
-                        conn,
-                        work_id,
-                        work_data["year"],
-                        [],  # No references
-                        [],  # No landmarks
-                        include_impact_analysis=True,
-                        target_title=work_data.get("title"),
-                        target_abstract=work_data.get("abstract"),
-                        target_cited_by_count=work_data.get("cited_by_count", 0),
-                    )
-                    timeline_obj = NodeTimeline(
-                        target_work_id=timeline_data["target_work_id"],
-                        target_year=timeline_data["target_year"],
-                        backward=[
-                            TimelineSection(
-                                era=section["era"],
-                                papers=[TimelinePaper(**p) for p in section["papers"]],
-                            )
-                            for section in timeline_data["backward"]
-                        ],
-                        forward=[
-                            TimelineSection(
-                                era=section["era"],
-                                papers=[TimelinePaper(**p) for p in section["papers"]],
-                            )
-                            for section in timeline_data["forward"]
-                        ],
-                        impact_analysis=_build_impact_analysis_obj(timeline_data.get("impact_analysis")),
-                    )
+                timeline_obj = _build_timeline_if_requested(
+                    conn, include_timeline, work_id, work_data,
+                    referenced_works=[], landmarks=[],
+                )
 
                 unavailable_reason = (
                     "Insufficient reference data - no citations or field landmark papers "
@@ -2102,39 +2093,10 @@ def get_node_details(
         persist_assessment(conn, work_id, llm_result["novelty_assessment"])
 
         # Build timeline if requested
-        timeline_obj = None
-        if include_timeline:
-            logger.info(f"Building timeline for {work_id}")
-            timeline_data = build_node_timeline(
-                conn,
-                work_id,
-                work_data["year"],
-                referenced_works,
-                landmarks,
-                include_impact_analysis=True,
-                target_title=work_data.get("title"),
-                target_abstract=work_data.get("abstract"),
-                target_cited_by_count=work_data.get("cited_by_count", 0),
-            )
-            timeline_obj = NodeTimeline(
-                target_work_id=timeline_data["target_work_id"],
-                target_year=timeline_data["target_year"],
-                backward=[
-                    TimelineSection(
-                        era=section["era"],
-                        papers=[TimelinePaper(**p) for p in section["papers"]],
-                    )
-                    for section in timeline_data["backward"]
-                ],
-                forward=[
-                    TimelineSection(
-                        era=section["era"],
-                        papers=[TimelinePaper(**p) for p in section["papers"]],
-                    )
-                    for section in timeline_data["forward"]
-                ],
-                impact_analysis=_build_impact_analysis_obj(timeline_data.get("impact_analysis")),
-            )
+        timeline_obj = _build_timeline_if_requested(
+            conn, include_timeline, work_id, work_data,
+            referenced_works=referenced_works, landmarks=landmarks,
+        )
 
         return NodeDetailsResponse(
             work_id=work_data["work_id"],
