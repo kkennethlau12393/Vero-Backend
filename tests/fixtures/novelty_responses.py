@@ -54,6 +54,7 @@ def make_reference_paper(
     cited_by_count=200,
     abstract="A foundational method for the field.",
     category="foundational",
+    authors=None,
 ):
     """Build a reference paper dict."""
     return {
@@ -64,6 +65,7 @@ def make_reference_paper(
         "abstract": abstract,
         "category": category,
         "relationship": "cited_reference",
+        "authors": authors or ["Author A", "Author B"],
     }
 
 
@@ -74,6 +76,7 @@ def make_landmark_paper(
     cited_by_count=5000,
     abstract="A seminal contribution to the field.",
     field_name="Computer Science",
+    authors=None,
 ):
     """Build a landmark paper dict."""
     return {
@@ -84,6 +87,7 @@ def make_landmark_paper(
         "abstract": abstract,
         "field_name": field_name,
         "relationship": "field_landmark",
+        "authors": authors or ["Author C", "Author D"],
     }
 
 
@@ -94,6 +98,7 @@ def make_grounding_paper(
     cited_by_count=1000,
     relationship="cited_reference",
     relevance="Introduced key technique used in this paper.",
+    authors=None,
 ):
     """Build a grounding paper dict."""
     return {
@@ -103,6 +108,7 @@ def make_grounding_paper(
         "cited_by_count": cited_by_count,
         "relationship": relationship,
         "relevance": relevance,
+        "authors": authors or ["Author E", "Author F"],
     }
 
 

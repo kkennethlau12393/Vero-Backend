@@ -129,6 +129,7 @@ OPENALEX_WORK_WITH_TOPIC = {
 OPENALEX_WORK_WITH_REFS = {
     "id": "https://openalex.org/W1234567890",
     "title": "Test Paper Title",
+    "doi": "https://doi.org/10.1234/test.2020",
     "referenced_works": [
         "https://openalex.org/W9900000001",
         "https://openalex.org/W9900000002",
@@ -144,6 +145,10 @@ OPENALEX_BATCH_WORKS = {
             "cited_by_count": 500,
             "abstract_inverted_index": {"Method": [0], "paper": [1], "introducing": [2], "novel": [3], "techniques": [4], "for": [5], "deep": [6], "learning": [7]},
             "primary_topic": {"id": "https://openalex.org/T10123"},
+            "authorships": [
+                {"author": {"display_name": "Alice Smith"}},
+                {"author": {"display_name": "Bob Jones"}},
+            ],
         },
         {
             "id": "https://openalex.org/W9900000002",
@@ -152,6 +157,34 @@ OPENALEX_BATCH_WORKS = {
             "cited_by_count": 300,
             "abstract_inverted_index": None,
             "primary_topic": {"id": "https://openalex.org/T10456"},
+            "authorships": [
+                {"author": {"display_name": "Charlie Brown"}},
+            ],
+        },
+    ]
+}
+
+S2_REFERENCES_RESPONSE = {
+    "data": [
+        {
+            "citedPaper": {
+                "paperId": "s2paper001",
+                "title": "S2 Only Reference Paper",
+                "year": 2016,
+                "citationCount": 450,
+                "externalIds": {"DOI": "10.9999/s2only.2016"},
+                "authors": [{"authorId": "100", "name": "Diana Prince"}],
+            }
+        },
+        {
+            "citedPaper": {
+                "paperId": "s2paper002",
+                "title": "Ref Paper 1",
+                "year": 2015,
+                "citationCount": 500,
+                "externalIds": {"OpenAlex": "W9900000001", "DOI": "10.1234/ref1.2015"},
+                "authors": [{"authorId": "200", "name": "Alice Smith"}],
+            }
         },
     ]
 }
@@ -735,20 +768,18 @@ class TestReferenceStore:
 
     @patch(REQUESTS_GET_REFERENCE)
     def test_fetch_references_from_openalex(self, mock_get, db_conn, test_work):
-        """No cache triggers OpenAlex fetch, caches result."""
+        """No cache triggers OpenAlex fetch + S2 cross-referencing, caches merged result."""
         work_id = test_work
 
         oa_work_with_refs = {
             "id": f"https://openalex.org/{work_id}",
+            "doi": "https://doi.org/10.1234/test.2020",
             "referenced_works": [
                 "https://openalex.org/W9900000001",
                 "https://openalex.org/W9900000002",
             ],
         }
 
-        # First call: get work with referenced_works
-        # Second call: batch fetch work details
-        # Third call might be made by _ensure_works_exist
         def route(url, **kwargs):
             url_str = str(url)
             params = kwargs.get("params", {})
@@ -756,6 +787,8 @@ class TestReferenceStore:
 
             if f"/works/{work_id}" in url_str:
                 return _make_mock_response(json_data=oa_work_with_refs)
+            if "api.semanticscholar.org" in url_str:
+                return _make_mock_response(json_data=S2_REFERENCES_RESPONSE)
             if "openalex:" in str(filter_param):
                 return _make_mock_response(json_data=OPENALEX_BATCH_WORKS)
             return _make_mock_response(json_data={"results": []})
@@ -764,19 +797,99 @@ class TestReferenceStore:
 
         results = get_referenced_works(db_conn, work_id)
 
-        # Results depend on whether the batch fetch succeeded and works were inserted
         assert isinstance(results, list)
 
-        # Verify the cache was populated
+        # Verify the cache was populated with merged refs (W* + S*)
         row = db_conn.execute(
             text("SELECT referenced_works_json FROM works WHERE work_id = :wid"),
             {"wid": work_id},
         ).mappings().first()
         assert row is not None
-        assert row["referenced_works_json"] is not None
+        cached_ids = row["referenced_works_json"]
+        assert cached_ids is not None
+        # Should contain both OpenAlex refs and S2-only ref
+        assert "W9900000001" in cached_ids
+        assert "W9900000002" in cached_ids
 
         # Cleanup inserted reference works
         for ref_wid in ["W9900000001", "W9900000002"]:
+            db_conn.execute(
+                text("DELETE FROM works WHERE work_id = :wid"),
+                {"wid": ref_wid},
+            )
+        # Also cleanup S2-only papers
+        db_conn.execute(
+            text("DELETE FROM works WHERE work_id LIKE 'S%'"),
+        )
+        db_conn.commit()
+
+    @patch(REQUESTS_GET_REFERENCE)
+    def test_s2_cross_referencing_adds_coverage(self, mock_get, db_conn, test_work):
+        """S2 cross-referencing adds papers not in OpenAlex to the reference list."""
+        work_id = test_work
+
+        oa_work_with_refs = {
+            "id": f"https://openalex.org/{work_id}",
+            "doi": "https://doi.org/10.1234/test.2020",
+            "referenced_works": [
+                "https://openalex.org/W9900000001",
+            ],
+        }
+
+        s2_response = {
+            "data": [
+                {
+                    "citedPaper": {
+                        "paperId": "s2unique999",
+                        "title": "S2-Only Paper Not in OpenAlex",
+                        "year": 2017,
+                        "citationCount": 800,
+                        "externalIds": {"DOI": "10.9999/s2unique.2017"},
+                        "authors": [{"authorId": "300", "name": "Eve Wilson"}],
+                    }
+                },
+            ]
+        }
+
+        def route(url, **kwargs):
+            url_str = str(url)
+            params = kwargs.get("params", {})
+            filter_param = params.get("filter", "")
+
+            if f"/works/{work_id}" in url_str:
+                return _make_mock_response(json_data=oa_work_with_refs)
+            if "api.semanticscholar.org" in url_str:
+                return _make_mock_response(json_data=s2_response)
+            if "openalex:" in str(filter_param):
+                return _make_mock_response(json_data={
+                    "results": [OPENALEX_BATCH_WORKS["results"][0]]
+                })
+            return _make_mock_response(json_data={"results": []})
+
+        mock_get.side_effect = route
+
+        results = get_referenced_works(db_conn, work_id)
+
+        # Verify cache contains both W* and S* IDs
+        row = db_conn.execute(
+            text("SELECT referenced_works_json FROM works WHERE work_id = :wid"),
+            {"wid": work_id},
+        ).mappings().first()
+        cached_ids = row["referenced_works_json"]
+        assert "W9900000001" in cached_ids
+        assert "Ss2unique999" in cached_ids  # S* paper added by S2
+
+        # Verify S2-only paper was inserted into works table
+        s2_row = db_conn.execute(
+            text("SELECT title, authors_json FROM works WHERE work_id = :wid"),
+            {"wid": "Ss2unique999"},
+        ).mappings().first()
+        if s2_row:
+            assert s2_row["title"] == "S2-Only Paper Not in OpenAlex"
+            assert s2_row["authors_json"] is not None
+
+        # Cleanup
+        for ref_wid in ["W9900000001", "Ss2unique999"]:
             db_conn.execute(
                 text("DELETE FROM works WHERE work_id = :wid"),
                 {"wid": ref_wid},
@@ -823,6 +936,9 @@ class TestReferenceStore:
                         "paper": [4], "now": [5], "found": [6],
                     },
                     "primary_topic": {"id": "https://openalex.org/T10123"},
+                    "authorships": [
+                        {"author": {"display_name": "Found Author"}},
+                    ],
                 }
             ]
         }
@@ -866,6 +982,34 @@ class TestReferenceStore:
         if len(results) >= 2:
             cites = [r["cited_by_count"] for r in results]
             assert cites == sorted(cites, reverse=True)
+
+    def test_reference_details_include_authors(self, db_conn, test_work_with_refs):
+        """Loaded reference details include authors field."""
+        data = test_work_with_refs
+        work_id = data["work_id"]
+        ref_ids = data["ref_ids"]
+
+        # Add authors_json to a reference work
+        db_conn.execute(
+            text("UPDATE works SET authors_json = :authors WHERE work_id = :wid"),
+            {"authors": json.dumps(["Test Author A", "Test Author B"]), "wid": ref_ids[0]},
+        )
+        db_conn.execute(
+            text("UPDATE works SET referenced_works_json = :refs WHERE work_id = :wid"),
+            {"refs": json.dumps(ref_ids), "wid": work_id},
+        )
+        db_conn.commit()
+
+        results = get_referenced_works(db_conn, work_id)
+
+        assert len(results) >= 1
+        # All results should have authors key
+        for r in results:
+            assert "authors" in r
+        # The one we set should have the authors
+        ref_with_authors = [r for r in results if r["work_id"] == ref_ids[0]]
+        if ref_with_authors:
+            assert ref_with_authors[0]["authors"] == ["Test Author A", "Test Author B"]
 
 
 # ============================================================================

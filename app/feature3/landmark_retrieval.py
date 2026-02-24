@@ -11,6 +11,7 @@ so they're available for grounding.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -142,6 +143,12 @@ def _search_openalex_topic_landmarks(
                     if "/" in pt_url:
                         pt_id = pt_url.rsplit("/", 1)[-1]
 
+                oa_authors = [
+                    au.get("author", {}).get("display_name") or au.get("display_name")
+                    for au in w.get("authorships", [])
+                    if au.get("author", {}).get("display_name") or au.get("display_name")
+                ]
+
                 papers.append({
                     "work_id": wid,
                     "title": w.get("title"),
@@ -151,6 +158,7 @@ def _search_openalex_topic_landmarks(
                     "category": None,
                     "primary_topic_id": pt_id,
                     "source": "openalex",
+                    "authors": oa_authors,
                 })
 
             logger.info(f"OpenAlex topic landmarks: {len(papers)} papers for topic {topic_id}")
@@ -178,7 +186,7 @@ def _search_s2_landmarks(
             url = "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
             params = {
                 "query": query,
-                "fields": "paperId,title,year,citationCount,externalIds,abstract",
+                "fields": "paperId,title,year,citationCount,externalIds,abstract,authors",
                 "limit": min(100, limit * 5),  # Fetch more to filter
                 "year": f"-{before_year - 1}",
             }
@@ -221,6 +229,8 @@ def _search_s2_landmarks(
                 else:
                     work_id = f"S{p.get('paperId', '')}"
 
+                s2_authors = [a.get("name") for a in (p.get("authors") or []) if a.get("name")]
+
                 papers.append({
                     "work_id": work_id,
                     "title": p.get("title"),
@@ -232,6 +242,7 @@ def _search_s2_landmarks(
                     "source": "s2",
                     "doi": doi,
                     "s2_paper_id": p.get("paperId"),
+                    "authors": s2_authors,
                 })
 
             logger.info(f"S2 landmarks: {len(papers)} papers for query '{query[:40]}'")
@@ -321,14 +332,16 @@ def _insert_papers_to_db(conn: Connection, papers: List[Dict[str, Any]]) -> None
         if not wid or not wid.startswith("W"):
             continue
         try:
+            authors = p.get("authors", [])
             conn.execute(
                 text("""
-                    INSERT INTO works (work_id, title, year, cited_by_count, abstract, primary_topic_id)
-                    VALUES (:work_id, :title, :year, :cited_by_count, :abstract, :primary_topic_id)
+                    INSERT INTO works (work_id, title, year, cited_by_count, abstract, primary_topic_id, authors_json)
+                    VALUES (:work_id, :title, :year, :cited_by_count, :abstract, :primary_topic_id, :authors_json)
                     ON CONFLICT (work_id) DO UPDATE SET
                         cited_by_count = GREATEST(works.cited_by_count, EXCLUDED.cited_by_count),
                         abstract = COALESCE(NULLIF(works.abstract, ''), EXCLUDED.abstract),
-                        primary_topic_id = COALESCE(works.primary_topic_id, EXCLUDED.primary_topic_id)
+                        primary_topic_id = COALESCE(works.primary_topic_id, EXCLUDED.primary_topic_id),
+                        authors_json = COALESCE(works.authors_json, EXCLUDED.authors_json)
                 """),
                 {
                     "work_id": wid,
@@ -337,6 +350,7 @@ def _insert_papers_to_db(conn: Connection, papers: List[Dict[str, Any]]) -> None
                     "cited_by_count": p.get("cited_by_count") or 0,
                     "abstract": p.get("abstract"),
                     "primary_topic_id": p.get("primary_topic_id"),
+                    "authors_json": json.dumps(authors) if authors else None,
                 },
             )
         except Exception as e:
@@ -517,7 +531,7 @@ def _get_all_topic_papers_from_db(
     """Get top papers in topic from DB (existing ingested papers)."""
     rows = conn.execute(
         text("""
-            SELECT work_id, title, year, cited_by_count, abstract, category, primary_topic_id
+            SELECT work_id, title, year, cited_by_count, abstract, category, primary_topic_id, authors_json
             FROM works
             WHERE primary_topic_id = :topic_id
             AND year IS NOT NULL
@@ -538,6 +552,7 @@ def _get_all_topic_papers_from_db(
             "category": row["category"],
             "primary_topic_id": row["primary_topic_id"],
             "source": "db",
+            "authors": row["authors_json"] or [],
         }
         for row in rows
     ]
