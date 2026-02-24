@@ -87,7 +87,9 @@ this paper changed, and what it unlocked afterward.
 You write in DEFINITIVE prose. Never hedge. Never use these words: explores, discusses, \
 examines, investigates, assesses, evaluates, addresses, looks at, studies, analyzes, reviews.
 
-You MUST cite specific work_ids inline using [W...] format (e.g., [W2163605009]).
+You MUST cite specific work_ids inline using their exact IDs in brackets. \
+OpenAlex papers use [W...] (e.g., [W2163605009]), Semantic Scholar papers use [S...] \
+(e.g., [S1234abcd]), and ArXiv papers use [AX...] (e.g., [AX2301.12345]).
 
 CRITICAL CONSTRAINT: You are telling a VERTICAL EVOLUTION story — how ideas evolved over \
 time in a research lineage. Do NOT compare methods side-by-side. Do NOT recommend which \
@@ -209,9 +211,9 @@ technique and what it enabled (1-2 sentences)"
 RULES:
 - era_commentaries MUST cover every decade that has papers above, from the earliest \
 predecessor to the latest successor. Include the target paper's own decade.
-- Each era narrative must cite at least one [W...] work_id from that era.
+- Each era narrative must cite at least one work_id from that era (e.g., [W...], [S...], or [AX...]).
 - historical_context, contribution_statement, and downstream_impact must each cite at \
-least 3 [W...] work_ids.
+least 3 work_ids.
 - ONLY "foundational" papers can have is_paradigm_shift=true. Software, review, and \
 measurement papers are NEVER paradigm shifts.
 - Write in definitive prose. No hedging verbs. No "this paper explores/discusses/examines".
@@ -275,7 +277,8 @@ def _validate_work_id_citations(
     for ec in narrative.get("era_commentaries", []):
         all_text += " " + (ec.get("narrative") or "")
 
-    cited_ids = set(re.findall(r"W\d{8,}", all_text))
+    # Match all work_id formats: W... (OpenAlex), S... (S2), AX... (ArXiv)
+    cited_ids = set(re.findall(r"(?:W\d{8,}|S[a-f0-9]{10,}|AX[\d.]+)", all_text))
     unknown = cited_ids - known_work_ids
     if unknown:
         logger.warning(

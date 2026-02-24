@@ -1032,7 +1032,7 @@ def _filter_s2_results(
         doi = external_ids.get("DOI")
         paper_id = paper.get("paperId", "")
 
-        work_id = openalex_id if openalex_id else f"S2:{paper_id}"
+        work_id = openalex_id if openalex_id else f"S{paper_id}"
 
         papers.append({
             "work_id": work_id,
@@ -1155,7 +1155,7 @@ def search_arxiv_by_keywords(
                 arxiv_id = id_match.group(1) if id_match else None
 
                 papers.append({
-                    "work_id": f"ArXiv:{arxiv_id}" if arxiv_id else "ArXiv:unknown",
+                    "work_id": f"AX{arxiv_id}" if arxiv_id else "AXunknown",
                     "title": paper_title,
                     "year": year,
                     "cited_by_count": 0,  # ArXiv doesn't provide citation counts
@@ -1355,7 +1355,7 @@ def fetch_papers_multi_source(
         title_lower = p.get("title", "").lower()
         if title_lower and title_lower not in seen_titles:
             # Try to resolve to OpenAlex work_id
-            if p.get("work_id", "").startswith("S2:"):
+            if p.get("work_id", "").startswith("S"):
                 resolved = resolve_paper_to_openalex(p)
                 combined_papers.append(resolved if resolved else p)
             else:
