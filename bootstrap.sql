@@ -639,6 +639,19 @@ CREATE TABLE IF NOT EXISTS public.timeline_narrative_cache (
 CREATE INDEX IF NOT EXISTS idx_timeline_narrative_cache_created
     ON public.timeline_narrative_cache (created_at DESC);
 
+-- Persisted node timelines (rank-job scoped, survives version bumps)
+CREATE TABLE IF NOT EXISTS public.node_timelines (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    rank_job_id text NOT NULL,
+    work_id text NOT NULL,
+    result jsonb NOT NULL,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE(rank_job_id, work_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_node_timelines_rank_job
+    ON public.node_timelines (rank_job_id);
+
 -- ==========================================================================
 -- Tenant settings (institutional access configuration)
 -- ==========================================================================
