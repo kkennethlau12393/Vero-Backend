@@ -217,9 +217,9 @@ def _search_s2_landmarks(
                 work_id = None
                 if "DBLP" in ext_ids or doi:
                     # We'll resolve via DOI later if needed
-                    work_id = f"S2:{p.get('paperId', '')}"
+                    work_id = f"S{p.get('paperId', '')}"
                 else:
-                    work_id = f"S2:{p.get('paperId', '')}"
+                    work_id = f"S{p.get('paperId', '')}"
 
                 papers.append({
                     "work_id": work_id,

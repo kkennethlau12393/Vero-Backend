@@ -201,10 +201,20 @@ def _fetch_citing_papers_s2(doi: Optional[str], limit: int = 50) -> List[Dict[st
 def _resolve_s2_papers_to_openalex(
     s2_papers: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Resolve S2 papers to OpenAlex work_ids via DOI batch lookup."""
-    papers_with_dois = [p for p in s2_papers if p.get("doi")]
-    if not papers_with_dois:
+    """Resolve S2 papers to OpenAlex work_ids via DOI batch lookup.
+
+    Papers that resolve get W... work_ids.
+    Papers that don't resolve keep S... work_ids (S + S2 paperId).
+    """
+    if not s2_papers:
         return []
+
+    papers_with_dois = [p for p in s2_papers if p.get("doi")]
+    papers_without_dois = [p for p in s2_papers if not p.get("doi")]
+
+    # Build DOI -> S2 paper mapping for unresolved tracking
+    doi_to_s2 = {p["doi"]: p for p in papers_with_dois}
+    resolved_dois: set = set()
 
     resolved = []
     dois = [p["doi"] for p in papers_with_dois]
@@ -216,7 +226,7 @@ def _resolve_s2_papers_to_openalex(
             params = {
                 "filter": f"doi:{doi_filter}",
                 "per-page": len(batch),
-                "select": "id,title,publication_year,cited_by_count,abstract_inverted_index",
+                "select": "id,doi,title,publication_year,cited_by_count,abstract_inverted_index",
             }
             if OPENALEX_API_KEY:
                 params["api_key"] = OPENALEX_API_KEY
@@ -238,11 +248,39 @@ def _resolve_s2_papers_to_openalex(
                     "cited_by_count": w.get("cited_by_count") or 0,
                     "abstract": decode_openalex_abstract(w.get("abstract_inverted_index")),
                 })
+                # Track which DOIs resolved
+                w_doi = w.get("doi")
+                if w_doi:
+                    clean = w_doi.replace("https://doi.org/", "")
+                    resolved_dois.add(clean)
         except Exception as e:
             logger.warning(f"S2->OA resolution failed: {e}")
 
-    logger.info(f"Resolved {len(resolved)}/{len(papers_with_dois)} S2 citing papers to OpenAlex")
-    return resolved
+    # Keep unresolved S2 papers with S prefix work_ids
+    unresolved = []
+    for p in papers_with_dois:
+        if p["doi"] not in resolved_dois:
+            unresolved.append(_s2_paper_to_dict(p))
+    for p in papers_without_dois:
+        unresolved.append(_s2_paper_to_dict(p))
+
+    logger.info(
+        f"S2 citing papers: {len(resolved)} resolved to OA, "
+        f"{len(unresolved)} kept as S-prefixed"
+    )
+    return resolved + unresolved
+
+
+def _s2_paper_to_dict(p: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert an S2 paper to a standard dict with S-prefixed work_id."""
+    s2_id = p.get("s2_id") or p.get("paperId") or ""
+    return {
+        "work_id": f"S{s2_id}",
+        "title": p.get("title"),
+        "year": p.get("year"),
+        "cited_by_count": p.get("cited_by_count") or 0,
+        "abstract": p.get("abstract"),
+    }
 
 
 def _get_doi_for_work(conn: Connection, work_id: str) -> Optional[str]:
