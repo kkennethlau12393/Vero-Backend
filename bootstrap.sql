@@ -603,6 +603,19 @@ CREATE TABLE IF NOT EXISTS public.methodology_comparison_cache (
 CREATE INDEX IF NOT EXISTS idx_methodology_comparison_created
     ON public.methodology_comparison_cache (created_at DESC);
 
+-- Persistent methodology comparisons (survives version bumps)
+CREATE TABLE IF NOT EXISTS public.methodology_comparisons (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    rank_job_id text NOT NULL,
+    work_ids text[] NOT NULL,
+    result jsonb NOT NULL,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE(rank_job_id, work_ids)
+);
+
+CREATE INDEX IF NOT EXISTS idx_methodology_comparisons_rank_job
+    ON public.methodology_comparisons (rank_job_id);
+
 -- Paper full text cache (from Semantic Scholar)
 CREATE TABLE IF NOT EXISTS public.paper_full_text_cache (
     work_id text PRIMARY KEY,

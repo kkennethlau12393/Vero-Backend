@@ -190,6 +190,116 @@ def _cache_fingerprint(
 
 
 # ---------------------------------------------------------------------------
+# Persistent storage (survives version bumps)
+# ---------------------------------------------------------------------------
+
+def _get_persisted_comparison(
+    conn: Connection, rank_job_id: str, work_ids: list[str]
+) -> Optional[Dict[str, Any]]:
+    """Look up a persisted comparison by rank_job_id + sorted work_ids."""
+    sorted_wids = sorted(work_ids)
+    row = conn.execute(
+        sa_text("""
+            SELECT result FROM methodology_comparisons
+            WHERE rank_job_id = :rjid AND work_ids = :wids
+        """),
+        {"rjid": rank_job_id, "wids": sorted_wids},
+    ).mappings().first()
+    if row:
+        val = row["result"]
+        return val if isinstance(val, dict) else json.loads(val)
+    return None
+
+
+def _persist_comparison(
+    conn: Connection,
+    rank_job_id: str,
+    work_ids: list[str],
+    result: Dict[str, Any],
+) -> None:
+    """Upsert a comparison result into persistent storage."""
+    sorted_wids = sorted(work_ids)
+    try:
+        conn.execute(
+            sa_text("""
+                INSERT INTO methodology_comparisons
+                    (rank_job_id, work_ids, result)
+                VALUES (:rjid, :wids, :rj)
+                ON CONFLICT (rank_job_id, work_ids) DO UPDATE SET
+                    result = EXCLUDED.result,
+                    created_at = now()
+            """),
+            {
+                "rjid": rank_job_id,
+                "wids": sorted_wids,
+                "rj": json.dumps(result),
+            },
+        )
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to persist comparison: {e}")
+
+
+def _build_referenced_works(
+    conn: Connection,
+    response_dict: Dict[str, Any],
+) -> dict[str, str]:
+    """Build a {work_id: title} map for all external papers mentioned in the result.
+
+    Collects work_ids from shared_references and complemented_by that are NOT
+    in the compared papers list, then resolves titles from the DB.
+    """
+    compared = set(response_dict.get("work_ids", []))
+    ref_map: dict[str, str] = {}
+
+    # Shared references (already have titles)
+    lineage = response_dict.get("lineage", {})
+    for sr in lineage.get("shared_references", []):
+        wid = sr.get("work_id", "")
+        if wid and wid not in compared:
+            title = sr.get("title", "")
+            if title:
+                ref_map[wid] = title
+
+    # Complements (may have other_title from synthesis)
+    for sw in response_dict.get("strengths_weaknesses_matrix", []):
+        for c in sw.get("complemented_by", []):
+            wid = c.get("other_work_id", "")
+            if wid and wid not in compared and wid not in ref_map:
+                title = c.get("other_title", "")
+                if title:
+                    ref_map[wid] = title
+
+    # Batch-resolve any work_ids still missing titles from DB
+    missing = [
+        wid for wid in ref_map if not ref_map[wid]
+    ]
+    # Also find work_ids mentioned but not yet in ref_map
+    # (e.g., complements without other_title)
+    all_external = set(ref_map.keys())
+    for sw in response_dict.get("strengths_weaknesses_matrix", []):
+        for c in sw.get("complemented_by", []):
+            wid = c.get("other_work_id", "")
+            if wid and wid not in compared and wid not in all_external:
+                missing.append(wid)
+                all_external.add(wid)
+
+    if missing:
+        try:
+            rows = conn.execute(
+                sa_text("SELECT work_id, title FROM works WHERE work_id = ANY(:ids)"),
+                {"ids": missing},
+            ).mappings().all()
+            for row in rows:
+                ref_map[row["work_id"]] = row["title"] or ""
+        except Exception as e:
+            logger.warning(f"Failed to resolve referenced_works titles: {e}")
+
+    # Remove entries with empty titles
+    return {k: v for k, v in ref_map.items() if v}
+
+
+# ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
 
@@ -1959,17 +2069,27 @@ def _run_comparison_pipeline(
     Shared comparison pipeline (post-validation).
 
     Steps:
-    1. Check comparison cache
+    0. Check persistent storage (survives version bumps)
+    1. Check volatile comparison cache
     2. Stage 1A + 1B: Fetch content + build lineage (parallel)
     3. Stage 2: Extract fingerprints (LLM call 1)
     3.5. Find complement candidates (DB + external APIs)
     4. Stage 3: Synthesize comparison (LLM call 2)
     5. Scrub self-references
-    6. Cache and return
+    6. Build referenced_works
+    7. Cache (volatile + persistent) and return
     """
     papers_meta = [papers_meta_map[wid] for wid in work_ids]
+    persistence_key = rank_job_id or map_id
 
-    # 1. Check comparison cache
+    # 0. Check persistent storage first (survives version bumps)
+    if persistence_key:
+        persisted = _get_persisted_comparison(conn, persistence_key, work_ids)
+        if persisted:
+            logger.info(f"Persistent storage hit for {work_ids}")
+            return MethodologyComparisonResponse(**persisted)
+
+    # 1. Check volatile comparison cache
     cached = _get_cached_comparison(conn, work_ids)
     if cached:
         logger.info(f"Comparison cache hit for {work_ids}")
@@ -2144,9 +2264,18 @@ def _run_comparison_pipeline(
             combination_notes=rec_data.get("combination_notes"),
         )
 
+    # 6. Build referenced_works
+    response_dict_for_refs = {
+        "work_ids": work_ids,
+        "lineage": lineage.model_dump() if lineage else {},
+        "strengths_weaknesses_matrix": synthesis.get("strengths_weaknesses_matrix", []),
+    }
+    referenced_works = _build_referenced_works(conn, response_dict_for_refs)
+
     response = MethodologyComparisonResponse(
         work_ids=work_ids,
         papers=paper_profiles,
+        referenced_works=referenced_works,
         lineage=lineage,
         convergence_divergence=convergence_divergence,
         strengths_weaknesses_matrix=strengths_weaknesses_matrix,
@@ -2154,8 +2283,11 @@ def _run_comparison_pipeline(
         confidence=confidence,
     )
 
-    # 7. Cache
-    _cache_comparison(conn, tenant_id, work_ids, response.model_dump())
+    # 7. Cache (volatile + persistent)
+    result_dump = response.model_dump()
+    _cache_comparison(conn, tenant_id, work_ids, result_dump)
+    if persistence_key:
+        _persist_comparison(conn, persistence_key, work_ids, result_dump)
 
     return response
 
