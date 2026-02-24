@@ -43,6 +43,32 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
+DEBUG_LOG_PATH = "/Users/sami/project/vero/Vero-Backend/.cursor/debug-0431e8.log"
+DEBUG_SESSION_ID = "0431e8"
+
+
+def _debug_log(
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: Optional[Dict[str, Any]] = None,
+    run_id: str = "post-fix",
+) -> None:
+    try:
+        payload = {
+            "sessionId": DEBUG_SESSION_ID,
+            "runId": run_id,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data or {},
+            "timestamp": int(time.time() * 1000),
+        }
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+
 # ============================================================================
 # Configuration
 # ============================================================================
@@ -64,10 +90,13 @@ ARXIV_LIMIT = 100
 # Rate limiting
 SEMANTIC_SCHOLAR_DELAY = 1.0
 OPENALEX_TIMEOUT = 15
+GROQ_TIMEOUT = int(os.environ.get("GROQ_TIMEOUT", "20"))
 
 # S2 retry configuration
 S2_MAX_RETRIES = 3
 S2_RETRY_BASE_DELAY = 1.0  # seconds — S2 rate limit is 1 RPS for batch/search, 10 RPS for others
+S2_RATE_LIMIT_COOLDOWN_SECONDS = int(os.environ.get("S2_RATE_LIMIT_COOLDOWN_SECONDS", "60"))
+_s2_rate_limited_until_ts: float = 0.0
 
 
 def _s2_get_with_retry(
@@ -82,12 +111,45 @@ def _s2_get_with_retry(
     Returns the response object. Raises on non-retryable errors.
     On exhausted retries, returns the last 429 response (caller decides what to do).
     """
+    global _s2_rate_limited_until_ts
+    now_ts = time.time()
+    if now_ts < _s2_rate_limited_until_ts:
+        # #region agent log
+        _debug_log(
+            "H16",
+            "app/feature1/citation_map_service.py:_s2_get_with_retry.cooldown_skip",
+            "S2 request skipped due to active cooldown",
+            {
+                "urlPrefix": url[:120],
+                "cooldownRemainingMs": int((_s2_rate_limited_until_ts - now_ts) * 1000),
+            },
+        )
+        # #endregion
+        synthetic = requests.Response()
+        synthetic.status_code = 429
+        synthetic.url = url
+        synthetic._content = b"S2 cooldown active"
+        return synthetic
+
     last_resp = None
     for attempt in range(max_retries + 1):
         resp = requests.get(url, params=params, headers=headers, timeout=timeout)
         if resp.status_code != 429:
             return resp
         last_resp = resp
+        _s2_rate_limited_until_ts = time.time() + S2_RATE_LIMIT_COOLDOWN_SECONDS
+        # #region agent log
+        _debug_log(
+            "H16",
+            "app/feature1/citation_map_service.py:_s2_get_with_retry.rate_limited",
+            "S2 returned 429; cooldown started",
+            {
+                "urlPrefix": url[:120],
+                "attempt": attempt + 1,
+                "cooldownSeconds": S2_RATE_LIMIT_COOLDOWN_SECONDS,
+            },
+        )
+        # #endregion
         if attempt < max_retries:
             delay = S2_RETRY_BASE_DELAY * (2 ** attempt)  # 1s, 2s, 4s
             logger.info(f"S2 rate limited (429), retry {attempt + 1}/{max_retries} after {delay}s: {url[:80]}")
@@ -1897,6 +1959,14 @@ OUTPUT (JSON only, no explanation):
 {{"paper_id": "TIER", ...}}"""
 
     client = Groq(api_key=api_key)
+    # #region agent log
+    _debug_log(
+        "H9",
+        "app/feature1/citation_map_service.py:_score_seed_candidates.start",
+        "LLM scoring started",
+        {"candidateCount": len(candidates_to_score), "groqTimeoutSec": GROQ_TIMEOUT},
+    )
+    # #endregion
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -1905,6 +1975,7 @@ OUTPUT (JSON only, no explanation):
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=2048,
+                timeout=GROQ_TIMEOUT,
             )
 
             content = response.choices[0].message.content.strip()
@@ -1940,6 +2011,14 @@ OUTPUT (JSON only, no explanation):
                 result[wid] = TIER_SCORES[tier]
 
             logger.info(f"LLM seed validation: scored {len(result)} candidates")
+            # #region agent log
+            _debug_log(
+                "H9",
+                "app/feature1/citation_map_service.py:_score_seed_candidates.success",
+                "LLM scoring succeeded",
+                {"attempt": attempt + 1, "scoredCount": len(result)},
+            )
+            # #endregion
             return result
 
         except json.JSONDecodeError as e:
@@ -1948,9 +2027,25 @@ OUTPUT (JSON only, no explanation):
                 time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
         except Exception as e:
             logger.warning(f"LLM seed validation error (attempt {attempt + 1}): {e}")
+            # #region agent log
+            _debug_log(
+                "H9",
+                "app/feature1/citation_map_service.py:_score_seed_candidates.error",
+                "LLM scoring attempt failed",
+                {"attempt": attempt + 1, "error": str(e)},
+            )
+            # #endregion
             if attempt < MAX_RETRIES - 1:
                 time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
 
+    # #region agent log
+    _debug_log(
+        "H9",
+        "app/feature1/citation_map_service.py:_score_seed_candidates.fallback",
+        "LLM scoring fell back to deterministic path",
+        {"candidateCount": len(candidates_to_score)},
+    )
+    # #endregion
     return {}
 
 
@@ -2309,6 +2404,15 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
     if not query:
         return None, {"selection_strategy": "none", "selection_reason": "Empty query"}
 
+    # #region agent log
+    _debug_log(
+        "H10",
+        "app/feature1/citation_map_service.py:select_seed_from_query.start",
+        "Seed selection started",
+        {"queryLength": len(query)},
+    )
+    # #endregion
+
     # Use dict to allow updating entries when better metadata is found
     papers_by_id: Dict[str, Dict[str, Any]] = {}
     llm_expanded_ids: set = set()  # Track papers from LLM expansion (priority candidates)
@@ -2379,6 +2483,14 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
                 logger.warning(f"Search {source} failed: {e}")
 
     all_papers = list(papers_by_id.values())
+    # #region agent log
+    _debug_log(
+        "H10",
+        "app/feature1/citation_map_service.py:select_seed_from_query.candidates",
+        "Seed candidates collected",
+        {"candidateCount": len(all_papers), "llmExpandedCount": len(llm_expanded_ids)},
+    )
+    # #endregion
 
     if not all_papers:
         return None, {
@@ -2810,6 +2922,21 @@ def build_citation_map(
     1. Provide seed_work_id directly
     2. Provide query_text to find the best seed paper automatically
     """
+    overall_start = time.time()
+    # #region agent log
+    _debug_log(
+        "H15",
+        "app/feature1/citation_map_service.py:build_citation_map.start",
+        "Citation map build started",
+        {
+            "hasSeedWorkId": bool(request.seed_work_id),
+            "hasSeedDoi": bool(request.seed_doi),
+            "hasSeedTitle": bool(request.seed_title),
+            "hasQueryText": bool(request.query_text),
+        },
+    )
+    # #endregion
+
     with engine.connect() as conn:
         # Step 1: Determine seed paper (support multiple input modes)
         if request.seed_doi:
@@ -2941,6 +3068,12 @@ def build_citation_map(
             # Mode 2: Natural language query
             seed_work_id, selection_info = select_seed_from_query(request.query_text)
             if not seed_work_id:
+                logger.info(
+                    "Citation map query had no seed: strategy=%s reason=%s candidates=%s",
+                    selection_info.get("selection_strategy", "none"),
+                    selection_info.get("selection_reason", "No seed found"),
+                    selection_info.get("candidates_considered", 0),
+                )
                 # No seed found - return empty response
                 return CitationMapResponse(
                     seed_info=SeedSelectionInfo(
@@ -2972,6 +3105,12 @@ def build_citation_map(
                 selection_reason=selection_info.get("selection_reason"),
                 candidates_considered=selection_info.get("candidates_considered", 0),
             )
+            logger.info(
+                "Citation map query selected seed: work_id=%s strategy=%s candidates=%s",
+                seed_info.seed_work_id,
+                seed_info.selection_strategy,
+                seed_info.candidates_considered,
+            )
 
         else:
             raise ValueError("Either seed_work_id or query_text must be provided")
@@ -2979,6 +3118,20 @@ def build_citation_map(
         # Step 2: Build citation network (multi-hop exploration)
         effective_total = request.total_nodes or (request.citing_limit + request.references_limit + 1)
 
+        expand_start = time.time()
+        # #region agent log
+        _debug_log(
+            "H15",
+            "app/feature1/citation_map_service.py:build_citation_map.expand_start",
+            "Citation network expansion started",
+            {
+                "seedWorkId": seed_work_id,
+                "effectiveTotal": effective_total,
+                "hop1Fetch": max(request.citing_limit, request.references_limit) * 3,
+                "hop2Fetch": 30,
+            },
+        )
+        # #endregion
         papers_dict, edge_tuples = _expand_citation_network(
             seed_work_id=seed_work_id,
             total_limit=effective_total,
@@ -2987,6 +3140,19 @@ def build_citation_map(
             citation_weight=0.6,
             connectivity_weight=0.4,
         )
+        # #region agent log
+        _debug_log(
+            "H15",
+            "app/feature1/citation_map_service.py:build_citation_map.expand_done",
+            "Citation network expansion finished",
+            {
+                "seedWorkId": seed_work_id,
+                "papersCount": len(papers_dict),
+                "edgeTupleCount": len(edge_tuples),
+                "elapsedMs": int((time.time() - expand_start) * 1000),
+            },
+        )
+        # #endregion
 
         # Convert to CitationNode and CitationEdge
         nodes, edges = _assemble_multihop_graph(
@@ -3011,6 +3177,28 @@ def build_citation_map(
             max_hop=max((n.hop for n in nodes), default=0),
         )
 
+        logger.info(
+            "Citation map built: seed=%s nodes=%s edges=%s graph_draft=%s",
+            seed_info.seed_work_id,
+            len(nodes),
+            len(edges),
+            graph_draft_id,
+        )
+
+        total_ms = int((time.time() - overall_start) * 1000)
+        # #region agent log
+        _debug_log(
+            "H15",
+            "app/feature1/citation_map_service.py:build_citation_map.success",
+            "Citation map build finished",
+            {
+                "seedWorkId": seed_info.seed_work_id,
+                "nodes": len(nodes),
+                "edges": len(edges),
+                "elapsedMs": total_ms,
+            },
+        )
+        # #endregion
         return CitationMapResponse(
             seed_info=seed_info,
             nodes=nodes,

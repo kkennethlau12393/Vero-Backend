@@ -1,0 +1,34 @@
+# Backend-to-Frontend Integration Rules
+
+## Frontend Reference
+Frontend repository: `/Users/sami/project/vero/Alexandriauiv3`
+
+## Contract Guarantees for UI Consumers
+- Keep response shapes predictable and JSON-serializable.
+- Keep status code semantics stable (validation, permission, not-found, internal error classes).
+- Preserve workspace/tenant scoping behavior expected by frontend request flows.
+- For long-running operations, keep explicit async/job-style flow semantics when applicable.
+
+## Change Coordination Rules
+- If backend request/response schema changes, update frontend handling and both repos' `.cursor/rules/` in the same branch.
+- Do not ship breaking API contract changes without coordinated frontend updates.
+- Keep migration notes for transitional compatibility behavior when contract changes are unavoidable.
+
+## Ongoing Rules Maintenance Triggers
+Update `.cursor/rules/` here whenever any of the following changes:
+- endpoint contracts, status semantics, or error payload shapes
+- tenant/workspace handling behavior
+- cache key versioning strategy tied to prompts/models/pipelines
+- feature module boundaries or core architecture conventions
+- test policy changes that affect expected development workflow
+
+## Regular Cleaning Policy
+- Weekly quick hygiene pass: remove stale references and dead guidance.
+- Monthly deep cleanup: deduplicate, tighten wording, and split oversized rules.
+- Quarterly audit: verify guidance matches current backend code and frontend integration behavior.
+
+Definition of clean:
+- no duplicate or contradictory guidance
+- no stale references to removed routes/modules/env vars
+- cross-repo rules remain aligned with frontend expectations
+- concise, high-signal instructions for day-to-day coding
