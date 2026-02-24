@@ -67,6 +67,7 @@ def group_papers_by_era(
             "year": year,
             "cited_by_count": paper.get("cited_by_count") or 0,
             "relationship": relationship,
+            "abstract": paper.get("abstract"),
         }
 
         if era not in era_map:
