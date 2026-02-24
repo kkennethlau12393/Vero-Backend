@@ -63,16 +63,39 @@ class TimelineSection(BaseModel):
 
     era: str  # "1990s", "2000s", etc.
     papers: list[TimelinePaper] = []
+    commentary: Optional[str] = None  # Era narrative prose from LLM
+
+
+class EraCommentary(BaseModel):
+    """Narrative commentary for a single era in the timeline."""
+
+    era: str  # "1990s", "2000s", etc.
+    headline: str  # One-line era title (e.g., "The statistical learning era")
+    narrative: str  # 2-4 sentences with [W...] citations
+    key_work_ids: list[str] = []
+
+
+class ResearchLineageNarrative(BaseModel):
+    """The vertical evolution story of a research lineage through one paper's lens."""
+
+    historical_context: str  # 3-5 sentences: how the field arrived at this paper
+    contribution_statement: str  # 2-3 sentences: what this paper specifically unlocked
+    downstream_impact: str  # 3-5 sentences: new research directions opened
+    era_commentaries: list[EraCommentary] = []
+    cross_domain_influence: Optional[str] = None  # 1-2 sentences if influenced other fields
+    paper_type: Optional[str] = None  # software|review|foundational|empirical|measurement
+    is_paradigm_shift: bool = False
+    impact_score: float = 0.0  # 0-1 citation velocity vs predecessors
 
 
 class PaperImpactAnalysis(BaseModel):
-    """Analysis of whether a paper represents a paradigm shift."""
+    """Legacy: thin paradigm-shift analysis. Kept for backward compat."""
 
-    is_paradigm_shift: bool  # Did this paper change the field?
-    impact_score: float  # 0-1 based on citation velocity vs predecessors
-    before_approach: Optional[str] = None  # Methodology in references
-    after_approach: Optional[str] = None  # Methodology in citing papers
-    shift_description: Optional[str] = None  # Description of what changed
+    is_paradigm_shift: bool
+    impact_score: float
+    before_approach: Optional[str] = None
+    after_approach: Optional[str] = None
+    shift_description: Optional[str] = None
 
 
 class NodeTimeline(BaseModel):
@@ -82,7 +105,12 @@ class NodeTimeline(BaseModel):
     target_year: Optional[int] = None
     backward: list[TimelineSection] = []  # References + Landmarks (before target)
     forward: list[TimelineSection] = []  # Citing papers (after target)
-    impact_analysis: Optional[PaperImpactAnalysis] = None
+    narrative: Optional[ResearchLineageNarrative] = None  # Rich evolution narrative
+    # Backward-compat flat fields from old impact_analysis
+    before_approach: Optional[str] = None
+    after_approach: Optional[str] = None
+    shift_description: Optional[str] = None
+    impact_analysis: Optional[PaperImpactAnalysis] = None  # Legacy, deprecated
 
 
 class NodeDetailsResponse(BaseModel):
