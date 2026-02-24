@@ -6,6 +6,10 @@ how the field arrived at this paper, what it changed, and what it unlocked.
 
 NOT a methodology comparison (that's Feature 4). This tells the story over time
 through one paper's lens.
+
+Two-pass architecture:
+  Pass 1: Main narrative (historical_context, contribution, impact, etc.)
+  Pass 2: Dedicated era commentaries with papers pre-grouped by era
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
-NARRATIVE_VERSION = "narrative-v6"
+NARRATIVE_VERSION = "narrative-v7"
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MAX_RETRIES = 3
@@ -77,7 +81,7 @@ def _cache_narrative(conn: Connection, work_id: str, narrative: Dict[str, Any]) 
 
 
 # ============================================================================
-# Prompt
+# Pass 1: Main narrative prompt (no era commentaries)
 # ============================================================================
 
 SYSTEM_PROMPT = """You are an expert research historian. You tell the story of how a \
@@ -94,25 +98,7 @@ OpenAlex papers use [W...] (e.g., [W2163605009]), Semantic Scholar papers use [S
 CRITICAL CONSTRAINT: You are telling a VERTICAL EVOLUTION story — how ideas evolved over \
 time in a research lineage. Do NOT compare methods side-by-side. Do NOT recommend which \
 paper to use. Do NOT create strengths/weaknesses analyses. Those are methodology comparison \
-tasks, not timeline narratives.
-
-CRITICAL: For era_commentaries, you MUST extract specific technical details from the paper \
-abstracts provided. Every sentence must name a concrete technique, architecture, metric, \
-or dataset. Read each paper's abstract and state what it actually did.
-
-BAD era narrative (vague, no technical content):
-"The era witnessed the resurgence of CNNs, with architectures like AlexNet achieving \
-state-of-the-art results in image classification. The introduction of datasets like \
-Microsoft COCO further accelerated progress in object detection and segmentation."
-
-GOOD era narrative (specific mechanisms extracted from abstracts):
-"AlexNet [W2163605009] stacked five convolutional layers with ReLU activations and \
-dropout regularization, training on two GPUs to classify ImageNet's 1.2M images into \
-1000 classes at 37.5% top-1 error — halving the previous best. Microsoft COCO \
-[W1861492603] introduced per-instance segmentation masks across 91 object categories \
-with 2.5M labeled instances, enabling dense prediction benchmarks beyond classification. \
-The remaining bottleneck was network depth: beyond ~20 layers, gradient degradation \
-prevented convergence."""
+tasks, not timeline narratives."""
 
 
 def _format_paper_for_prompt(
@@ -139,9 +125,8 @@ def _build_narrative_prompt(
     references: List[Dict[str, Any]],
     landmarks: List[Dict[str, Any]],
     citing_papers: List[Dict[str, Any]],
-    era_labels: Optional[List[str]] = None,
 ) -> str:
-    """Build the LLM prompt for timeline narrative generation."""
+    """Build the LLM prompt for main timeline narrative (pass 1, no era commentaries)."""
     year_str = f" ({year})" if year else ""
     abstract_text = _truncate_text(abstract or "No abstract available.", 500)
 
@@ -168,22 +153,6 @@ def _build_narrative_prompt(
         for i, p in enumerate(sorted_citers, 1)
     ]
     citer_section = "\n".join(citer_lines) if citer_lines else "(None available)"
-
-    # Build era labels section for the prompt
-    if era_labels and len(era_labels) > 0:
-        era_example = era_labels[0]
-        era_labels_str = ", ".join(f'"{e}"' for e in era_labels)
-        era_instruction = (
-            f"- era_commentaries MUST use EXACTLY these era labels: [{era_labels_str}]. "
-            f"One commentary per era label. Do not invent new era labels."
-        )
-    else:
-        era_example = "1990s"
-        era_instruction = (
-            "- era_commentaries MUST cover every time period that has papers above, "
-            "from the earliest predecessor to the latest successor. "
-            "Include the target paper's own era."
-        )
 
     prompt = f"""## TARGET PAPER
 Title: {title}{year_str}
@@ -222,15 +191,6 @@ this paper opened. Name specific techniques, architectures, or applications that
 built. Explain how they extended, adapted, or combined the contribution with other ideas. \
 Cite specific [W...] work_ids inline. Cover both direct extensions and unexpected \
 applications in other domains.",
-    "era_commentaries": [
-        {{
-            "era": "{era_example}",
-            "headline": "Short era title (e.g., 'The statistical learning era')",
-            "narrative": "Technical era narrative citing 2-4 works with [W...] IDs. \
-Follow the BAD/GOOD examples in system instructions.",
-            "key_work_ids": ["W123", "W456"]
-        }}
-    ],
     "cross_domain_influence": "2-3 sentences naming specific fields and applications \
 where this paper's ideas were adopted (e.g., NLP transformers applied to protein \
 folding, GANs used in drug discovery). null if not applicable.",
@@ -241,8 +201,6 @@ technique and what it enabled (1-2 sentences)"
 }}
 
 RULES:
-{era_instruction}
-- Each era narrative must cite at least one work_id from that era (e.g., [W...], [S...], or [AX...]).
 - historical_context, contribution_statement, and downstream_impact must each cite at \
 least 3 work_ids.
 - ONLY "foundational" papers can have is_paradigm_shift=true. Software, review, and \
@@ -265,6 +223,159 @@ where it applies.
 Answer ONLY with the JSON object, no additional text."""
 
     return prompt
+
+
+# ============================================================================
+# Pass 2: Dedicated era commentaries
+# ============================================================================
+
+ERA_COMMENTARY_SYSTEM_PROMPT = """You write technical research narratives. Your ONLY job: \
+read each paper's abstract and extract its specific technical contribution into a cohesive \
+era narrative.
+
+RULES:
+- Every sentence MUST name a concrete technique, architecture, metric, or dataset
+- Cite each paper using its exact work_id in brackets: [W...], [S...], or [AX...]
+- For each paper you mention, state WHAT it did technically: the mechanism, the numbers, \
+the result — extracted directly from its abstract
+- End each era narrative with the specific technical bottleneck or open problem that the \
+next era addressed
+- BANNED: "achieved state-of-the-art", "significant advances", "improved performance", \
+"laid the foundation", "further enhances", "paved the way", "played a crucial role", \
+"accelerated progress", "various domains", "notable improvements", "growing interest"
+
+BAD (vague — DO NOT write like this):
+"The era witnessed the resurgence of CNNs, with architectures like AlexNet achieving \
+state-of-the-art results in image classification. The introduction of datasets like \
+Microsoft COCO further accelerated progress in object detection and segmentation."
+
+GOOD (specific mechanisms from abstracts — write like this):
+"AlexNet [W2163605009] stacked five convolutional layers with ReLU activations and \
+dropout regularization, training on two GPUs to classify ImageNet's 1.2M images into \
+1000 classes at 37.5% top-1 error — halving the previous best. Microsoft COCO \
+[W1861492603] introduced per-instance segmentation masks across 91 object categories \
+with 2.5M labeled instances, enabling dense prediction benchmarks beyond classification. \
+The remaining bottleneck was network depth: beyond ~20 layers, gradient degradation \
+prevented convergence."
+
+You MUST write at this level of technical specificity. If the abstract says the method \
+uses "a novel attention mechanism", you must say what KIND of attention, how it differs, \
+and what metric it achieved."""
+
+
+def _build_era_commentary_prompt(
+    target_title: str,
+    era_papers: Dict[str, List[Dict[str, Any]]],
+    era_labels: List[str],
+) -> str:
+    """Build a focused prompt for era commentary generation (pass 2).
+
+    Papers are pre-grouped by era so the LLM doesn't have to figure out grouping.
+    """
+    sections = []
+    for era in era_labels:
+        papers = era_papers.get(era, [])
+        if not papers:
+            continue
+        paper_lines = []
+        for i, p in enumerate(papers, 1):
+            work_id = p.get("work_id") or "?"
+            title = p.get("title") or "Untitled"
+            year = p.get("year") or "?"
+            cites = p.get("cited_by_count") or 0
+            abstract = (p.get("abstract") or "").strip()
+            line = f"  {i}. [{work_id}] {title} ({year}) — {cites:,} citations"
+            if abstract:
+                line += f"\n     ABSTRACT: {abstract}"
+            else:
+                line += "\n     ABSTRACT: (not available)"
+            paper_lines.append(line)
+        sections.append(f"### Era: {era}\n" + "\n".join(paper_lines))
+
+    papers_text = "\n\n".join(sections)
+
+    era_json_examples = ", ".join(f'"{e}"' for e in era_labels)
+
+    prompt = f"""## CONTEXT
+Target paper: {target_title}
+
+## PAPERS GROUPED BY ERA (read each abstract carefully)
+
+{papers_text}
+
+---
+
+For each era above, write a technical narrative paragraph. Extract specific details \
+from each paper's abstract: the architecture, the mechanism, the metric, the dataset, \
+the result. Do NOT summarize vaguely.
+
+Return a JSON array with one object per era:
+[
+    {{
+        "era": "{era_labels[0] if era_labels else '2020s'}",
+        "headline": "Short descriptive title for this era (e.g., 'Denoising diffusion emergence')",
+        "narrative": "Technical narrative paragraph. For each paper: state its work_id in \
+brackets, then what it specifically did (architecture, loss function, training procedure, \
+benchmark result). End with the bottleneck the next era solved.",
+        "key_work_ids": ["W...", "S..."]
+    }}
+]
+
+REQUIREMENTS:
+- One entry per era: [{era_json_examples}]
+- Each narrative must cite every paper from that era by its [work_id]
+- Extract technical details FROM THE ABSTRACTS — do not invent claims
+- key_work_ids must list the work_ids actually cited in the narrative
+
+Answer ONLY with the JSON array, no additional text."""
+
+    return prompt
+
+
+def _call_llm(
+    client: OpenAI,
+    system_prompt: str,
+    user_prompt: str,
+    expected_type: str = "object",
+) -> Optional[Dict[str, Any] | List[Any]]:
+    """Make an LLM call with retries. Returns parsed JSON or None."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = client.chat.completions.create(
+                model=MODEL_VERSION,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                timeout=90.0,
+                temperature=0,
+            )
+            content = (resp.choices[0].message.content or "").strip()
+
+            result, error = extract_json_from_llm_response(content, expected_type=expected_type)
+            if result is None:
+                logger.warning(f"Failed to parse LLM JSON: {error}")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
+                    continue
+                return None
+
+            return result
+
+        except Exception as e:
+            logger.warning(f"LLM call exception: {e}")
+            error_str = str(e).lower()
+            is_transient = (
+                "rate" in error_str
+                or "timeout" in error_str
+                or "connection" in error_str
+            )
+            if is_transient and attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
+                continue
+            return None
+
+    return None
 
 
 # ============================================================================
@@ -366,9 +477,14 @@ def generate_timeline_narrative(
     landmarks: List[Dict[str, Any]],
     citing_papers: List[Dict[str, Any]],
     era_labels: Optional[List[str]] = None,
+    era_papers: Optional[Dict[str, List[Dict[str, Any]]]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Generate a rich timeline narrative for a paper's research lineage.
+
+    Two-pass architecture:
+      Pass 1: Main narrative (historical_context, contribution, impact)
+      Pass 2: Dedicated era commentaries with papers pre-grouped by era
 
     Returns dict matching ResearchLineageNarrative schema, or None on failure.
     """
@@ -389,13 +505,6 @@ def generate_timeline_narrative(
     # Calculate impact score (deterministic, no LLM needed)
     impact_score = calculate_impact_score(cited_by_count, references)
 
-    # Build prompt
-    prompt = _build_narrative_prompt(
-        title, abstract, year, cited_by_count,
-        references, landmarks, citing_papers,
-        era_labels=era_labels,
-    )
-
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         logger.warning("GROQ_API_KEY not found, cannot generate timeline narrative")
@@ -403,68 +512,58 @@ def generate_timeline_narrative(
 
     client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
 
-    for attempt in range(MAX_RETRIES):
-        try:
-            resp = client.chat.completions.create(
-                model=MODEL_VERSION,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                timeout=90.0,
-                temperature=0,
-            )
-            content = (resp.choices[0].message.content or "").strip()
+    # ── Pass 1: Main narrative ──────────────────────────────────────────
+    prompt = _build_narrative_prompt(
+        title, abstract, year, cited_by_count,
+        references, landmarks, citing_papers,
+    )
 
-            result, error = extract_json_from_llm_response(content, expected_type="object")
-            if result is None:
-                logger.warning(f"Failed to parse timeline narrative JSON: {error}")
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
-                    continue
-                break
+    result = _call_llm(client, SYSTEM_PROMPT, prompt, expected_type="object")
+    if result is None:
+        logger.warning(f"Pass 1 (main narrative) failed for {work_id}")
+        return None
 
-            # Post-process
-            result = _enforce_paper_type_constraints(result, title, abstract)
-            result = _scrub_narrative_verbs(result)
-            result["impact_score"] = impact_score
+    # ── Pass 2: Era commentaries ────────────────────────────────────────
+    if era_labels and era_papers:
+        logger.info(f"Pass 2: generating era commentaries for {len(era_labels)} eras")
+        era_prompt = _build_era_commentary_prompt(title, era_papers, era_labels)
+        era_result = _call_llm(
+            client, ERA_COMMENTARY_SYSTEM_PROMPT, era_prompt, expected_type="array",
+        )
+        if era_result and isinstance(era_result, list):
+            result["era_commentaries"] = era_result
+            logger.info(f"Era commentaries generated: {len(era_result)} eras")
+        else:
+            logger.warning(f"Pass 2 (era commentaries) failed for {work_id}, using empty")
+            result["era_commentaries"] = []
+    else:
+        result["era_commentaries"] = []
 
-            # Validate work_id citations
-            known_ids = set()
-            for paper_list in [references, landmarks, citing_papers]:
-                for p in paper_list:
-                    wid = p.get("work_id")
-                    if wid:
-                        known_ids.add(wid)
-            _validate_work_id_citations(result, known_ids)
+    # ── Post-process ────────────────────────────────────────────────────
+    result = _enforce_paper_type_constraints(result, title, abstract)
+    result = _scrub_narrative_verbs(result)
+    result["impact_score"] = impact_score
 
-            logger.info(
-                f"Timeline narrative generated for {work_id}: "
-                f"type={result.get('paper_type')}, "
-                f"paradigm_shift={result.get('is_paradigm_shift')}, "
-                f"eras={len(result.get('era_commentaries', []))}"
-            )
+    # Validate work_id citations
+    known_ids = set()
+    for paper_list in [references, landmarks, citing_papers]:
+        for p in paper_list:
+            wid = p.get("work_id")
+            if wid:
+                known_ids.add(wid)
+    _validate_work_id_citations(result, known_ids)
 
-            # Cache the result
-            try:
-                _cache_narrative(conn, work_id, result)
-            except Exception as e:
-                logger.warning(f"Cache write failed for {work_id}: {e}")
+    logger.info(
+        f"Timeline narrative generated for {work_id}: "
+        f"type={result.get('paper_type')}, "
+        f"paradigm_shift={result.get('is_paradigm_shift')}, "
+        f"eras={len(result.get('era_commentaries', []))}"
+    )
 
-            return result
+    # Cache the result
+    try:
+        _cache_narrative(conn, work_id, result)
+    except Exception as e:
+        logger.warning(f"Cache write failed for {work_id}: {e}")
 
-        except Exception as e:
-            logger.warning(f"Timeline narrative LLM call exception: {e}")
-            error_str = str(e).lower()
-            is_transient = (
-                "rate" in error_str
-                or "timeout" in error_str
-                or "connection" in error_str
-            )
-            if is_transient and attempt < MAX_RETRIES - 1:
-                time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
-                continue
-            break
-
-    logger.warning(f"Timeline narrative generation failed for {work_id}")
-    return None
+    return result

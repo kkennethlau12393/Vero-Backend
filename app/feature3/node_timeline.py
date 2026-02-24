@@ -642,6 +642,9 @@ def build_node_timeline(
             set(backward_era_labels + forward_era_labels), key=_era_sort_key
         )
 
+        # Merge all era maps so pass 2 has papers pre-grouped by era
+        all_era_papers = merge_era_maps(backward_eras, forward_eras)
+
         narrative = generate_timeline_narrative(
             conn=conn,
             work_id=work_id,
@@ -653,6 +656,7 @@ def build_node_timeline(
             landmarks=landmarks,
             citing_papers=citing_papers,
             era_labels=all_era_labels,
+            era_papers=all_era_papers,
         )
 
 
