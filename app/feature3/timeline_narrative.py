@@ -98,14 +98,14 @@ tasks, not timeline narratives."""
 
 
 def _format_paper_for_prompt(
-    paper: Dict[str, Any], index: int, abstract_max: int = 300
+    paper: Dict[str, Any], index: int,
 ) -> str:
     """Format a single paper for the LLM prompt."""
     work_id = paper.get("work_id") or "?"
     title = paper.get("title") or "Untitled"
     year = paper.get("year") or "?"
     cites = paper.get("cited_by_count") or 0
-    abstract = _truncate_text(paper.get("abstract") or "", abstract_max)
+    abstract = (paper.get("abstract") or "").strip()
 
     line = f"{index}. [{work_id}] {title} ({year}) — {cites:,} citations"
     if abstract:
