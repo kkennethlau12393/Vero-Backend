@@ -154,12 +154,19 @@ def fetch_citing_papers_openalex(
 
             wid = wid_full.rsplit("/", 1)[-1]
 
+            authors = [
+                au.get("author", {}).get("display_name") or au.get("display_name")
+                for au in w.get("authorships", [])
+                if au.get("author", {}).get("display_name") or au.get("display_name")
+            ]
+
             result.append({
                 "work_id": wid,
                 "title": w.get("title"),
                 "year": w.get("publication_year"),
                 "cited_by_count": w.get("cited_by_count") or 0,
                 "abstract": _extract_abstract(w),
+                "authors": authors,
             })
 
         logger.info(f"Fetched {len(result)} citing papers for {work_id} from OpenAlex")
