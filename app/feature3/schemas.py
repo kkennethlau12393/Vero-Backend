@@ -56,6 +56,7 @@ class TimelinePaper(BaseModel):
     year: Optional[int] = None
     cited_by_count: Optional[int] = None
     relationship: Literal["reference", "landmark", "citing"]
+    abstract: Optional[str] = None
 
 
 class TimelineSection(BaseModel):
