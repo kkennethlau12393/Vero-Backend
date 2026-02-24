@@ -59,8 +59,8 @@ logger = logging.getLogger(__name__)
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
-COMPARISON_VERSION = "v4-source-text-8"  # recommendation why vague-BY enforcement
-EXTRACTION_VERSION = "v2-rich-reviews-2"  # + title-based review detection
+COMPARISON_VERSION = "v4-source-text-9"  # self-ref prohibition + work_id normalization
+EXTRACTION_VERSION = "v2-rich-no-selfref"  # + self-reference prohibition
 MAX_RETRIES = 4
 RETRY_BACKOFF_BASE = 0.5
 
@@ -324,8 +324,15 @@ def _build_extraction_prompt(
         "7. 'novelty_over_prior': Name the SPECIFIC prior method and state the EXACT change. "
         "'Builds on VGGNet by replacing stacked 3×3 convolutions with identity shortcut connections "
         "that enable gradient flow through 150+ layers'\n"
-        "8. All claims must be definitive. No 'may', 'might', 'could', 'potentially'.\n"
-        "9. REVIEW/SURVEY PAPERS: If a paper is a review, survey, or overview (not proposing a novel method), "
+        "8. NO SELF-REFERENCING: Never write 'the paper proposes', 'the authors introduce', "
+        "'this work presents', or any phrase that references the paper as an entity. "
+        "Write ONLY about the method itself.\n"
+        "   BANNED: 'The paper proposes a residual learning framework'\n"
+        "   BANNED: 'The authors introduce skip connections'\n"
+        "   REQUIRED: 'Residual learning framework with skip connections that...'\n"
+        "   Describe the METHOD, not the paper.\n"
+        "9. All claims must be definitive. No 'may', 'might', 'could', 'potentially'.\n"
+        "10. REVIEW/SURVEY PAPERS: If a paper is a review, survey, or overview (not proposing a novel method), "
         "STILL produce a full profile. Adapt the fields:\n"
         "   - 'approach': Describe the review's analytical framework, scope, and organization "
         "(e.g., 'Surveys 5 battery chemistries — lead-acid, Li-ion, NiMH, NaS, and vanadium redox flow — "
@@ -471,6 +478,21 @@ def _validate_extraction(
                     f"{wid} limitation missing '→' structure: '{lim[:80]}...'. "
                     "Format: '[design choice] → [consequence]'."
                 )
+        # Check for self-referencing language in fingerprint
+        _fp_self_ref = _re.compile(
+            r'\b(?:the paper|the authors?|this work|this paper|the proposed|'
+            r'they propose|they introduce|the study)\b',
+            _re.IGNORECASE,
+        )
+        for field_name in ("approach", "data_requirements", "validation_method",
+                           "novelty_over_prior"):
+            text = paper.get(field_name, "") or ""
+            if _fp_self_ref.search(text):
+                violations.append(
+                    f"{wid} {field_name} contains self-referencing language "
+                    f"('{_fp_self_ref.search(text).group()}'). "
+                    f"Describe the METHOD directly, not the paper/authors."
+                )
     return violations
 
 
@@ -585,6 +607,33 @@ def _compute_paper_overlap(fp1: Dict[str, Any], fp2: Dict[str, Any]) -> float:
     return len(kw1 & kw2) / len(kw1 | kw2)
 
 
+_RAW_ARXIV_RE = _re.compile(r'\barxiv[:\s]*(\d{4}\.\d{4,5}(?:v\d+)?)\b', _re.IGNORECASE)
+
+
+def _normalize_work_ids_in_text(text: str) -> str:
+    """Normalize raw arxiv IDs to AX: prefix format."""
+    if not isinstance(text, str):
+        return text
+    return _RAW_ARXIV_RE.sub(r'AX:\1', text)
+
+
+def _normalize_work_ids(synthesis: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize all work_id references in synthesis to consistent prefix format.
+
+    Converts raw arxiv IDs (arxiv:1706.03762, arxiv 1706.03762) to AX:1706.03762.
+    """
+    def _walk(obj):
+        if isinstance(obj, str):
+            return _normalize_work_ids_in_text(obj)
+        elif isinstance(obj, dict):
+            return {k: _walk(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [_walk(item) for item in obj]
+        return obj
+
+    return _walk(synthesis)
+
+
 def _scrub_self_references(synthesis: Dict[str, Any]) -> Dict[str, Any]:
     """Replace self-referencing work_ids with 'this paper' in each paper's own section.
 
@@ -678,6 +727,32 @@ def _validate_depth(
         if not isinstance(sw, dict):
             continue
         wid = sw.get("work_id", "?")
+
+        # Check for self-referencing language in all text fields
+        _self_ref_pattern = _re.compile(
+            r'\b(?:the paper|the authors?|this work|this paper|the proposed|'
+            r'they propose|they introduce|the study)\b',
+            _re.IGNORECASE,
+        )
+        _sw_text_fields = []
+        for h in sw.get("handles_well", []):
+            if isinstance(h, dict):
+                _sw_text_fields.extend([h.get("mechanism", ""), h.get("evidence", "")])
+        for s in sw.get("struggles_with", []):
+            if isinstance(s, dict):
+                _sw_text_fields.extend([s.get("cause", ""), s.get("consequence", "")])
+        for a in sw.get("assumptions", []):
+            if isinstance(a, dict):
+                _sw_text_fields.extend([a.get("assumption", ""), a.get("if_violated", "")])
+        self_ref_count = sum(
+            len(_self_ref_pattern.findall(t)) for t in _sw_text_fields if isinstance(t, str)
+        )
+        if self_ref_count > 0:
+            violations.append(
+                f"{wid} SW matrix has {self_ref_count} self-referencing phrase(s) "
+                f"('the paper', 'the authors', 'this work', etc.). "
+                f"Describe the METHOD directly, not the paper/authors."
+            )
 
         for h in sw.get("handles_well", []):
             if isinstance(h, dict):
@@ -1563,13 +1638,21 @@ def _build_synthesis_prompt(
         "5. Provide at least 3 decision scenarios covering different research contexts.\n"
         "6. SELF-REFERENCE RULE: When writing about a paper's OWN properties (in handles_well, "
         "struggles_with, assumptions, mechanism, evidence, cause, consequence), NEVER cite "
-        "that paper's work_id. Say 'this paper' or 'this method' instead.\n"
+        "that paper's work_id AND never use phrases like 'the paper', 'the authors', "
+        "'this work', 'the proposed method'. Describe the METHOD DIRECTLY.\n"
         "   WRONG: 'W12345 uses attention mechanisms to capture long-range dependencies'\n"
-        "   RIGHT: 'This paper uses attention mechanisms to capture long-range dependencies'\n"
+        "   WRONG: 'The paper proposes a novel framework for image recognition'\n"
+        "   WRONG: 'The authors introduce a residual learning approach'\n"
+        "   RIGHT: 'Identity shortcut connections bypass non-linear transformations, allowing "
+        "gradients to flow directly through 152 layers without degradation'\n"
+        "   Write about WHAT THE METHOD DOES, not about what the paper/authors do.\n"
         "7. CROSS-REFERENCE RULE: When referencing OTHER papers (in complemented_by.coverage, "
         "recommendation.why, combination_notes), ALWAYS use the work_id.\n"
         "   WRONG: 'DenseNet provides feature reuse'\n"
         "   RIGHT: '[W67890] provides direct feature reuse across all layers through dense concatenation'\n"
+        "   WORK_ID FORMAT: OpenAlex IDs start with 'W' (e.g., W2194775991). Semantic Scholar IDs "
+        "start with 'S2:' (e.g., S2:204e3073). ArXiv IDs start with 'AX:' (e.g., AX:1706.03762). "
+        "NEVER use raw arxiv IDs like 'arxiv:1706.03762' or '1706.03762' — always prefix with 'AX:'.\n"
         "8. TECHNICAL DEPTH: Every mechanism, cause, consequence, and coverage description MUST "
         "include at least ONE of: (a) a named algorithm/technique, (b) a mathematical formulation, "
         "(c) a specific quantity/metric, (d) a concrete architectural detail.\n"
@@ -1904,7 +1987,8 @@ def _run_comparison_pipeline(
         has_survey=has_survey, low_overlap=low_overlap,
     )
 
-    # 5. Scrub self-references
+    # 5. Normalize work_ids and scrub self-references
+    synthesis = _normalize_work_ids(synthesis)
     synthesis = _scrub_self_references(synthesis)
 
     # 5. Compute confidence
