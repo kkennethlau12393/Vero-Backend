@@ -668,14 +668,14 @@ def rank_timeline_endpoint(
     """
     Generate timeline narrative for a paper in a ranked result list.
 
-    Validates that the rank job exists, belongs to the tenant, and
-    that the work_id is present in the job's results. Then delegates
-    to the Feature 3 timeline pipeline (dual-source retrieval, LLM narrative).
+    Checks persistent storage first; if cached, returns immediately.
+    Otherwise generates via Feature 3 pipeline, persists, then returns.
 
     Returns 404 if rank job or work not found.
     Returns 422 if timeline generation fails.
     """
     try:
+        import json as _json
         from sqlalchemy import text as sql_text
 
         with engine.connect() as conn:
@@ -704,7 +704,22 @@ def rank_timeline_endpoint(
             if not work_row:
                 raise HTTPException(status_code=404, detail="work_not_in_rank_results")
 
-        # Delegate to Feature 3 timeline pipeline
+            # Check persistent storage
+            cached_row = conn.execute(
+                sql_text("""
+                    SELECT result FROM node_timelines
+                    WHERE rank_job_id = :rjid AND work_id = :wid
+                """),
+                {"rjid": str(rank_job_id), "wid": work_id},
+            ).mappings().first()
+
+            if cached_row:
+                result = cached_row["result"]
+                if isinstance(result, str):
+                    result = _json.loads(result)
+                return result
+
+        # Generate via Feature 3 pipeline
         from app.feature3.node_details_service import get_timeline_for_work
 
         timeline = get_timeline_for_work(engine, work_id=work_id)
@@ -714,6 +729,24 @@ def rank_timeline_endpoint(
                 status_code=422,
                 detail="Timeline generation failed for this paper",
             )
+
+        # Persist to node_timelines
+        try:
+            timeline_json = timeline.model_dump(mode="json")
+            with engine.connect() as conn:
+                conn.execute(
+                    sql_text("""
+                        INSERT INTO node_timelines (rank_job_id, work_id, result)
+                        VALUES (:rjid, :wid, CAST(:result AS jsonb))
+                        ON CONFLICT (rank_job_id, work_id) DO UPDATE SET
+                            result = CAST(EXCLUDED.result AS jsonb),
+                            created_at = now()
+                    """),
+                    {"rjid": str(rank_job_id), "wid": work_id, "result": _json.dumps(timeline_json)},
+                )
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to persist timeline for {work_id}: {e}")
 
         return timeline
 
@@ -903,3 +936,55 @@ def get_rank_methodology_comparisons(
             })
 
         return {"comparisons": comparisons}
+
+
+@router.get("/{rank_job_id}/timelines")
+def get_rank_timelines(
+    rank_job_id: UUID,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    """Return all persisted timelines for papers in a rank job."""
+    from sqlalchemy import text as sql_text
+
+    with engine.connect() as conn:
+        # Verify rank job exists and belongs to tenant
+        job_row = conn.execute(
+            sql_text("""
+                SELECT rank_job_id FROM rank_jobs
+                WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
+            """),
+            {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
+        ).first()
+
+        if not job_row:
+            raise HTTPException(status_code=404, detail="rank_job_not_found")
+
+        # Fetch all persisted timelines with paper metadata
+        rows = conn.execute(
+            sql_text("""
+                SELECT nt.work_id, nt.result, nt.created_at,
+                       w.title, w.year
+                FROM node_timelines nt
+                LEFT JOIN works w ON w.work_id = nt.work_id
+                WHERE nt.rank_job_id = :rjid
+                ORDER BY nt.created_at DESC
+            """),
+            {"rjid": str(rank_job_id)},
+        ).mappings().all()
+
+        timelines = []
+        for row in rows:
+            result = row["result"]
+            if isinstance(result, str):
+                import json as _json
+                result = _json.loads(result)
+            timelines.append({
+                "work_id": row["work_id"],
+                "title": row["title"],
+                "year": row["year"],
+                "result": result,
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            })
+
+        return {"timelines": timelines}
