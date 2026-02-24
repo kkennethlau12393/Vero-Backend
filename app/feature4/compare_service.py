@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
-COMPARISON_VERSION = "v4-source-text-9"  # self-ref prohibition + work_id normalization
+COMPARISON_VERSION = "v4-source-text-10"  # complement title dedup
 EXTRACTION_VERSION = "v2-rich-no-selfref"  # + self-reference prohibition
 MAX_RETRIES = 4
 RETRY_BACKOFF_BASE = 0.5
@@ -697,6 +697,32 @@ def _scrub_self_references(synthesis: Dict[str, Any]) -> Dict[str, Any]:
                     for pat in patterns:
                         paradigm[field] = paradigm[field].replace(pat, "this paper")
 
+    return synthesis
+
+
+def _scrub_complement_titles(synthesis: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove redundant title repetition from complemented_by.coverage fields.
+
+    When coverage starts with the complement paper's title, strip it since
+    the title is already in other_title.
+    """
+    for sw in synthesis.get("strengths_weaknesses_matrix", []):
+        if not isinstance(sw, dict):
+            continue
+        for c in sw.get("complemented_by", []):
+            if not isinstance(c, dict):
+                continue
+            title = c.get("other_title", "")
+            coverage = c.get("coverage", "")
+            if not title or not coverage:
+                continue
+            # Check if coverage starts with the title (case-insensitive)
+            if coverage.lower().startswith(title.lower()):
+                # Strip the title and any trailing separator
+                remainder = coverage[len(title):].lstrip(" ,.:;—–-")
+                if remainder:
+                    # Capitalize the first letter
+                    c["coverage"] = remainder[0].upper() + remainder[1:]
     return synthesis
 
 
@@ -1625,7 +1651,12 @@ def _build_synthesis_prompt(
         "   - complemented_by: select the paper that BEST addresses each weakness from the "
         "COMPLEMENT CANDIDATES list. The complement does NOT have to be from the comparison set. "
         "Do NOT force a complement — if no candidate genuinely addresses the weakness, omit it. "
-        "Explain the SPECIFIC mechanism by which the complement addresses the gap.\n\n"
+        "Explain the SPECIFIC mechanism by which the complement addresses the gap.\n"
+        "   - In 'coverage', do NOT repeat the complement paper's title — it is already in "
+        "'other_title'. Start directly with the mechanism.\n"
+        "   WRONG: 'Score-Based Generative Modeling through Stochastic Differential Equations "
+        "employs a probability flow ODE...'\n"
+        "   RIGHT: 'Employs a probability flow ODE with d̄x(t)/dt = -1/2·g(t)²·∇ log pt(x̄)...'\n\n"
         "3. RECOMMENDATION (decision-focused)\n"
         "   - Your quick take on the landscape\n"
         "   - Decision matrix: specific scenarios → which paper → why\n"
@@ -1987,9 +2018,10 @@ def _run_comparison_pipeline(
         has_survey=has_survey, low_overlap=low_overlap,
     )
 
-    # 5. Normalize work_ids and scrub self-references
+    # 5. Normalize work_ids, scrub self-references, and clean complement titles
     synthesis = _normalize_work_ids(synthesis)
     synthesis = _scrub_self_references(synthesis)
+    synthesis = _scrub_complement_titles(synthesis)
 
     # 5. Compute confidence
     content_map = {c.work_id: c for c in contents}
