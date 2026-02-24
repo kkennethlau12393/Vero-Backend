@@ -35,7 +35,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
-NARRATIVE_VERSION = "narrative-v2"
+NARRATIVE_VERSION = "narrative-v3"
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MAX_RETRIES = 3
@@ -121,6 +121,7 @@ def _build_narrative_prompt(
     references: List[Dict[str, Any]],
     landmarks: List[Dict[str, Any]],
     citing_papers: List[Dict[str, Any]],
+    era_labels: Optional[List[str]] = None,
 ) -> str:
     """Build the LLM prompt for timeline narrative generation."""
     year_str = f" ({year})" if year else ""
@@ -149,6 +150,22 @@ def _build_narrative_prompt(
         for i, p in enumerate(sorted_citers, 1)
     ]
     citer_section = "\n".join(citer_lines) if citer_lines else "(None available)"
+
+    # Build era labels section for the prompt
+    if era_labels and len(era_labels) > 0:
+        era_example = era_labels[0]
+        era_labels_str = ", ".join(f'"{e}"' for e in era_labels)
+        era_instruction = (
+            f"- era_commentaries MUST use EXACTLY these era labels: [{era_labels_str}]. "
+            f"One commentary per era label. Do not invent new era labels."
+        )
+    else:
+        era_example = "1990s"
+        era_instruction = (
+            "- era_commentaries MUST cover every time period that has papers above, "
+            "from the earliest predecessor to the latest successor. "
+            "Include the target paper's own era."
+        )
 
     prompt = f"""## TARGET PAPER
 Title: {title}{year_str}
@@ -189,7 +206,7 @@ Cite specific [W...] work_ids inline. Cover both direct extensions and unexpecte
 applications in other domains.",
     "era_commentaries": [
         {{
-            "era": "1990s",
+            "era": "{era_example}",
             "headline": "Short era title (e.g., 'The statistical learning era')",
             "narrative": "A technical mini paragraph (4-6 sentences) about this era's \
 contribution to the research lineage. Name specific algorithms, architectures, or \
@@ -209,8 +226,7 @@ technique and what it enabled (1-2 sentences)"
 }}
 
 RULES:
-- era_commentaries MUST cover every decade that has papers above, from the earliest \
-predecessor to the latest successor. Include the target paper's own decade.
+{era_instruction}
 - Each era narrative must cite at least one work_id from that era (e.g., [W...], [S...], or [AX...]).
 - historical_context, contribution_statement, and downstream_impact must each cite at \
 least 3 work_ids.
@@ -328,6 +344,7 @@ def generate_timeline_narrative(
     references: List[Dict[str, Any]],
     landmarks: List[Dict[str, Any]],
     citing_papers: List[Dict[str, Any]],
+    era_labels: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Generate a rich timeline narrative for a paper's research lineage.
@@ -355,6 +372,7 @@ def generate_timeline_narrative(
     prompt = _build_narrative_prompt(
         title, abstract, year, cited_by_count,
         references, landmarks, citing_papers,
+        era_labels=era_labels,
     )
 
     api_key = os.environ.get("GROQ_API_KEY")

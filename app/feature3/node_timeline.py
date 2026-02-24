@@ -6,8 +6,8 @@ This module builds a temporal timeline around a target paper, showing:
 - Forward: Citing papers (papers after the target)
 - Narrative: Rich vertical-evolution story of the research lineage
 
-Papers are grouped by era (decades) for visualization, with optional
-per-era commentary from the LLM narrative.
+Papers are grouped by era (adaptive granularity based on year span) for
+visualization, with optional per-era commentary from the LLM narrative.
 
 Note: Paper fetching and caching is handled by paper_cache.py for sharing
 between timeline and novelty assessment features.
@@ -38,20 +38,66 @@ OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY", "")
 # Era Grouping Utilities
 # ============================================================================
 
-def get_era_label(year: Optional[int]) -> str:
-    """Convert a year to an era label (decade)."""
+def compute_era_width(years: List[int]) -> int:
+    """Choose era width (in years) based on paper year distribution.
+
+    Targets ~4-7 eras. Uses IQR to ignore outlier landmarks
+    (e.g., a 1990 paper in a mostly 2019-2025 field).
+    """
+    if not years:
+        return 10
+    sorted_years = sorted(years)
+    n = len(sorted_years)
+    q1 = sorted_years[n // 4] if n >= 4 else sorted_years[0]
+    q3 = sorted_years[3 * n // 4] if n >= 4 else sorted_years[-1]
+    span = q3 - q1 + 1
+    if span <= 6:
+        return 1       # individual years: "2020", "2021"
+    elif span <= 15:
+        return 3       # 3-year blocks: "2020-2022"
+    elif span <= 30:
+        return 5       # 5-year blocks: "2020-2024"
+    else:
+        return 10      # decades: "2020s"
+
+
+def get_era_label(year: Optional[int], era_width: int = 10) -> str:
+    """Convert a year to an era label with adaptive granularity."""
     if year is None:
         return "Unknown"
-    decade = (year // 10) * 10
-    return f"{decade}s"
+    if era_width == 1:
+        return str(year)
+    elif era_width == 10:
+        decade = (year // 10) * 10
+        return f"{decade}s"
+    else:
+        block = (year // era_width) * era_width
+        return f"{block}-{block + era_width - 1}"
+
+
+def _era_sort_key(era: str) -> int:
+    """Extract numeric sort key from any era label format."""
+    if era == "Unknown":
+        return 9999
+    try:
+        return int(era)                    # "2020" → 2020
+    except ValueError:
+        pass
+    if "-" in era:
+        return int(era.split("-")[0])      # "2020-2024" → 2020
+    try:
+        return int(era.replace("s", ""))   # "2020s" → 2020
+    except ValueError:
+        return 9999
 
 
 def group_papers_by_era(
     papers: List[Dict[str, Any]],
     relationship: Literal["reference", "landmark", "citing"],
+    era_width: int = 10,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
-    Group papers by era (decade).
+    Group papers by era with adaptive granularity.
 
     Returns dict: era_label -> list of papers with relationship added.
     """
@@ -59,7 +105,7 @@ def group_papers_by_era(
 
     for paper in papers:
         year = paper.get("year")
-        era = get_era_label(year)
+        era = get_era_label(year, era_width)
 
         paper_entry = {
             "work_id": paper.get("work_id"),
@@ -125,17 +171,13 @@ def era_map_to_sections(
             "papers": sorted_papers,
         })
 
-    # Sort sections by era (extract decade number for sorting)
-    def era_sort_key(section: Dict) -> int:
-        era = section["era"]
-        if era == "Unknown":
-            return 9999 if sort_ascending else -9999
-        try:
-            return int(era.replace("s", ""))
-        except ValueError:
-            return 9999 if sort_ascending else -9999
+    def section_sort_key(section: Dict) -> int:
+        key = _era_sort_key(section["era"])
+        if key == 9999 and not sort_ascending:
+            return -9999
+        return key
 
-    sections.sort(key=era_sort_key, reverse=not sort_ascending)
+    sections.sort(key=section_sort_key, reverse=not sort_ascending)
     return sections
 
 
@@ -565,11 +607,6 @@ def build_node_timeline(
     Returns:
         Dict with target_work_id, target_year, backward, forward, narrative
     """
-    # Group backward papers by era (dedup handled in merge)
-    ref_eras = group_papers_by_era(references, "reference")
-    landmark_eras = group_papers_by_era(landmarks, "landmark")
-    backward_eras = merge_era_maps(ref_eras, landmark_eras)
-
     # Get citing papers (forward) - dual-source: OA + S2
     citing_papers = _get_citing_papers_dual_source(conn, work_id, limit=MAX_CITING_PAPERS)
 
@@ -577,7 +614,19 @@ def build_node_timeline(
     # This improves narrative quality by giving the LLM more context
     _enrich_timeline_abstracts(conn, references, landmarks, citing_papers)
 
-    forward_eras = group_papers_by_era(citing_papers, "citing")
+    # Compute adaptive era width from all paper years
+    all_years = [
+        p.get("year") for p in references + landmarks + citing_papers
+        if p.get("year")
+    ]
+    era_width = compute_era_width(all_years)
+    logger.info(f"Timeline era_width={era_width} for {work_id} (years: {min(all_years) if all_years else '?'}-{max(all_years) if all_years else '?'})")
+
+    # Group papers by era
+    ref_eras = group_papers_by_era(references, "reference", era_width=era_width)
+    landmark_eras = group_papers_by_era(landmarks, "landmark", era_width=era_width)
+    backward_eras = merge_era_maps(ref_eras, landmark_eras)
+    forward_eras = group_papers_by_era(citing_papers, "citing", era_width=era_width)
 
     # Convert to sections
     backward_sections = era_map_to_sections(backward_eras, sort_ascending=True)
@@ -589,6 +638,13 @@ def build_node_timeline(
         from app.feature3.timeline_narrative import generate_timeline_narrative
 
         logger.info(f"Generating timeline narrative for {work_id}")
+        # Compute era labels for the LLM prompt
+        backward_era_labels = sorted(backward_eras.keys(), key=_era_sort_key)
+        forward_era_labels = sorted(forward_eras.keys(), key=_era_sort_key)
+        all_era_labels = sorted(
+            set(backward_era_labels + forward_era_labels), key=_era_sort_key
+        )
+
         narrative = generate_timeline_narrative(
             conn=conn,
             work_id=work_id,
@@ -599,12 +655,21 @@ def build_node_timeline(
             references=references,
             landmarks=landmarks,
             citing_papers=citing_papers,
+            era_labels=all_era_labels,
         )
 
         # Map era commentaries onto sections
         if narrative and narrative.get("era_commentaries"):
             _apply_era_commentaries(backward_sections, narrative["era_commentaries"])
             _apply_era_commentaries(forward_sections, narrative["era_commentaries"])
+
+            # Deduplicate: if same era has commentary in both, keep only in backward
+            backward_eras_with_commentary = {
+                s["era"] for s in backward_sections if s.get("commentary")
+            }
+            for section in forward_sections:
+                if section.get("commentary") and section["era"] in backward_eras_with_commentary:
+                    section.pop("commentary", None)
 
     return {
         "target_work_id": work_id,
