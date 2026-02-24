@@ -54,7 +54,8 @@ class BatchStatusRequest(BaseModel):
 def _get_workspace_status(conn, tenant_id: UUID) -> WorkspaceStatusResponse:
     """Derive workspace capabilities and job states from existing tables."""
 
-    # Latest rank job for this workspace
+    # Latest rank job for this workspace.
+    # A workspace has a ranked list only if a completed job has persisted rows.
     rank_row = conn.execute(
         text("""
             SELECT rank_job_id, status, started_at, completed_at, error_json
@@ -71,7 +72,16 @@ def _get_workspace_status(conn, tenant_id: UUID) -> WorkspaceStatusResponse:
     last_updated = None
 
     if rank_row:
-        has_ranked_list = rank_row["status"] == "completed"
+        rank_results_row = conn.execute(
+            text("""
+                SELECT 1
+                FROM rank_results
+                WHERE rank_job_id = :rank_job_id
+                LIMIT 1
+            """),
+            {"rank_job_id": rank_row["rank_job_id"]},
+        ).first()
+        has_ranked_list = rank_row["status"] == "completed" and bool(rank_results_row)
         error_msg = None
         if rank_row["error_json"]:
             err = rank_row["error_json"]
