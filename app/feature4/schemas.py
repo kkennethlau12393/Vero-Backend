@@ -193,6 +193,7 @@ class MethodologyComparisonResponse(BaseModel):
 
     work_ids: list[str]
     papers: list[PaperMethodProfile]
+    referenced_works: dict[str, str] = {}  # work_id -> title for external papers mentioned
     lineage: CitationLineage
     convergence_divergence: ConvergenceDivergence
     strengths_weaknesses_matrix: list[PaperStrengthsWeaknesses]
