@@ -2,7 +2,7 @@
 Temporal map service for Feature 2.
 
 This module builds temporal maps from ranked query results, grouping
-papers by era (decade) and identifying milestone papers.
+papers by era (adaptive granularity) and identifying milestone papers.
 """
 
 from __future__ import annotations
@@ -18,18 +18,54 @@ from sqlalchemy.engine import Connection, Engine
 logger = logging.getLogger(__name__)
 
 
-def get_era_label(year: Optional[int]) -> str:
-    """Convert a year to an era label (decade)."""
+def compute_era_width(years: List[int]) -> int:
+    """Choose era width (in years) based on paper year distribution.
+
+    Targets ~4-7 eras. Uses IQR to ignore outlier papers.
+    """
+    if not years:
+        return 10
+    sorted_years = sorted(years)
+    n = len(sorted_years)
+    q1 = sorted_years[n // 4] if n >= 4 else sorted_years[0]
+    q3 = sorted_years[3 * n // 4] if n >= 4 else sorted_years[-1]
+    span = q3 - q1 + 1
+    if span <= 6:
+        return 1       # individual years: "2020", "2021"
+    elif span <= 15:
+        return 3       # 3-year blocks: "2020-2022"
+    elif span <= 30:
+        return 5       # 5-year blocks: "2020-2024"
+    else:
+        return 10      # decades: "2020s"
+
+
+def get_era_label(year: Optional[int], era_width: int = 10) -> str:
+    """Convert a year to an era label with adaptive granularity."""
     if year is None:
         return "Unknown"
-    decade = (year // 10) * 10
-    return f"{decade}s"
+    if era_width == 1:
+        return str(year)
+    elif era_width == 10:
+        decade = (year // 10) * 10
+        return f"{decade}s"
+    else:
+        block = (year // era_width) * era_width
+        return f"{block}-{block + era_width - 1}"
 
 
 def get_era_bounds(era_label: str) -> tuple[int, int]:
     """Get start and end years for an era label."""
     if era_label == "Unknown":
         return (0, 0)
+    try:
+        y = int(era_label)
+        return (y, y)
+    except ValueError:
+        pass
+    if "-" in era_label:
+        parts = era_label.split("-")
+        return (int(parts[0]), int(parts[1]))
     try:
         decade = int(era_label.replace("s", ""))
         return (decade, decade + 9)
@@ -126,16 +162,17 @@ def identify_milestones(
 def group_papers_by_era(
     papers: List[Dict[str, Any]],
     milestones: Optional[set] = None,
+    era_width: int = 10,
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Group papers by era (decade) and build era summaries.
+    Group papers by era and build era summaries.
 
     Returns dict: era_label -> era dict with papers and metadata
     """
     era_map: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
 
     for paper in papers:
-        era = get_era_label(paper.get("year"))
+        era = get_era_label(paper.get("year"), era_width)
         paper_entry = {
             "work_id": paper["work_id"],
             "title": paper.get("title"),
@@ -211,17 +248,22 @@ def build_temporal_map(
                 "analytics": None,
             }
 
+        # Compute adaptive era width
+        all_years = [p["year"] for p in papers if p.get("year")]
+        era_width = compute_era_width(all_years)
+        logger.info(f"Temporal map era_width={era_width} for {rank_job_id}")
+
         # Group by era first to calculate milestone thresholds
         era_papers_raw: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for paper in papers:
-            era = get_era_label(paper.get("year"))
+            era = get_era_label(paper.get("year"), era_width)
             era_papers_raw[era].append(paper)
 
         # Identify milestones
         milestones = identify_milestones(papers, dict(era_papers_raw))
 
         # Build final era groupings
-        era_data = group_papers_by_era(papers, milestones)
+        era_data = group_papers_by_era(papers, milestones, era_width=era_width)
 
         # Sort eras chronologically
         sorted_eras = []
