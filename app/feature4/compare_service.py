@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
-COMPARISON_VERSION = "v4-source-text-6"  # title-based review detection
+COMPARISON_VERSION = "v4-source-text-8"  # recommendation why vague-BY enforcement
 EXTRACTION_VERSION = "v2-rich-reviews-2"  # + title-based review detection
 MAX_RETRIES = 4
 RETRY_BACKOFF_BASE = 0.5
@@ -737,16 +737,44 @@ def _validate_depth(
         for i, d in enumerate(rec.get("decision_matrix", [])):
             if isinstance(d, dict):
                 why = d.get("why", "")
-                if len(why) < 60:
+                if len(why) < 150:
                     violations.append(
-                        f"Decision scenario {i+1} 'why' is too shallow ({len(why)} chars). "
-                        "Explain the causal chain: mechanism → outcome for this scenario."
+                        f"Decision scenario {i+1} 'why' is too short ({len(why)} chars, need 150+). "
+                        "Write 2-3 sentences: (1) name the specific mechanism/technique, "
+                        "(2) explain HOW it addresses this scenario, "
+                        "(3) give evidence (metric, benchmark, or architectural detail)."
                     )
                 if _SHALLOW_PATTERN.search(why):
                     violations.append(
                         f"Decision scenario {i+1} 'why' uses BANNED vague language: '{why[:80]}...'. "
                         "Replace with the SPECIFIC mechanism: name the algorithm, state the "
                         "complexity, or give exact architectural detail connecting mechanism to outcome."
+                    )
+                # Check that 'why' explains the mechanism, not just states the outcome
+                _mechanism_connectors = _re.compile(
+                    r'\b(by |via |through |using |because |enables? |leverag)',
+                    _re.IGNORECASE,
+                )
+                if why and len(why) >= 150 and not _mechanism_connectors.search(why):
+                    violations.append(
+                        f"Decision scenario {i+1} 'why' states WHAT the method achieves but not "
+                        f"HOW. Add the mechanism: 'achieves X BY [specific mechanism]'. "
+                        f"Current: '{why[:80]}...'"
+                    )
+                # Check that the BY clause isn't vague filler
+                _vague_by = _re.compile(
+                    r'\b(?:by|via|through|using)\s+(?:providing|offering|delivering|enabling|'
+                    r'ensuring|allowing for|facilitating|supporting|achieving)\s+'
+                    r'(?:robust|better|superior|improved|effective|efficient|good|strong|'
+                    r'powerful|flexible|reliable|high-quality|advanced)\b',
+                    _re.IGNORECASE,
+                )
+                if why and _vague_by.search(why):
+                    violations.append(
+                        f"Decision scenario {i+1} 'why' has a vague mechanism clause. "
+                        f"After 'by/via/through/using', name the SPECIFIC technique "
+                        f"(e.g., 'by using bottleneck blocks (1×1→3×3→1×1)'), not generic "
+                        f"phrases like 'by providing robust feature extractors'."
                     )
 
     # Fingerprint grounding: check synthesis references key_components
@@ -1672,17 +1700,17 @@ def _build_synthesis_prompt(
         '      {\n'
         '        "scenario": "Semantic segmentation label → photorealistic image with paired data",\n'
         '        "use": "Wpix2pix",\n'
-        '        "why": "L1 loss (λ=100) on pixel-aligned pairs ensures structural fidelity to the segmentation layout, while PatchGAN adds local texture realism — achieving 71.8% FCN-score vs CycleGAN\'s ~58%"\n'
+        '        "why": "L1 loss (λ=100) on pixel-aligned pairs penalizes per-pixel deviation from ground truth, ensuring structural fidelity to the segmentation layout. The PatchGAN discriminator (70×70 receptive field) adds local texture realism without the blurring that full-image discriminators produce. Together they achieve 71.8% FCN-score vs CycleGAN\'s ~58%, because paired supervision lets the generator learn exact spatial correspondences."\n'
         '      },\n'
         '      {\n'
         '        "scenario": "Artistic style transfer between unpaired image collections",\n'
         '        "use": "Wcyclegan",\n'
-        '        "why": "Cycle consistency loss enables learning from unpaired collections (e.g., ~1000 Monet paintings + ~1000 photographs), where no pixel correspondence exists and pix2pix cannot be applied"\n'
+        '        "why": "Cycle consistency loss (F(G(X))≈X with λ_cyc=10) enables learning from unpaired collections where no pixel correspondence exists — e.g., ~1000 Monet paintings + ~1000 photographs with no paired samples. By enforcing round-trip reconstruction, the generator learns domain-specific style transfer without requiring aligned training pairs that pix2pix demands. This makes it the only viable approach when collecting paired data is impractical or impossible."\n'
         '      },\n'
         '      {\n'
         '        "scenario": "Domain adaptation for autonomous driving (sim→real)",\n'
         '        "use": "Wcyclegan",\n'
-        '        "why": "Simulated and real driving images have no pixel alignment; cycle consistency preserves scene layout while transferring visual appearance from rendered to photorealistic domain"\n'
+        '        "why": "Simulated and real driving images have no pixel alignment, ruling out paired approaches like pix2pix. CycleGAN\'s cycle consistency loss preserves scene layout (road geometry, lane markings, vehicle positions) while transferring visual appearance from rendered to photorealistic domain using the ResNet-9 generator\'s instance normalization. This enables training on existing simulator outputs without expensive manual annotation of real-world driving scenes."\n'
         '      }\n'
         '    ],\n'
         '    "can_combine": true,\n'
@@ -1694,11 +1722,19 @@ def _build_synthesis_prompt(
         "- Exact loss formulations (L = L_cGAN + λ·L1 where λ=100, F(G(X))≈X with λ_cyc=10)\n"
         "- Concrete numbers (71.8% FCN-score, 8 encoder layers, ~1000 images)\n"
         "- Causal chains in cause→consequence (not just 'increases cost')\n"
-        "- RECOMMENDATION WHY fields explain the causal chain: mechanism → why it helps in this scenario.\n"
-        "  NOT: 'provides good results for this task'\n"
-        "  YES: 'L1 loss (λ=100) on pixel-aligned pairs ensures structural fidelity — achieving 71.8% FCN-score'\n"
-        "  YES: 'cycle consistency preserves scene layout while transferring visual appearance'\n"
-        "  Every 'why' must name the SPECIFIC mechanism from the paper that makes it suitable.\n"
+        "- RECOMMENDATION WHY fields must be 2-3 sentences explaining the FULL causal chain:\n"
+        "  (1) Name the specific mechanism/technique from the paper\n"
+        "  (2) Explain HOW that mechanism addresses this particular scenario\n"
+        "  (3) Provide evidence: a metric, benchmark result, or architectural detail that confirms it\n"
+        "  NOT: 'Achieves state-of-the-art FID scores on image generation tasks'\n"
+        "  NOT: 'Provides good results for this task'\n"
+        "  NOT: 'By providing robust feature extractors that can be fine-tuned' (VAGUE — what features? how?)\n"
+        "  YES: 'L1 loss (λ=100) on pixel-aligned pairs ensures structural fidelity to the segmentation "
+        "layout by penalizing per-pixel deviation from ground truth. PatchGAN (70×70 receptive field) adds "
+        "local texture realism without blurring. Together they achieve 71.8% FCN-score vs CycleGAN's ~58%.'\n"
+        "  The BY/USING clause must name a SPECIFIC named technique with dimensions or parameters — "
+        "never 'by providing robust/better/efficient X'. Name the actual component.\n"
+        "  Every 'why' must name the mechanism, explain how it helps, and give evidence.\n"
         "Your output MUST match this level of specificity. Generic descriptions will be rejected.\n\n"
         "=== NOW PRODUCE YOUR COMPARISON ===\n"
         "Analyze the papers above. Return JSON with this EXACT structure:\n"

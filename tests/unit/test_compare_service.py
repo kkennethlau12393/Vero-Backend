@@ -269,7 +269,7 @@ class TestValidateDepth:
             },
         }
         violations = _validate_depth(result)
-        assert any("why" in v and "shallow" in v.lower() for v in violations)
+        assert any("why" in v and ("shallow" in v.lower() or "too short" in v.lower()) for v in violations)
 
     def test_passes_deep_content(self):
         result = {
@@ -322,8 +322,11 @@ class TestValidateDepth:
                         "use": "W1",
                         "why": (
                             "Additive residual shortcuts have O(1) memory overhead per block "
-                            "compared to DenseNet's O(L) concatenation, allowing a 152-layer "
-                            "ResNet to fit within 12GB GPU memory"
+                            "compared to DenseNet's O(L) concatenation, enabling a 152-layer "
+                            "ResNet to fit within 12GB GPU memory. By using identity mappings "
+                            "that add rather than concatenate, each block reuses the same "
+                            "activation memory, achieving 3.57% top-5 error on ImageNet "
+                            "without exceeding standard GPU memory constraints."
                         ),
                     }
                 ]
