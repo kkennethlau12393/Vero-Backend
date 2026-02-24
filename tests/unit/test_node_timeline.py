@@ -25,17 +25,17 @@ class TestComputeEraWidth:
         assert compute_era_width([1960, 1970, 1980, 1990, 2000, 2010, 2020]) == 10
 
     def test_medium_span_returns_5_year(self):
-        # IQR ~20 → 5-year blocks
+        # IQR ~21 → 5-year blocks (6 distinct eras ≤ cap of 6)
         years = [1990, 2000, 2005, 2010, 2015, 2020, 2024]
         assert compute_era_width(years) == 5
 
     def test_narrow_span_returns_3_year(self):
-        # IQR ~8 → 3-year blocks
+        # IQR ~7 → 3-year blocks
         years = [2015, 2017, 2019, 2021, 2023, 2025]
         assert compute_era_width(years) == 3
 
     def test_very_narrow_span_returns_yearly(self):
-        # IQR ~4 → individual years
+        # IQR ~3 → individual years (4 eras ≤ cap of 6)
         years = [2020, 2021, 2022, 2023]
         assert compute_era_width(years) == 1
 
@@ -44,6 +44,19 @@ class TestComputeEraWidth:
         years = [1990, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
         width = compute_era_width(years)
         assert width <= 3  # Should not be decades due to IQR
+
+    def test_posthoc_cap_prevents_too_many_eras(self):
+        # IQR is narrow (span≤4) → initial=yearly, but 8 distinct years
+        # would create 8 yearly eras > cap of 6, so bumps to 3-year
+        years = [2015, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+        width = compute_era_width(years)
+        assert width >= 3  # yearly would give too many eras
+
+    def test_diffusion_field_gets_3_year_blocks(self):
+        # Typical diffusion models field: 2010-2024, most papers 2019-2024
+        years = [2010, 2014, 2017, 2019, 2020, 2021, 2022, 2023, 2024]
+        width = compute_era_width(years)
+        assert width == 3  # 5 eras at width=3, not 7+ yearly eras
 
     def test_single_year(self):
         assert compute_era_width([2020]) == 1
