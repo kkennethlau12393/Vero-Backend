@@ -1477,7 +1477,6 @@ def _build_timeline_if_requested(
             TimelineSection(
                 era=s["era"],
                 papers=[TimelinePaper(**p) for p in s["papers"]],
-                commentary=s.get("commentary"),
             )
             for s in timeline_data["backward"]
         ],
@@ -1485,7 +1484,6 @@ def _build_timeline_if_requested(
             TimelineSection(
                 era=s["era"],
                 papers=[TimelinePaper(**p) for p in s["papers"]],
-                commentary=s.get("commentary"),
             )
             for s in timeline_data["forward"]
         ],

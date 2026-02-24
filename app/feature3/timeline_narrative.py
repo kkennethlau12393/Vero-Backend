@@ -35,7 +35,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
-NARRATIVE_VERSION = "narrative-v3"
+NARRATIVE_VERSION = "narrative-v4"
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MAX_RETRIES = 3
@@ -208,11 +208,17 @@ applications in other domains.",
         {{
             "era": "{era_example}",
             "headline": "Short era title (e.g., 'The statistical learning era')",
-            "narrative": "A technical mini paragraph (4-6 sentences) about this era's \
-contribution to the research lineage. Name specific algorithms, architectures, or \
-theoretical results. Explain what technical barrier was hit and why the field moved on. \
-Cite [W...] work_ids. Connect this era to the next — what question or limitation \
-motivated the transition.",
+            "narrative": "A technical mini paragraph (5-8 sentences) about this era's \
+contribution to the research lineage. For EACH work you cite, explain its SPECIFIC \
+mechanism — e.g., 'ControlNet [W123] adds trainable zero-convolution layers to frozen \
+diffusion U-Nets, enabling spatial conditioning from edge maps and depth maps'. \
+Name exact techniques: architectures (U-Net, DiT, ViT), training methods (DDPM, flow \
+matching, score-based SDE), conditioning mechanisms (cross-attention, classifier-free \
+guidance, adapter modules), and specific application domains (text-to-image, inpainting, \
+video generation, 3D synthesis, protein folding). NEVER say 'further enhances', 'various \
+domains', 'improved performance', or 'significant advances' — always specify the exact \
+mechanism, the measurable improvement, and the concrete domain. Connect this era to the \
+next — what specific technical limitation motivated the transition.",
             "key_work_ids": ["W123", "W456"]
         }}
     ],
@@ -237,8 +243,12 @@ measurement papers are NEVER paradigm shifts.
 departed from the previous one.
 - Do NOT compare methods side-by-side or recommend which to use (that's a different feature).
 - Be TECHNICAL: name specific algorithms, architectures, loss functions, metrics, \
-layer counts, complexity classes. Avoid vague statements like "improved performance" — \
-say HOW and by what mechanism.
+layer counts, complexity classes.
+- BANNED PHRASES: "further enhances", "various domains", "various applications", \
+"improved performance", "significant advances", "notable improvements", \
+"growing interest", "increasing attention". For EVERY claim, specify: the exact \
+technique name, the mechanism by which it works, and the specific domain/benchmark \
+where it applies.
 - Each field should read as a standalone mini paragraph, not bullet points or fragments.
 
 Answer ONLY with the JSON object, no additional text."""

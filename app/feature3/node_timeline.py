@@ -41,8 +41,8 @@ OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY", "")
 def compute_era_width(years: List[int]) -> int:
     """Choose era width (in years) based on paper year distribution.
 
-    Targets ~4-7 eras. Uses IQR to ignore outlier landmarks
-    (e.g., a 1990 paper in a mostly 2019-2025 field).
+    Targets 3-5 eras. Uses IQR to ignore outlier landmarks, then
+    caps at 6 distinct eras to prevent over-fragmentation.
     """
     if not years:
         return 10
@@ -51,14 +51,26 @@ def compute_era_width(years: List[int]) -> int:
     q1 = sorted_years[n // 4] if n >= 4 else sorted_years[0]
     q3 = sorted_years[3 * n // 4] if n >= 4 else sorted_years[-1]
     span = q3 - q1 + 1
-    if span <= 6:
-        return 1       # individual years: "2020", "2021"
-    elif span <= 15:
-        return 3       # 3-year blocks: "2020-2022"
-    elif span <= 30:
-        return 5       # 5-year blocks: "2020-2024"
+
+    # Initial width from IQR span
+    if span <= 4:
+        initial = 1    # individual years: "2020", "2021"
+    elif span <= 12:
+        initial = 3    # 3-year blocks: "2020-2022"
+    elif span <= 25:
+        initial = 5    # 5-year blocks: "2020-2024"
     else:
         return 10      # decades: "2020s"
+
+    # Post-hoc: if chosen width produces >6 distinct eras, bump wider
+    max_eras = 6
+    for w in [1, 3, 5, 10]:
+        if w < initial:
+            continue
+        distinct = len(set((y // w) * w for y in sorted_years))
+        if distinct <= max_eras:
+            return w
+    return 10
 
 
 def get_era_label(year: Optional[int], era_width: int = 10) -> str:
@@ -180,21 +192,6 @@ def era_map_to_sections(
     sections.sort(key=section_sort_key, reverse=not sort_ascending)
     return sections
 
-
-def _apply_era_commentaries(
-    sections: List[Dict[str, Any]],
-    era_commentaries: List[Dict[str, Any]],
-) -> None:
-    """Map LLM era commentaries onto timeline sections by matching era labels."""
-    commentary_map = {
-        ec.get("era"): ec
-        for ec in era_commentaries
-        if ec.get("era")
-    }
-    for section in sections:
-        ec = commentary_map.get(section["era"])
-        if ec:
-            section["commentary"] = ec.get("narrative")
 
 
 # ============================================================================
@@ -658,18 +655,6 @@ def build_node_timeline(
             era_labels=all_era_labels,
         )
 
-        # Map era commentaries onto sections
-        if narrative and narrative.get("era_commentaries"):
-            _apply_era_commentaries(backward_sections, narrative["era_commentaries"])
-            _apply_era_commentaries(forward_sections, narrative["era_commentaries"])
-
-            # Deduplicate: if same era has commentary in both, keep only in backward
-            backward_eras_with_commentary = {
-                s["era"] for s in backward_sections if s.get("commentary")
-            }
-            for section in forward_sections:
-                if section.get("commentary") and section["era"] in backward_eras_with_commentary:
-                    section.pop("commentary", None)
 
     return {
         "target_work_id": work_id,

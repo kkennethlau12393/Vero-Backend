@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 def compute_era_width(years: List[int]) -> int:
     """Choose era width (in years) based on paper year distribution.
 
-    Targets ~4-7 eras. Uses IQR to ignore outlier papers.
+    Targets 3-5 eras. Uses IQR to ignore outlier papers, then
+    caps at 6 distinct eras to prevent over-fragmentation.
     """
     if not years:
         return 10
@@ -30,14 +31,26 @@ def compute_era_width(years: List[int]) -> int:
     q1 = sorted_years[n // 4] if n >= 4 else sorted_years[0]
     q3 = sorted_years[3 * n // 4] if n >= 4 else sorted_years[-1]
     span = q3 - q1 + 1
-    if span <= 6:
-        return 1       # individual years: "2020", "2021"
-    elif span <= 15:
-        return 3       # 3-year blocks: "2020-2022"
-    elif span <= 30:
-        return 5       # 5-year blocks: "2020-2024"
+
+    # Initial width from IQR span
+    if span <= 4:
+        initial = 1    # individual years: "2020", "2021"
+    elif span <= 12:
+        initial = 3    # 3-year blocks: "2020-2022"
+    elif span <= 25:
+        initial = 5    # 5-year blocks: "2020-2024"
     else:
         return 10      # decades: "2020s"
+
+    # Post-hoc: if chosen width produces >6 distinct eras, bump wider
+    max_eras = 6
+    for w in [1, 3, 5, 10]:
+        if w < initial:
+            continue
+        distinct = len(set((y // w) * w for y in sorted_years))
+        if distinct <= max_eras:
+            return w
+    return 10
 
 
 def get_era_label(year: Optional[int], era_width: int = 10) -> str:

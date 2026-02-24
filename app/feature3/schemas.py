@@ -66,7 +66,6 @@ class TimelineSection(BaseModel):
 
     era: str  # "1990s", "2000s", etc.
     papers: list[TimelinePaper] = []
-    commentary: Optional[str] = None  # Era narrative prose from LLM
 
 
 class EraCommentary(BaseModel):
