@@ -628,6 +628,17 @@ CREATE TABLE IF NOT EXISTS public.paper_full_text_cache (
 CREATE INDEX IF NOT EXISTS idx_paper_full_text_fetched
     ON public.paper_full_text_cache (fetched_at DESC);
 
+-- Timeline narrative cache (rich per-node timeline narratives)
+CREATE TABLE IF NOT EXISTS public.timeline_narrative_cache (
+    work_id text PRIMARY KEY,
+    narrative_json jsonb NOT NULL,
+    narrative_version text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_timeline_narrative_cache_created
+    ON public.timeline_narrative_cache (created_at DESC);
+
 -- ==========================================================================
 -- Tenant settings (institutional access configuration)
 -- ==========================================================================
