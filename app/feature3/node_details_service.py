@@ -2162,6 +2162,59 @@ def get_node_details(
         )
 
 
+def get_timeline_for_work(
+    engine: Engine,
+    *,
+    work_id: str,
+) -> Optional[NodeTimeline]:
+    """
+    Build timeline for a work_id without requiring a citation map.
+
+    Returns a NodeTimeline Pydantic model, or None if timeline generation fails.
+    Reuses the same pipeline as get_node_details(include_timeline=True) but
+    skips map-specific steps.
+    """
+    with engine.connect() as conn:
+        work_data = load_work_data(conn, work_id)
+        if not work_data:
+            raise ValueError("work_not_found")
+
+        # Enrich abstract if invalid (needed for narrative quality)
+        enriched_abstract, abstract_source = ensure_valid_abstract(
+            conn,
+            work_id=work_id,
+            title=work_data["title"],
+            abstract=work_data["abstract"],
+            year=work_data["year"],
+            doi=work_data.get("doi"),
+            arxiv_id=work_data.get("arxiv_id"),
+        )
+        if abstract_source not in ("cached", "unavailable") and enriched_abstract:
+            if enriched_abstract != work_data["abstract"]:
+                work_data["abstract"] = enriched_abstract
+        elif abstract_source == "unavailable":
+            if work_data["abstract"] is not None:
+                work_data["abstract"] = None
+
+        # Infer topic if missing (needed for landmark retrieval)
+        inferred_topic_id, topic_source = ensure_topic(
+            conn,
+            work_id=work_id,
+            title=work_data["title"],
+            abstract=work_data["abstract"],
+            current_topic_id=work_data.get("primary_topic_id"),
+            doi=work_data.get("doi"),
+            arxiv_id=work_data.get("arxiv_id"),
+        )
+        if topic_source not in ("cached", "unavailable") and inferred_topic_id:
+            if inferred_topic_id != work_data.get("primary_topic_id"):
+                work_data["primary_topic_id"] = inferred_topic_id
+
+        return _build_timeline_if_requested(
+            conn, True, work_id, work_data,
+        )
+
+
 def get_novelty_for_work(
     engine: Engine,
     *,
