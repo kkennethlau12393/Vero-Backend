@@ -17,6 +17,7 @@ from app.auth.tenant import get_tenant_id
 from app.db import make_engine
 from app.feature4.compare_service import compare_methodologies
 from app.feature4.schemas import MethodologyCompareRequest, MethodologyComparisonResponse
+from app.feature5.activity_logger import log_activity
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,14 @@ def compare_methodologies_endpoint(
             map_id=map_id,
             work_ids=req.work_ids,
         )
+        # Log activity
+        with engine.connect() as conn:
+            log_activity(
+                conn, tenant_id, "methodology_compared",
+                map_id=UUID(map_id),
+                work_ids=req.work_ids,
+                node_count=len(req.work_ids),
+            )
         return result
 
     except ValueError as e:

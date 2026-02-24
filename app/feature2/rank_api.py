@@ -47,6 +47,7 @@ from app.feature2.temporal_map_service import build_temporal_map
 from app.feature2.title_to_query import extract_display_title, generate_topic_query_from_title
 from app.feature3.schemas import NodeTimeline, NoveltyAssessment
 from app.feature4.schemas import MethodologyCompareRequest, MethodologyComparisonResponse
+from app.feature5.activity_logger import log_activity
 
 
 router = APIRouter(prefix="/v1/rank", tags=["rank"])
@@ -188,13 +189,24 @@ def direct_rank_endpoint(
         if isinstance(result, dict):
             result["display_title"] = display_title
 
-        status = (result.get("job") or {}).get("status")
+        resp = result
+        status = (resp.get("job") or {}).get("status")
+
+        # Log activity
+        with engine.connect() as conn:
+            log_activity(
+                conn, tenant_id, "rank_job_created",
+                rank_job_id=resp.get("rank_job_id"),
+                node_count=len(resp.get("items", [])),
+                metadata={"query_text": req.query_text},
+            )
+
         if status in ("pending", "running"):
             return JSONResponse(
                 status_code=202,
-                content={"rank_job_id": str(result["rank_job_id"]), "status": status},
+                content={"rank_job_id": str(resp["rank_job_id"]), "status": status},
             )
-        return result
+        return resp
 
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -552,6 +564,14 @@ def get_temporal_map_endpoint(
                 evolution=evolution,
             )
 
+        # Log activity
+        with engine.connect() as conn:
+            log_activity(
+                conn, tenant_id, "timeline_map_wide",
+                rank_job_id=rank_job_id,
+                metadata={"subtopic_id": subtopic_id},
+            )
+
         return TemporalMapResponse(
             rank_job_id=result["rank_job_id"],
             scope=result["scope"],
@@ -638,10 +658,22 @@ def rank_novelty_endpoint(
         assessment = result["novelty_assessment"]
         grounding_papers_data = assessment.pop("grounding_papers", [])
 
-        return NoveltyAssessment(
+        result_obj = NoveltyAssessment(
             **assessment,
             grounding_papers=[GroundingPaper(**gp) for gp in grounding_papers_data],
         )
+
+        # Log activity
+        with engine.connect() as conn:
+            log_activity(
+                conn, tenant_id, "novelty_assessed",
+                rank_job_id=rank_job_id,
+                work_ids=[work_id],
+                node_count=1,
+                metadata={"novelty_level": result_obj.novelty_level if result_obj else None},
+            )
+
+        return result_obj
 
     except HTTPException:
         raise
@@ -748,6 +780,15 @@ def rank_timeline_endpoint(
         except Exception as e:
             logger.warning(f"Failed to persist timeline for {work_id}: {e}")
 
+        # Log activity
+        with engine.connect() as conn:
+            log_activity(
+                conn, tenant_id, "timeline_per_node",
+                rank_job_id=rank_job_id,
+                work_ids=[work_id],
+                node_count=1,
+            )
+
         return timeline
 
     except HTTPException:
@@ -795,12 +836,23 @@ def rank_compare_methodologies_endpoint(
             if not job_row:
                 raise HTTPException(status_code=404, detail="rank_job_not_found")
 
-        return compare_methodologies_for_rank_job(
+        result = compare_methodologies_for_rank_job(
             engine=engine,
             tenant_id=tenant_id,
             rank_job_id=str(rank_job_id),
             work_ids=req.work_ids,
         )
+
+        # Log activity
+        with engine.connect() as conn:
+            log_activity(
+                conn, tenant_id, "methodology_compared",
+                rank_job_id=rank_job_id,
+                work_ids=req.work_ids,
+                node_count=len(req.work_ids),
+            )
+
+        return result
 
     except HTTPException:
         raise

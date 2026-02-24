@@ -1,8 +1,12 @@
 """
 Coverage tracker for Feature 5: Research Gap Analysis.
 
-Calculates the coverage percentage for a map based on which features
-have been used, determining if gap analysis should be unlocked.
+Calculates the coverage percentage for a map or rank job based on which
+features have been used, determining if gap analysis should be unlocked.
+
+Supports both entry points:
+  - Citation map (map_id): queries gap_feature_usage + cache tables (legacy)
+  - Rank (rank_job_id): queries research_activity_log
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from app.feature5.schemas import CoverageBreakdown, GapAnalysisStatus
 
 logger = logging.getLogger(__name__)
 
-# Coverage weights (from plan)
+# Coverage weights
 WEIGHT_MAP_WIDE_TIMELINE = 0.25  # 25%
 WEIGHT_METHODOLOGY_COMPARISON = 0.15  # 15% each, capped
 METHODOLOGY_COMPARISON_CAP = 0.30  # Max 30% from methodology
@@ -27,6 +31,10 @@ WEIGHT_PER_NODE_MAX = 0.30  # Up to 30% from per-node exploration
 # Unlock threshold
 UNLOCK_THRESHOLD = 0.50  # 50%
 
+
+# ============================================================================
+# Map-based coverage (legacy — reads from cache tables + gap_feature_usage)
+# ============================================================================
 
 def get_map_node_count(conn: Connection, map_id: UUID) -> int:
     """Get total number of nodes in a map."""
@@ -38,13 +46,7 @@ def get_map_node_count(conn: Connection, map_id: UUID) -> int:
 
 
 def has_map_wide_timeline(conn: Connection, map_id: UUID) -> bool:
-    """
-    Check if map-wide timeline analysis has been run.
-
-    Timeline is considered "run" if temporal analytics were generated
-    for the map's associated rank job.
-    """
-    # Check if feature usage tracking exists
+    """Check if map-wide timeline analysis has been run."""
     result = conn.execute(
         text("""
             SELECT 1 FROM gap_feature_usage
@@ -58,13 +60,7 @@ def has_map_wide_timeline(conn: Connection, map_id: UUID) -> bool:
 
 
 def get_methodology_comparison_count(conn: Connection, map_id: UUID) -> int:
-    """
-    Count methodology comparisons done for papers in this map.
-
-    Looks at methodology_comparison_cache for comparisons involving
-    papers from this map.
-    """
-    # Get work_ids in this map
+    """Count methodology comparisons done for papers in this map."""
     result = conn.execute(
         text("""
             SELECT COUNT(DISTINCT comparison_hash)
@@ -81,34 +77,23 @@ def get_methodology_comparison_count(conn: Connection, map_id: UUID) -> int:
 
 
 def get_explored_node_count(conn: Connection, map_id: UUID) -> int:
-    """
-    Count nodes that have been explored with any feature.
-
-    A node is "explored" if it has:
-    - Node details (summary/novelty) cached
-    - Per-node timeline generated
-    - Been part of a methodology comparison
-    - Has a per-node ranked list or citation graph
-    """
+    """Count nodes that have been explored with any feature."""
     result = conn.execute(
         text("""
             SELECT COUNT(DISTINCT mn.work_id)
             FROM map_nodes mn
             WHERE mn.map_id = :map_id
             AND (
-                -- Has node details cached
                 EXISTS (
                     SELECT 1 FROM node_details_cache ndc
                     WHERE ndc.work_id = mn.work_id
                 )
                 OR
-                -- Part of methodology comparison
                 EXISTS (
                     SELECT 1 FROM methodology_comparison_cache mcc
                     WHERE mn.work_id = ANY(mcc.work_ids)
                 )
                 OR
-                -- Has per-node feature usage tracked
                 EXISTS (
                     SELECT 1 FROM gap_feature_usage gfu
                     WHERE gfu.map_id = :map_id
@@ -122,55 +107,162 @@ def get_explored_node_count(conn: Connection, map_id: UUID) -> int:
     return result or 0
 
 
-def calculate_coverage(
-    conn: Connection,
-    map_id: UUID,
-) -> CoverageBreakdown:
-    """
-    Calculate coverage breakdown for a map.
-
-    Returns breakdown of coverage percentage by source.
-    """
+def _calculate_map_coverage(conn: Connection, map_id: UUID) -> CoverageBreakdown:
+    """Calculate coverage from map-based tables (legacy path)."""
     total_nodes = get_map_node_count(conn, map_id)
     if total_nodes == 0:
-        return CoverageBreakdown(total_nodes=0)
+        return CoverageBreakdown(total_nodes=0, entry_point="citation_map")
 
-    # Map-wide timeline
     timeline_pct = WEIGHT_MAP_WIDE_TIMELINE if has_map_wide_timeline(conn, map_id) else 0.0
-
-    # Methodology comparisons
     methodology_count = get_methodology_comparison_count(conn, map_id)
     methodology_pct = min(
         methodology_count * WEIGHT_METHODOLOGY_COMPARISON,
         METHODOLOGY_COMPARISON_CAP,
     )
 
-    # Per-node exploration
     nodes_explored = get_explored_node_count(conn, map_id)
     exploration_ratio = nodes_explored / total_nodes if total_nodes > 0 else 0.0
     per_node_pct = exploration_ratio * WEIGHT_PER_NODE_MAX
+
+    # Also check activity log for this map (supplements legacy tables)
+    novelty_count = conn.execute(
+        text("""
+            SELECT COUNT(*) FROM research_activity_log
+            WHERE map_id = :mid AND activity_type = 'novelty_assessed'
+        """),
+        {"mid": map_id},
+    ).scalar() or 0
 
     return CoverageBreakdown(
         map_wide_timeline=timeline_pct,
         methodology_comparisons=methodology_pct,
         per_node_exploration=per_node_pct,
         methodology_comparison_count=methodology_count,
+        novelty_count=novelty_count,
         nodes_explored=nodes_explored,
         total_nodes=total_nodes,
+        entry_point="citation_map",
     )
+
+
+# ============================================================================
+# Rank-based coverage (new — reads from research_activity_log)
+# ============================================================================
+
+def _get_rank_job_result_count(conn: Connection, rank_job_id: UUID) -> int:
+    """Get total number of ranked results for a rank job."""
+    result = conn.execute(
+        text("""
+            SELECT COUNT(*) FROM rank_results
+            WHERE rank_job_id = :rjid
+        """),
+        {"rjid": rank_job_id},
+    ).scalar()
+    return result or 0
+
+
+def _calculate_rank_coverage(conn: Connection, rank_job_id: UUID) -> CoverageBreakdown:
+    """Calculate coverage from activity log for rank_job_id context."""
+    total_nodes = _get_rank_job_result_count(conn, rank_job_id)
+    if total_nodes == 0:
+        return CoverageBreakdown(total_nodes=0, entry_point="rank")
+
+    # Timeline map-wide: binary 25%
+    has_timeline = conn.execute(
+        text("""
+            SELECT 1 FROM research_activity_log
+            WHERE rank_job_id = :rjid AND activity_type = 'timeline_map_wide'
+            LIMIT 1
+        """),
+        {"rjid": rank_job_id},
+    ).first()
+    timeline_pct = WEIGHT_MAP_WIDE_TIMELINE if has_timeline else 0.0
+
+    # Methodology comparisons: 15% each, capped at 30%
+    methodology_count = conn.execute(
+        text("""
+            SELECT COUNT(*) FROM research_activity_log
+            WHERE rank_job_id = :rjid AND activity_type = 'methodology_compared'
+        """),
+        {"rjid": rank_job_id},
+    ).scalar() or 0
+    methodology_pct = min(
+        methodology_count * WEIGHT_METHODOLOGY_COMPARISON,
+        METHODOLOGY_COMPARISON_CAP,
+    )
+
+    # Per-node exploration: unique work_ids across node-level activities
+    explored_row = conn.execute(
+        text("""
+            SELECT COUNT(DISTINCT wid) FROM (
+                SELECT unnest(work_ids) AS wid
+                FROM research_activity_log
+                WHERE rank_job_id = :rjid
+                AND activity_type IN ('novelty_assessed', 'timeline_per_node', 'node_details_viewed', 'methodology_compared')
+            ) sub
+        """),
+        {"rjid": rank_job_id},
+    ).scalar()
+    nodes_explored = explored_row or 0
+    exploration_ratio = nodes_explored / total_nodes if total_nodes > 0 else 0.0
+    per_node_pct = exploration_ratio * WEIGHT_PER_NODE_MAX
+
+    # Novelty count
+    novelty_count = conn.execute(
+        text("""
+            SELECT COUNT(*) FROM research_activity_log
+            WHERE rank_job_id = :rjid AND activity_type = 'novelty_assessed'
+        """),
+        {"rjid": rank_job_id},
+    ).scalar() or 0
+
+    return CoverageBreakdown(
+        map_wide_timeline=timeline_pct,
+        methodology_comparisons=methodology_pct,
+        per_node_exploration=per_node_pct,
+        methodology_comparison_count=methodology_count,
+        novelty_count=novelty_count,
+        nodes_explored=nodes_explored,
+        total_nodes=total_nodes,
+        entry_point="rank",
+    )
+
+
+# ============================================================================
+# Public API
+# ============================================================================
+
+def calculate_coverage(
+    conn: Connection,
+    map_id: Optional[UUID] = None,
+    rank_job_id: Optional[UUID] = None,
+) -> CoverageBreakdown:
+    """
+    Calculate coverage breakdown for a map or rank job.
+
+    At least one of map_id or rank_job_id must be provided.
+    If both are given, map_id takes precedence (legacy behavior).
+    """
+    if map_id:
+        return _calculate_map_coverage(conn, map_id)
+    elif rank_job_id:
+        return _calculate_rank_coverage(conn, rank_job_id)
+    else:
+        return CoverageBreakdown(total_nodes=0)
 
 
 def get_gap_analysis_status(
     engine: Engine,
-    map_id: UUID,
+    map_id: Optional[UUID] = None,
+    rank_job_id: Optional[UUID] = None,
 ) -> GapAnalysisStatus:
     """
-    Get gap analysis unlock status for a map.
+    Get gap analysis unlock status for a map or rank job.
 
     Returns status including whether unlocked, coverage %, and message.
     """
     with engine.connect() as conn:
-        breakdown = calculate_coverage(conn, map_id)
+        breakdown = calculate_coverage(conn, map_id=map_id, rank_job_id=rank_job_id)
 
         total_pct = (
             breakdown.map_wide_timeline +
@@ -204,13 +296,8 @@ def track_feature_usage(
     """
     Track that a feature was used on a map or node.
 
-    Args:
-        conn: Database connection
-        map_id: Map ID
-        feature_type: One of: timeline_map_wide, timeline_per_node,
-                      ranked_list_per_node, citation_graph_per_node
-        work_id: Optional work ID for per-node features
-        metadata: Optional additional metadata
+    Legacy function — writes to gap_feature_usage table.
+    New code should use activity_logger.log_activity() instead.
     """
     conn.execute(
         text("""
@@ -233,50 +320,69 @@ def track_feature_usage(
 
 def get_available_data_sources(
     conn: Connection,
-    map_id: UUID,
+    map_id: Optional[UUID] = None,
+    rank_job_id: Optional[UUID] = None,
 ) -> List[str]:
     """
     Get list of data sources available for gap detection.
 
-    Returns list of data source names that have data for this map.
+    Returns list of data source names that have data.
     """
     sources = []
 
-    # Always have citation graph or ranked list from entry point
-    # Check if this map has citation graph structure
-    edge_count = conn.execute(
-        text("SELECT COUNT(*) FROM map_edges WHERE map_id = :map_id"),
-        {"map_id": map_id},
-    ).scalar() or 0
+    if map_id:
+        # Citation graph entry point
+        edge_count = conn.execute(
+            text("SELECT COUNT(*) FROM map_edges WHERE map_id = :map_id"),
+            {"map_id": map_id},
+        ).scalar() or 0
 
-    if edge_count > 0:
-        sources.append("citation_graph")
-    else:
+        if edge_count > 0:
+            sources.append("citation_graph")
+        else:
+            sources.append("ranked_list")
+
+        if has_map_wide_timeline(conn, map_id):
+            sources.append("timeline")
+
+        if get_methodology_comparison_count(conn, map_id) > 0:
+            sources.append("methodology")
+
+        novelty_count = conn.execute(
+            text("""
+                SELECT COUNT(*) FROM node_details_cache ndc
+                WHERE ndc.novelty_assessment IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 FROM map_nodes mn
+                    WHERE mn.map_id = :map_id
+                    AND mn.work_id = ndc.work_id
+                )
+            """),
+            {"map_id": map_id},
+        ).scalar() or 0
+
+        if novelty_count > 0:
+            sources.append("novelty")
+
+    elif rank_job_id:
+        # Rank entry point — always has ranked_list
         sources.append("ranked_list")
 
-    # Check for timeline
-    if has_map_wide_timeline(conn, map_id):
-        sources.append("timeline")
+        # Check activity log for other sources
+        activity_types = conn.execute(
+            text("""
+                SELECT DISTINCT activity_type FROM research_activity_log
+                WHERE rank_job_id = :rjid
+            """),
+            {"rjid": rank_job_id},
+        ).scalars().all()
 
-    # Check for methodology comparisons
-    if get_methodology_comparison_count(conn, map_id) > 0:
-        sources.append("methodology")
-
-    # Check for novelty assessments
-    novelty_count = conn.execute(
-        text("""
-            SELECT COUNT(*) FROM node_details_cache ndc
-            WHERE ndc.novelty_assessment IS NOT NULL
-            AND EXISTS (
-                SELECT 1 FROM map_nodes mn
-                WHERE mn.map_id = :map_id
-                AND mn.work_id = ndc.work_id
-            )
-        """),
-        {"map_id": map_id},
-    ).scalar() or 0
-
-    if novelty_count > 0:
-        sources.append("novelty")
+        type_set = set(activity_types)
+        if "timeline_map_wide" in type_set:
+            sources.append("timeline")
+        if "methodology_compared" in type_set:
+            sources.append("methodology")
+        if "novelty_assessed" in type_set:
+            sources.append("novelty")
 
     return sources
