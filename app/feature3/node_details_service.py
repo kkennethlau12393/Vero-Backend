@@ -1535,44 +1535,75 @@ def get_node_details(
     engine: Engine,
     *,
     tenant_id: UUID,
-    map_id: UUID,
+    map_id: Optional[UUID] = None,
+    rank_job_id: Optional[UUID] = None,
     work_id: str,
     include_novelty: bool = False,
     include_timeline: bool = False,
     force_regenerate: bool = False,
 ) -> NodeDetailsResponse:
     """
-    Get detailed pop-up information for a node in the citation map.
+    Get detailed pop-up information for a work.
 
-    This is the main entry point for Feature 3.
+    This is the main entry point for Feature 3. Supports two access paths:
+    - map_id: work must be a node in the citation map (returns connected_works)
+    - rank_job_id: work must be in the rank job results (no connected_works)
 
     When include_novelty=False (default), returns lightweight metadata only
     (no LLM call). When True, runs the full novelty assessment pipeline.
     """
+    if not map_id and not rank_job_id:
+        raise ValueError("Either map_id or rank_job_id is required")
+
     with engine.connect() as conn:
-        # Verify map exists and belongs to tenant
-        map_row = conn.execute(
-            text("""
-                SELECT map_id FROM maps
-                WHERE map_id = :map_id AND tenant_id = :tenant_id
-            """),
-            {"map_id": map_id, "tenant_id": tenant_id},
-        ).first()
+        if map_id:
+            # Verify map exists and belongs to tenant
+            map_row = conn.execute(
+                text("""
+                    SELECT map_id FROM maps
+                    WHERE map_id = :map_id AND tenant_id = :tenant_id
+                """),
+                {"map_id": map_id, "tenant_id": tenant_id},
+            ).first()
 
-        if not map_row:
-            raise ValueError("map_not_found")
+            if not map_row:
+                raise ValueError("map_not_found")
 
-        # Verify work is a node in this map
-        node_row = conn.execute(
-            text("""
-                SELECT work_id FROM map_nodes
-                WHERE map_id = :map_id AND work_id = :work_id
-            """),
-            {"map_id": map_id, "work_id": work_id},
-        ).first()
+            # Verify work is a node in this map
+            node_row = conn.execute(
+                text("""
+                    SELECT work_id FROM map_nodes
+                    WHERE map_id = :map_id AND work_id = :work_id
+                """),
+                {"map_id": map_id, "work_id": work_id},
+            ).first()
 
-        if not node_row:
-            raise ValueError("node_not_found")
+            if not node_row:
+                raise ValueError("node_not_found")
+        else:
+            # Verify rank job exists and belongs to tenant
+            job_row = conn.execute(
+                text("""
+                    SELECT rank_job_id FROM rank_jobs
+                    WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
+                """),
+                {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
+            ).first()
+
+            if not job_row:
+                raise ValueError("rank_job_not_found")
+
+            # Verify work is in this rank job's results
+            result_row = conn.execute(
+                text("""
+                    SELECT work_id FROM rank_results
+                    WHERE rank_job_id = :rank_job_id AND work_id = :work_id
+                """),
+                {"rank_job_id": rank_job_id, "work_id": work_id},
+            ).first()
+
+            if not result_row:
+                raise ValueError("work_not_in_results")
 
         # Load work metadata
         work_data = load_work_data(conn, work_id)
@@ -1640,8 +1671,8 @@ def get_node_details(
             if topic_display_name:
                 logger.debug(f"Topic display name for {work_id}: {topic_display_name}")
 
-        # Load connected works (from map edges)
-        connected_works = load_connected_works(conn, map_id, work_id)
+        # Load connected works (from map edges — only available for map-based access)
+        connected_works = load_connected_works(conn, map_id, work_id) if map_id else []
 
         # Abstract is REQUIRED for novelty assessment — LLM produces garbage without it
         if include_novelty and not work_data.get("abstract"):

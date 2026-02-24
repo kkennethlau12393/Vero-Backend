@@ -1,9 +1,13 @@
 """
 API router for Feature 3 (Node Details Pop-up).
 
-This module exposes an endpoint to retrieve detailed information about
-a specific node in a citation map, including LLM-generated summary,
-keywords, and novelty assessment.
+This module exposes endpoints to retrieve detailed information about
+a specific node/work, including LLM-generated summary, keywords,
+novelty assessment, and timeline narrative.
+
+Supports two access paths:
+- /maps/{map_id}/nodes/{work_id}/details  — from a citation map (includes connected works)
+- /rank-jobs/{rank_job_id}/works/{work_id}/details  — from a rank job (no edges)
 """
 
 from __future__ import annotations
@@ -77,4 +81,45 @@ def get_node_details_endpoint(
         raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
         logger.exception("Unexpected error in get_node_details endpoint")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/rank-jobs/{rank_job_id}/works/{work_id}/details",
+    response_model=NodeDetailsResponse,
+)
+def get_work_details_from_rank_job(
+    rank_job_id: UUID,
+    work_id: str,
+    include_novelty: bool = False,
+    include_timeline: bool = False,
+    force_regenerate: bool = False,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    """
+    Get detailed information for a work in a rank job's results.
+
+    Same as the map-based endpoint but accessed via rank_job_id instead of
+    map_id. No connected_works (edges) since rank jobs don't have a graph.
+    """
+    try:
+        return get_node_details(
+            engine,
+            tenant_id=tenant_id,
+            rank_job_id=rank_job_id,
+            work_id=work_id,
+            include_novelty=include_novelty,
+            include_timeline=include_timeline,
+            force_regenerate=force_regenerate,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        msg = str(e)
+        if msg in ("rank_job_not_found", "work_not_in_results", "work_not_found"):
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+    except Exception as e:
+        logger.exception("Unexpected error in get_work_details_from_rank_job endpoint")
         raise HTTPException(status_code=500, detail=str(e))
