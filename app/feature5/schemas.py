@@ -40,14 +40,47 @@ class CoverageBreakdown(BaseModel):
     methodology_comparison_count: int = 0
     nodes_explored: int = 0
     total_nodes: int = 0
+    novelty_count: int = 0
+    entry_point: Optional[str] = None  # "rank" | "citation_map" | None
 
 
 class GapAnalysisStatus(BaseModel):
-    """Status of gap analysis availability for a map."""
+    """Status of gap analysis availability for a map or rank job."""
     unlocked: bool
     coverage_pct: float
     breakdown: CoverageBreakdown
     message: str  # e.g., "Explored 35% of research area. Explore more to unlock."
+
+
+# ============================================================================
+# Activity Summary
+# ============================================================================
+
+class MethodologyActivityDetail(BaseModel):
+    """Detail for methodology comparison activities."""
+    count: int = 0
+    by_node_count: dict[str, int] = {}  # {"2": 1, "3": 2, "4": 0}
+    work_ids_compared: list[str] = []
+
+
+class NodeActivityDetail(BaseModel):
+    """Detail for per-node activities (novelty, timeline, details)."""
+    count: int = 0
+    work_ids: list[str] = []
+
+
+class SimpleActivityDetail(BaseModel):
+    """Detail for simple count-only activities."""
+    count: int = 0
+
+
+class ActivitySummary(BaseModel):
+    """Summary of all research activities for a map or rank job."""
+    entry_point: Optional[str] = None  # "rank" | "citation_map"
+    activities: dict[str, Any] = {}
+    coverage_pct: float = 0.0
+    first_activity_at: Optional[str] = None
+    last_activity_at: Optional[str] = None
 
 
 # ============================================================================

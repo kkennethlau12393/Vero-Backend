@@ -23,6 +23,7 @@ from app.auth.tenant import get_tenant_id
 from app.db import make_engine
 from app.feature3.node_details_service import get_node_details
 from app.feature3.schemas import NodeDetailsResponse
+from app.feature5.activity_logger import log_activity
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ def get_node_details_endpoint(
             via LLM. Use when the assessment version or prompts have changed.
     """
     try:
-        return get_node_details(
+        result = get_node_details(
             engine,
             tenant_id=tenant_id,
             map_id=map_id,
@@ -72,6 +73,16 @@ def get_node_details_endpoint(
             include_timeline=include_timeline,
             force_regenerate=force_regenerate,
         )
+        # Log activity
+        with engine.connect() as conn:
+            log_activity(
+                conn, tenant_id, "node_details_viewed",
+                map_id=map_id,
+                work_ids=[work_id],
+                node_count=1,
+                metadata={"include_novelty": include_novelty, "include_timeline": include_timeline},
+            )
+        return result
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
@@ -104,7 +115,7 @@ def get_work_details_from_rank_job(
     map_id. No connected_works (edges) since rank jobs don't have a graph.
     """
     try:
-        return get_node_details(
+        result = get_node_details(
             engine,
             tenant_id=tenant_id,
             rank_job_id=rank_job_id,
@@ -113,6 +124,16 @@ def get_work_details_from_rank_job(
             include_timeline=include_timeline,
             force_regenerate=force_regenerate,
         )
+        # Log activity
+        with engine.connect() as conn:
+            log_activity(
+                conn, tenant_id, "node_details_viewed",
+                rank_job_id=rank_job_id,
+                work_ids=[work_id],
+                node_count=1,
+                metadata={"include_novelty": include_novelty, "include_timeline": include_timeline},
+            )
+        return result
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:

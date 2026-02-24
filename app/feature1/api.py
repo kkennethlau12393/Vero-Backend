@@ -16,6 +16,7 @@ from app.db import make_engine
 from app.feature1.citation_map_service import build_citation_map
 from app.feature1.pdf_parser import extract_metadata_from_pdf
 from app.feature1.schemas import CitationMapRequest, CitationMapResponse
+from app.feature5.activity_logger import log_activity
 
 router = APIRouter(prefix="/v1", tags=["citation-map"])
 logger = logging.getLogger(__name__)
@@ -70,11 +71,20 @@ def build_citation_map_endpoint(
         )
 
     try:
-        return build_citation_map(
+        result = build_citation_map(
             engine,
             tenant_id=tenant_id,
             request=req,
         )
+        # Log activity
+        with engine.connect() as conn:
+            log_activity(
+                conn, tenant_id, "citation_map_created",
+                work_ids=[result.seed_info.work_id] if result.seed_info and result.seed_info.work_id else [],
+                node_count=len(result.nodes),
+                metadata={"query_text": req.query_text, "seed_doi": req.seed_doi, "seed_title": req.seed_title},
+            )
+        return result
     except ValueError as e:
         logger.warning("Citation map request validation/domain error: %s", str(e))
         raise HTTPException(status_code=400, detail=str(e))
@@ -135,7 +145,15 @@ async def build_citation_map_from_pdf(
                     total_nodes=total_nodes,
                     create_graph_draft=create_graph_draft,
                 )
-                return build_citation_map(engine, tenant_id=tenant_id, request=req)
+                result = build_citation_map(engine, tenant_id=tenant_id, request=req)
+                with engine.connect() as conn:
+                    log_activity(
+                        conn, tenant_id, "citation_map_created",
+                        work_ids=[result.seed_info.work_id] if result.seed_info and result.seed_info.work_id else [],
+                        node_count=len(result.nodes),
+                        metadata={"source": "pdf", "seed_doi": f"10.48550/arXiv.{arxiv_id}"},
+                    )
+                return result
             except ValueError:
                 # ArXiv DOI not found in OpenAlex/S2 — fall back to title
                 if not title:
@@ -156,7 +174,15 @@ async def build_citation_map_from_pdf(
             total_nodes=total_nodes,
             create_graph_draft=create_graph_draft,
         )
-        return build_citation_map(engine, tenant_id=tenant_id, request=req)
+        result = build_citation_map(engine, tenant_id=tenant_id, request=req)
+        with engine.connect() as conn:
+            log_activity(
+                conn, tenant_id, "citation_map_created",
+                work_ids=[result.seed_info.work_id] if result.seed_info and result.seed_info.work_id else [],
+                node_count=len(result.nodes),
+                metadata={"source": "pdf", "seed_title": title},
+            )
+        return result
 
     except HTTPException:
         raise

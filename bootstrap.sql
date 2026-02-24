@@ -760,4 +760,26 @@ CREATE INDEX IF NOT EXISTS idx_gap_candidates_job_type
 CREATE INDEX IF NOT EXISTS idx_gap_candidates_score
     ON public.gap_candidates (job_id, detection_score DESC);
 
+-- ============================================================================
+-- Research Activity Log (Feature 5 - Activity Tracking)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.research_activity_log (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL,
+    map_id uuid REFERENCES public.maps(map_id) ON DELETE CASCADE,
+    rank_job_id uuid REFERENCES public.rank_jobs(rank_job_id) ON DELETE CASCADE,
+    activity_type text NOT NULL,
+    work_ids text[] DEFAULT '{}',
+    node_count integer DEFAULT 0,
+    metadata jsonb DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_log_tenant
+    ON public.research_activity_log (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_log_map
+    ON public.research_activity_log (map_id, activity_type);
+CREATE INDEX IF NOT EXISTS idx_activity_log_rank
+    ON public.research_activity_log (rank_job_id, activity_type);
+
 COMMIT;
