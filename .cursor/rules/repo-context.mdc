@@ -1,0 +1,28 @@
+# Backend Repo Context (Vero-Backend)
+
+## Scope
+This rules file applies to `/Users/sami/project/vero/Vero-Backend` and provides persistent backend context.
+
+## Tech Stack & Architecture
+- FastAPI backend with feature-based modules under `app/feature*/`.
+- API routes live in `*_api.py`; business logic lives in `*_service.py`.
+- PostgreSQL access via SQLAlchemy Core and `sqlalchemy.text()` queries.
+- Multi-tenant behavior is workspace-driven and should remain explicit in request handling and data access.
+
+## Required Backend Conventions
+- No ORM model migration in feature code; keep raw SQL style consistent with repository patterns.
+- Keep data access parameterized and tenant-aware.
+- Prefer deterministic fixes and code-level guardrails over brittle one-off patches.
+- Keep cache/version behavior explicit when LLM prompts/models or retrieval logic change.
+
+## Testing & Quality Rules (Authoritative)
+- Use existing test infrastructure only (`tests/unit`, `tests/integration`, `tests/quality`, `tests/live`).
+- Do not create redundant/duplicate test files for existing features.
+- Mock external APIs in unit/integration/quality tests; live tests are explicit and credit-burning.
+- Preserve existing pytest marker usage and feature test organization.
+
+## Important Programming Rules
+- Preserve feature boundaries; avoid leaking cross-feature responsibilities.
+- Keep API contracts stable and intentional for frontend consumers.
+- Prefer clear, actionable errors over ambiguous failures.
+- Avoid silent behavior changes that break existing client workflows.

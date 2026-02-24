@@ -4,6 +4,8 @@ API router for Feature 1: Citation Map Retrieval.
 from __future__ import annotations
 
 from functools import lru_cache
+import logging
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -16,6 +18,9 @@ from app.feature1.pdf_parser import extract_metadata_from_pdf
 from app.feature1.schemas import CitationMapRequest, CitationMapResponse
 
 router = APIRouter(prefix="/v1", tags=["citation-map"])
+logger = logging.getLogger(__name__)
+
+_WORK_ID_LIKE_PATTERN = re.compile(r"^(W\d+|S2:[^/\s]+|AX:[^/\s]+)$", re.IGNORECASE)
 
 
 @lru_cache(maxsize=1)
@@ -41,6 +46,10 @@ def build_citation_map_endpoint(
     Returns nodes and edges of the citation graph, plus optionally
     a graph_draft_id that can be passed to /v1/maps/build.
     """
+    # Compatibility guard: allow older/newer clients that accidentally send work_id in seed_doi.
+    if req.seed_doi and not req.seed_work_id and _WORK_ID_LIKE_PATTERN.match(req.seed_doi.strip()):
+        req = req.model_copy(update={"seed_work_id": req.seed_doi.strip(), "seed_doi": None})
+
     # Validate input - exactly ONE seed identification mode required
     provided_modes = sum([
         bool(req.seed_work_id),
@@ -67,8 +76,10 @@ def build_citation_map_endpoint(
             request=req,
         )
     except ValueError as e:
+        logger.warning("Citation map request validation/domain error: %s", str(e))
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.exception("Citation map internal error")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
