@@ -16,7 +16,12 @@ from app.auth.tenant import get_tenant_id
 from app.db import make_engine
 from app.feature5.activity_logger import get_activity_summary
 from app.feature5.coverage_tracker import get_gap_analysis_status, track_feature_usage
-from app.feature5.gap_service import get_cached_gap_analysis, run_gap_analysis
+from app.feature5.gap_service import (
+    get_cached_gap_analysis,
+    get_cached_rank_gap_analysis,
+    run_gap_analysis,
+    run_rank_gap_analysis,
+)
 from app.feature5.schemas import ActivitySummary, GapAnalysisResponse, GapAnalysisStatus
 
 logger = logging.getLogger(__name__)
@@ -232,6 +237,71 @@ def get_rank_gap_analysis_status_endpoint(
         raise
     except Exception as e:
         logger.exception("Error getting rank gap analysis status")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/rank/{rank_job_id}/gap-analysis", response_model=GapAnalysisResponse)
+def run_rank_gap_analysis_endpoint(
+    rank_job_id: UUID,
+    force_refresh: bool = False,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+) -> GapAnalysisResponse:
+    """
+    Run gap analysis on a rank job.
+
+    Uses LLM-direct detection on the ranked paper list (no heuristic detectors).
+    Validates gaps against external sources using GPT-5.2 + web_search.
+
+    Requires at least 50% coverage (unlocked status) to run.
+    """
+    try:
+        verify_rank_job_ownership(engine, rank_job_id, tenant_id)
+
+        status = get_gap_analysis_status(engine, rank_job_id=rank_job_id)
+        if not status.unlocked:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Gap analysis not unlocked. {status.message}",
+            )
+
+        if not force_refresh:
+            cached = get_cached_rank_gap_analysis(engine, rank_job_id, tenant_id=tenant_id)
+            if cached:
+                logger.info(f"Returning cached gap analysis for rank job {rank_job_id}")
+                return cached
+
+        logger.info(f"Running gap analysis for rank job {rank_job_id}")
+        result = run_rank_gap_analysis(engine, rank_job_id, tenant_id)
+        return result
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Error running rank gap analysis")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/rank/{rank_job_id}/gap-analysis/results", response_model=Optional[GapAnalysisResponse])
+def get_rank_gap_analysis_results_endpoint(
+    rank_job_id: UUID,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+) -> Optional[GapAnalysisResponse]:
+    """
+    Get cached gap analysis results for a rank job.
+
+    Returns None if no analysis has been run yet.
+    """
+    try:
+        verify_rank_job_ownership(engine, rank_job_id, tenant_id)
+        return get_cached_rank_gap_analysis(engine, rank_job_id, tenant_id=tenant_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error getting rank gap analysis results")
         raise HTTPException(status_code=500, detail=str(e))
 
 
