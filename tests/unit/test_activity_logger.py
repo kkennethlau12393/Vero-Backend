@@ -446,51 +446,51 @@ class TestNodeSpecificContribution:
     """Tests for _calculate_node_specific_contribution()."""
 
     def test_single_novelty(self):
-        """One novelty assessment = 4%."""
+        """One novelty assessment = 3%."""
         activities = [("novelty_assessed", "W1")]
         pct, count = _calculate_node_specific_contribution(activities)
-        assert pct == pytest.approx(0.04)
+        assert pct == pytest.approx(0.03)
         assert count == 1
 
     def test_novelty_and_timeline_same_node(self):
-        """Novelty + timeline on same node = 8% (different action types)."""
+        """Novelty + timeline on same node = 6% (different action types)."""
         activities = [
             ("novelty_assessed", "W1"),
             ("timeline_per_node", "W1"),
         ]
         pct, count = _calculate_node_specific_contribution(activities)
-        assert pct == pytest.approx(0.08)
+        assert pct == pytest.approx(0.06)
         assert count == 2
 
     def test_duplicate_novelty_same_node(self):
-        """Same novelty on same node twice = 4% (deduplicated)."""
+        """Same novelty on same node twice = 3% (deduplicated)."""
         activities = [
             ("novelty_assessed", "W1"),
             ("novelty_assessed", "W1"),
         ]
         pct, count = _calculate_node_specific_contribution(activities)
-        assert pct == pytest.approx(0.04)
+        assert pct == pytest.approx(0.03)
         assert count == 1
 
     def test_multiple_nodes(self):
-        """Novelty on 3 different nodes = 12%."""
+        """Novelty on 3 different nodes = 9%."""
         activities = [
             ("novelty_assessed", "W1"),
             ("novelty_assessed", "W2"),
             ("novelty_assessed", "W3"),
         ]
         pct, count = _calculate_node_specific_contribution(activities)
-        assert pct == pytest.approx(0.12)
+        assert pct == pytest.approx(0.09)
         assert count == 3
 
-    def test_cap_at_28_percent(self):
-        """8+ unique actions cap at 28%."""
+    def test_cap_at_30_percent(self):
+        """11+ unique actions cap at 30%."""
         activities = [
-            ("novelty_assessed", f"W{i}") for i in range(10)
+            ("novelty_assessed", f"W{i}") for i in range(12)
         ]
         pct, count = _calculate_node_specific_contribution(activities)
-        assert pct == pytest.approx(0.28)
-        assert count == 10
+        assert pct == pytest.approx(0.30)
+        assert count == 12
 
     def test_ignores_other_activity_types(self):
         """node_details_viewed does NOT contribute to node-specific coverage."""
@@ -517,7 +517,7 @@ class TestNodeSpecificContribution:
             ("timeline_per_node", "W3"),
         ]
         pct, count = _calculate_node_specific_contribution(activities)
-        assert pct == pytest.approx(0.16)  # 4 unique pairs × 4%
+        assert pct == pytest.approx(0.12)  # 4 unique pairs × 3%
         assert count == 4
 
 
@@ -529,10 +529,10 @@ class TestCoverageConstants:
         assert WEIGHT_MAP_WIDE_TIMELINE == pytest.approx(0.15)
 
     def test_node_specific_weight(self):
-        assert WEIGHT_NODE_SPECIFIC_ACTION == pytest.approx(0.04)
+        assert WEIGHT_NODE_SPECIFIC_ACTION == pytest.approx(0.03)
 
     def test_node_specific_cap(self):
-        assert NODE_SPECIFIC_CAP == pytest.approx(0.28)
+        assert NODE_SPECIFIC_CAP == pytest.approx(0.30)
 
     def test_methodology_bases(self):
         assert METHODOLOGY_BASE[2] == pytest.approx(0.04)
@@ -546,6 +546,6 @@ class TestCoverageConstants:
         assert METHODOLOGY_CAP == pytest.approx(0.30)
 
     def test_max_possible_coverage(self):
-        """Max possible = 15% + 28% + 30% = 73%."""
+        """Max possible = 15% + 30% + 30% = 75%."""
         max_total = WEIGHT_MAP_WIDE_TIMELINE + NODE_SPECIFIC_CAP + METHODOLOGY_CAP
-        assert max_total == pytest.approx(0.73)
+        assert max_total == pytest.approx(0.75)

@@ -6,7 +6,7 @@ features have been used, determining if gap analysis should be unlocked.
 
 Coverage formula:
   - Map-wide timeline: 15% (binary)
-  - Node-specific tasks (novelty + per-node timeline): 4% each, cap 28%
+  - Node-specific tasks (novelty + per-node timeline): 3% each, cap 30%
   - Methodology comparisons: 2-node=4%, 3-node=6%, 4-node=8%, cap 30%
     Penalty: -1% per node already compared in a prior comparison
 
@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 # Coverage weights
 WEIGHT_MAP_WIDE_TIMELINE = 0.15  # 15%
 
-WEIGHT_NODE_SPECIFIC_ACTION = 0.04  # 4% per unique (work_id, activity_type)
-NODE_SPECIFIC_CAP = 0.28  # Max 28%
+WEIGHT_NODE_SPECIFIC_ACTION = 0.03  # 3% per unique (work_id, activity_type)
+NODE_SPECIFIC_CAP = 0.30  # Max 30%
 
 METHODOLOGY_BASE = {2: 0.04, 3: 0.06, 4: 0.08}  # Base % by node count
 METHODOLOGY_STALE_PENALTY = 0.01  # -1% per already-compared node
