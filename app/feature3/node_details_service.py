@@ -661,7 +661,8 @@ Abstract: {abstract_text}
 {landmark_instruction}
 
 ## GLOBAL CITATION RULE (applies to ALL text fields: whats_new, compared_to_prior_work, novelty_explanation)
-You may ONLY cite papers from the reference and landmark lists above. ALWAYS use their work_id format: [W2163605009].
+You may ONLY cite papers from the TWO lists above: "Papers This Work Cites (References)" AND "Landmark Papers in This Field". Both lists are equally citable. ALWAYS use their work_id format: [W2163605009].
+Landmark papers are NOT just background context — they are first-class citable papers. You MUST cite landmark papers in your text fields, not just references.
 NEVER use in-paper reference numbers like [3], [28], [22] — the reader cannot look those up.
 NEVER mention papers by name alone (e.g., "ManiReg", "DeepWalk") without a work_id — if a paper is not in the lists above, do NOT cite it at all.
 
@@ -734,9 +735,9 @@ LOW = applies existing methods without significant contribution:
 - Workshop or short papers sketching ideas without full implementation or evaluation
 If LOW → assign "low" and STOP.
 
-**STEP 2 — The paper is MEDIUM unless evidence forces HIGH.**
+**STEP 2 — The paper is MEDIUM. This is your answer unless STEP 3 forces a change.**
 
-MEDIUM = builds upon an existing approach with significant improvement. This is the vast majority of research:
+MEDIUM = builds upon an existing approach with significant improvement. This is the vast majority of research — roughly 70-80% of all papers are MEDIUM:
 - New method for an existing task (even if it achieves SOTA)
 - Applying an existing technique to a new domain or dataset
 - Variant or extension of an existing method (new module, different loss, combining known components)
@@ -745,44 +746,47 @@ MEDIUM = builds upon an existing approach with significant improvement. This is 
 - Framework that organizes or unifies existing methods
 - Influential datasets, benchmarks, or resources (even highly cited ones like ImageNet, CIFAR, COCO)
 - Any paper where the core contribution is applying METHOD X to DOMAIN Y
+- Combining two existing techniques into a new hybrid (e.g., "attention + GNN", "BERT + CRF")
+- Adapting an architecture from one domain to another (e.g., transformers for vision, CNNs for graphs)
 
-**STEP 3 — Check for HIGH:**
+BEING MEDIUM IS NOT A CRITICISM. Most excellent, highly-cited, field-shaping papers are MEDIUM.
 
-HIGH = first to apply this specific method/approach to this specific problem. Nobody did it before.
+**STEP 3 — Check for HIGH (roughly 10-20% of papers):**
 
-HIGH requires ALL of:
-1. The paper introduces a specific, identifiable method, algorithm, or architecture
-2. NO prior paper applied this SAME method to this SAME problem — the combination of method+problem is new
-3. The grounding papers (listed above) that work on the SAME problem use DIFFERENT methods
-4. This is NOT just an improvement of an existing method (better hyperparameters, added module, new loss function on the same architecture) — that is MEDIUM
+HIGH = introduced a fundamentally new class of method that did not previously exist for this problem.
+
+CALIBRATION: In a batch of 20 random papers across all fields, expect 2-4 to be HIGH. The vast majority (70-80%) should be MEDIUM. When in doubt, the answer is MEDIUM.
+
+HIGH requires ALL FOUR of:
+1. The paper introduces a FUNDAMENTALLY NEW method — not a variant, extension, combination, or adaptation of existing methods
+2. NO prior paper used this CLASS of approach for this problem — not just "nobody used this exact variant"
+3. The grounding papers working on the SAME problem use ENTIRELY DIFFERENT methodological families (e.g., they all use RNNs and this paper introduces attention; they all use spectral methods and this paper introduces spatial convolutions)
+4. The method created a new research direction that others subsequently built upon
+
+COMMON TRAPS — These are MEDIUM, not HIGH (read carefully):
+- "First to apply [existing method] to [specific domain]" → MEDIUM. Applying transformers to protein folding, BERT to legal text, GANs to medical imaging — these are domain adaptations, not new methods.
+- "First to combine [method A] + [method B]" → MEDIUM. Combining attention with GNNs, CRF with BERT, skip connections with dense connections — these are hybrid extensions.
+- "First to use [specific variant] of [general technique]" → MEDIUM. A specific attention variant, a new normalization scheme, a different pooling strategy — these are improvements within an existing paradigm.
+- "Achieves SOTA on [benchmark]" → MEDIUM. Performance does not determine novelty.
+- "Nobody did EXACTLY this before" → Almost always MEDIUM. You can make any paper "first" by defining the method+problem narrowly enough. HIGH requires that the METHOD CLASS is new for this problem, not just the specific variant.
+
+SELF-CHECK before assigning HIGH: Ask yourself — is this paper more like ResNet (introduced an entirely new architectural principle that no prior image classification network used) or more like DenseNet (clever extension of ResNet's skip connections)? ResNet = HIGH. DenseNet = MEDIUM. Most papers are DenseNet-like, not ResNet-like.
 
 KEY DISTINCTION — HIGH vs MEDIUM:
-- "First paper to use attention mechanisms for machine translation" → HIGH (new method for this problem)
-- "Better attention mechanism for machine translation" → MEDIUM (improving existing approach)
-- "First paper to apply transformers to protein folding" → HIGH (new method for this problem)
-- "Improved transformer for protein folding" → MEDIUM (building on existing approach)
+- "Attention Is All You Need" → HIGH (eliminated recurrence entirely — a fundamentally new architecture class)
+- "BERT" → MEDIUM (applied the existing transformer architecture with masked language modeling — clever, influential, but builds on [the transformer])
+- "ResNet" → HIGH (skip connections were a fundamentally new architectural principle for deep networks)
+- "DenseNet" → MEDIUM (extends skip connections with dense connectivity — builds on ResNet)
+- "AlphaFold 2" → HIGH (introduced a fundamentally new structure prediction approach using attention on MSAs — nothing like prior homology modeling or physics-based methods)
+- "ESMFold" → MEDIUM (applies the same attention-based approach as AlphaFold but with a language model — builds on AlphaFold's paradigm)
 
-IMPORTANT: You are classifying the paper's novelty AT THE TIME OF PUBLICATION. A paper that was first to do X in 2015 is HIGH even if X is now common. Look at what the grounding papers (prior work) were doing — if they used DIFFERENT methods for the same problem, this paper's method+problem combination was new.
+IMPORTANT: You are classifying the paper's novelty AT THE TIME OF PUBLICATION. But even at time of publication, most papers build on existing approaches.
 
 CITATION COUNT IS NOT A NOVELTY INDICATOR:
 - High citations mean IMPACT, not NOVELTY
-- A highly-cited paper that applies existing methods well is MEDIUM
+- BERT has 100K+ citations and is MEDIUM
+- ImageNet has 50K+ citations and is MEDIUM
 - A highly-cited dataset or benchmark is MEDIUM
-
-**Examples of HIGH:**
-- "Attention Is All You Need" — first to use ONLY self-attention (no RNN/CNN) for sequence transduction
-- ResNet — first to use skip connections / residual learning for image classification
-- Word2Vec — first to use shallow neural networks for dense word embeddings at scale
-- GAN — first to use adversarial training for generative modeling
-
-**Examples of MEDIUM (common patterns that are NOT high):**
-- Paper achieves SOTA on ImageNet with better training schedule → improving existing approach
-- Paper proposes "attention-enhanced U-Net" for retinal vessels → combining existing components
-- Paper applies transformer architecture to protein structure prediction → applying existing method to new domain (HIGH only if nobody applied transformers to this domain before AND the adaptation required novel methodology)
-- Paper introduces GAN variant for face generation → extension of existing technique
-- Paper creates large-scale benchmark dataset (even if widely used) → resource, not method
-- Paper applies BERT to sentiment analysis → applying existing method to existing task
-- Paper proposes new training procedure that improves convergence → engineering improvement
 
 **CRITICAL LANGUAGE RULES (READ FIRST):**
 BANNED VERBS - NEVER use these in summary, whats_new, explanation, or relevance:
@@ -810,6 +814,9 @@ Cite 1-2 grounding paper work_ids ONLY to clarify what the new contribution repl
 
 ONLY null if novelty_level is "pioneering". NEVER null for reviews — describe what the review SYNTHESIZES or ORGANIZES and what organizational framework it provides.
 
+GOOD "review/survey" whats_new (specific organizational contribution, not just "comprehensive overview"):
+"Introduces a new taxonomy for graph neural networks organized along three axes: spectral vs. spatial approaches, the type of graph (homogeneous, heterogeneous, dynamic), and the downstream task (node classification, link prediction, graph classification). Identifies five distinct GNN propagation mechanisms — convolutional [W2163605009], attentional [W2952867780], message-passing [W2614828516], gated recurrence, and sampling-based — and systematically compares their computational complexity, expressiveness, and scalability tradeoffs. Synthesizes benchmark results across 12 standard datasets, revealing that spatial methods consistently outperform spectral methods on heterogeneous graphs while spectral approaches retain advantages on regular lattice structures."
+
 BAD (too shallow):
 "Introduces deep residual networks that simplify training of deeper networks, achieving state-of-the-art on ImageNet."
 
@@ -823,14 +830,15 @@ SCOPE: Technical differences between methods ONLY. Do NOT tell the chronological
 This field describes ONLY how the target paper's approach differs from specific prior methods. Do NOT re-describe what the target paper introduces — that belongs in whats_new.
 
 CITATION RULES (CRITICAL — READ BEFORE WRITING):
-- You may ONLY cite papers from the grounding_papers list (the reference and landmark papers provided above)
+- You may ONLY cite papers from the reference list AND the landmark list provided above — BOTH are equally citable
 - ALWAYS cite by work_id: [W2163605009], [W2109255472], etc.
 - NEVER cite by in-paper reference number: [3], [28], [22] — the reader has NO access to the paper's bibliography
-- NEVER cite papers by name only without a work_id: "ManiReg", "DeepWalk", "SemiEmb" — if a paper is not in the grounding list, do NOT cite it
-- Aim for 3+ UNIQUE work_id citations (3 different papers, not the same paper cited 3 times)
+- NEVER cite papers by name only without a work_id: "ManiReg", "DeepWalk", "SemiEmb" — if a paper is not in the reference or landmark lists, do NOT cite it
+- Cite at least 3 UNIQUE papers (3 DIFFERENT work_ids) — must include at least 1 from the LANDMARK list
+- SPREAD citations across BOTH references AND landmarks — do NOT only cite the first 1-2 references while ignoring landmarks. Landmarks provide essential field context.
 
 REQUIRED CONTENT:
-- For each grounding paper that is technically relevant to this paper's contribution, dedicate a sentence explaining what THAT paper specifically did (its approach, its limitation)
+- For each grounding paper (reference OR landmark) that is technically relevant, dedicate a sentence explaining what THAT paper specifically did (its approach, its limitation). You have 5-7 grounding papers — use them.
 - For each cited prior paper, name its SPECIFIC technical approach (e.g., "used max-pooling over per-point features for global representation" not just "processed point clouds")
 - Describe the specific technical limitation (e.g., "could not capture local geometric relationships between neighboring points" not just "had limitations")
 - Explain the concrete technical difference between prior approaches and this paper
@@ -846,7 +854,10 @@ BAD (groups papers, no specific detail):
 GOOD (each paper gets its own specific explanation):
 "PointNet [W1] introduced per-point MLPs with max-pooling to extract global features from unordered point sets, but could not capture local geometric structure. PointNet++ [W2] addressed this by adding hierarchical grouping with ball queries at multiple scales, though the fixed radius grouping struggled with varying point densities. DGCNN [W3] replaced the fixed radius grouping with dynamic edge convolutions that recompute nearest neighbors at each layer, but required O(n*k) memory for k-nearest neighbor graphs."
 
-ONLY null if novelty_level is "pioneering". For reviews: explain what prior surveys existed and how this review extends or re-organizes them.
+ONLY null if novelty_level is "pioneering". For reviews: explain what SPECIFIC aspects of each prior survey's coverage, scope, or taxonomy this review extends, corrects, or re-organizes.
+
+GOOD "review/survey" compared_to_prior_work (specific coverage gaps and organizational differences):
+"The earlier GNN survey by Wu et al. [W2912389459] organized methods into four categories (recurrent, convolutional, graph autoencoders, spatial-temporal) but did not cover attention-based propagation mechanisms like GAT [W2952867780] or the emerging sampling-based approaches for large-scale graphs. Zhou et al. [W2899632714] provided broader coverage of GNN variants but focused on architectural descriptions without systematic computational complexity analysis. Bronstein et al. [W2614828516] established the geometric deep learning framework connecting CNNs, GNNs, and transformers under a common mathematical lens, but their treatment predated key developments in dynamic graph networks and heterogeneous graph learning. This survey addresses these gaps by introducing a three-axis taxonomy (spectral/spatial, graph type, task type) that accommodates all five propagation mechanisms and includes complexity benchmarks missing from prior surveys."
 
 **NOVELTY_EXPLANATION — Summary justification of the novelty classification (4-6 sentences, 120-200 words)**
 
@@ -855,15 +866,16 @@ SCOPE: Classification justification ONLY. Do NOT describe downstream impact or w
 This field synthesizes findings from whats_new and compared_to_prior_work to justify WHY the assigned novelty level is correct. It should read as a self-contained justification.
 
 CITATION RULES (same as compared_to_prior_work):
-- You may ONLY cite papers from the grounding_papers list (the reference and landmark papers provided above)
+- You may ONLY cite papers from the reference list AND the landmark list — BOTH are equally citable
 - ALWAYS cite by work_id: [W2163605009], [W2109255472], etc.
 - NEVER cite by in-paper reference number: [3], [28], [22] — the reader has NO access to the paper's bibliography
-- NEVER cite papers by name only without a work_id — if a paper is not in the grounding list, do NOT cite it
-- Aim for 3+ UNIQUE work_id citations (3 different papers, not the same paper cited 3 times)
+- NEVER cite papers by name only without a work_id — if a paper is not in the reference or landmark lists, do NOT cite it
+- Cite at least 3 UNIQUE papers — prefer citing DIFFERENT papers than those in compared_to_prior_work, including LANDMARKS
+- SPREAD citations across both references AND landmarks
 
 REQUIRED CONTENT:
 - State the novelty level and primary reason in the first sentence
-- Cite grounding paper work_ids where they strengthen the argument. Where possible, reference DIFFERENT papers than those emphasized in compared_to_prior_work to demonstrate breadth of evidence
+- Cite papers from BOTH the reference and landmark lists where they strengthen the argument. Reference DIFFERENT papers than those emphasized in compared_to_prior_work to demonstrate breadth of evidence
 - Each citation must explain what that paper established and how it relates to the novelty classification argument. Do NOT cite papers that don't add to the justification
 - Explain the causal chain: what existed before (with citations) → what this paper changed → why that warrants this level
 - For "pioneering": explain what task/field DID NOT EXIST before this paper, cite grounding papers from DIFFERENT domains that were combined, and explain why no prior paper attempted this specific application
@@ -875,15 +887,23 @@ FORBIDDEN patterns (will fail validation):
 - "Classified as X due to title containing..."
 - "Classified as review due to its synthesis..."
 - Generic: "builds upon prior work and updates the field"
+- Generic: "provides a comprehensive overview" or "valuable resource for researchers"
+- Vague comparison: "builds upon existing surveys such as X and Y" without explaining WHAT it adds
 
 BAD (circular reasoning, no technical substance):
 "Classified as high because it introduces deep residual learning that builds upon previous architectures [W2163605009] and updates traditional approaches."
+
+BAD (review — vague, no specifics about what the survey actually organizes or how it extends prior work):
+"Classified as medium because this survey provides a comprehensive overview of GNNs, synthesizing existing knowledge. While it does not introduce a new method, it provides a valuable resource. The survey builds upon existing surveys [W2912389459] and [W2899632714]."
 
 GOOD "high" (clear causal chain, specific claims, cited evidence):
 "Classified as high because while deep image classification networks already existed — AlexNet [W2163605009] demonstrated 8-layer CNNs and VGGNet [W2109255472] showed depth improves accuracy up to 19 layers — NO prior paper solved training of very deep networks (100+ layers) via identity shortcut connections. Highway Networks [W2153625789] attempted gated information flow but required learned gating parameters and could not scale beyond ~50 layers. ResNet's parameter-free skip connections were the first method to successfully train 152-layer networks, reducing top-5 error from 7.3% to 3.57%. This is not pioneering because image classification with deep CNNs was well-established by 2015."
 
 GOOD "medium" (acknowledges solid contribution while explaining why it's not high):
 "Classified as medium because this paper applies the established transformer architecture [W2118176668] to medical image segmentation, adapting the self-attention mechanism with domain-specific preprocessing for CT scans. Vision transformers for dense prediction were already demonstrated by ViT [W3035667763] for image classification and Swin Transformer [W3134447684] for hierarchical vision tasks. TransUNet [W3128763281] had already applied transformers to medical image segmentation before this paper. The contribution is a domain-specific refinement of existing transformer-based segmentation approaches."
+
+GOOD "medium (review/survey)" (explains WHAT the review organizes and HOW it extends prior surveys):
+"Classified as medium because this is a survey (Q0) that synthesizes existing GNN methods without introducing new architectures or algorithms. However, it provides substantial organizational value: its three-axis taxonomy (spectral/spatial, graph type, task) extends the four-category framework of Wu et al. [W2912389459] by adding attention-based and sampling-based propagation as distinct categories. It also fills gaps in Zhou et al. [W2899632714] by including systematic computational complexity analysis across all five propagation mechanisms. The survey covers 150+ papers spanning 2013-2023 and identifies that spatial methods [W2163605009] outperform spectral approaches on heterogeneous graphs — a finding not established in prior surveys. Classified as medium rather than low because the new taxonomy and cross-method benchmarking represent a meaningful organizational contribution beyond simple compilation."
 
 GOOD "pioneering" (demonstrates a task/field that did not exist before):
 "Classified as pioneering because no prior work attempted neural artistic style transfer — the task of rendering a photograph in the style of a painting while preserving content. Gatys et al. combined convolutional feature representations from VGGNet [W2109255472], originally developed for object classification, with a Gram-matrix-based style representation that had no precedent in computer vision. Prior texture synthesis methods [W2100339939] operated on low-level statistics without separating content from style. This paper created an entirely new research direction that combined two previously unrelated domains."
