@@ -80,7 +80,7 @@ def build_citation_map_endpoint(
         with engine.connect() as conn:
             log_activity(
                 conn, tenant_id, "citation_map_created",
-                work_id=result.seed_info.work_id if result.seed_info and result.seed_info.work_id else None,
+                work_id=result.seed_info.seed_work_id if result.seed_info and result.seed_info.seed_work_id else None,
                 node_count=len(result.nodes),
                 metadata={"query_text": req.query_text, "seed_doi": req.seed_doi, "seed_title": req.seed_title},
             )
@@ -149,7 +149,7 @@ async def build_citation_map_from_pdf(
                 with engine.connect() as conn:
                     log_activity(
                         conn, tenant_id, "citation_map_created",
-                        work_id=result.seed_info.work_id if result.seed_info and result.seed_info.work_id else None,
+                        work_id=result.seed_info.seed_work_id if result.seed_info and result.seed_info.seed_work_id else None,
                         node_count=len(result.nodes),
                         metadata={"source": "pdf", "seed_doi": f"10.48550/arXiv.{arxiv_id}"},
                     )
@@ -178,7 +178,7 @@ async def build_citation_map_from_pdf(
         with engine.connect() as conn:
             log_activity(
                 conn, tenant_id, "citation_map_created",
-                work_id=result.seed_info.work_id if result.seed_info and result.seed_info.work_id else None,
+                work_id=result.seed_info.seed_work_id if result.seed_info and result.seed_info.seed_work_id else None,
                 node_count=len(result.nodes),
                 metadata={"source": "pdf", "seed_title": title},
             )
