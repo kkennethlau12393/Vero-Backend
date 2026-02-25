@@ -223,13 +223,14 @@ def check_all_domain_conflicts(query_text: str, title: str) -> bool:
 # RRF naturally demotes low-quality papers, so this threshold can be lower
 MIN_LLM_RELEVANCE_THRESHOLD = 0.40
 
-# Category limits - 5 categories
+# Category limits - 6 categories (5 typed + 1 overflow)
 DEFAULT_CATEGORY_LIMITS = {
-    "foundational": 8,
-    "methodology": 12,
-    "reviews": 8,
-    "applications": 10,
-    "textbooks": 5,
+    "foundational": 10,         # +2: at-cap 48% of runs
+    "methodology": 16,          # +4: at-cap 96% — biggest gain
+    "reviews": 10,              # +2: modest bump
+    "applications": 14,         # +4: at-cap 48%, broad queries fill it
+    "textbooks": 2,             # -3: never fills (avg 0.1/5)
+    "additional_relevant": 10,  # overflow for quality papers that fail citation thresholds
 }
 
 @dataclass
@@ -392,9 +393,9 @@ def determine_output_category(
         # Use dynamic threshold, with recency exceptions
         if citations >= thresholds.methodology_min:
             return "methodology"
-        elif age_years <= 1 and citations >= 5:
+        elif age_years <= 2 and citations >= 3:
             return "methodology"
-        elif age_years <= 3 and citations >= 10:
+        elif age_years <= 4 and citations >= 8:
             return "methodology"
         else:
             return None
@@ -443,6 +444,7 @@ def partition_results_by_category(
         "reviews": [],
         "applications": [],
         "textbooks": [],
+        "additional_relevant": [],
     }
 
     filtered_stats = {"low_relevance": 0, "low_citations": 0, "bad_data": 0,
@@ -514,7 +516,11 @@ def partition_results_by_category(
             if relevance < MIN_LLM_RELEVANCE_THRESHOLD:
                 filtered_stats["low_relevance"] += 1
             else:
-                filtered_stats["low_citations"] += 1
+                # Paper passed LLM relevance + RRF but failed citation thresholds.
+                # Route to overflow instead of discarding — these are quality papers
+                # validated by 4 independent signals (BM25, TF-IDF, impact, LLM).
+                buckets["additional_relevant"].append(item)
+                filtered_stats["overflow"] = filtered_stats.get("overflow", 0) + 1
             continue
 
         # === TOOL PAPER CAP ===
@@ -556,6 +562,8 @@ def partition_results_by_category(
             extras.append(f"{filtered_stats['tool_paper_capped']} tool→methodology")
         if filtered_stats.get("textbook", 0) > 0:
             extras.append(f"{filtered_stats['textbook']} textbooks")
+        if filtered_stats.get("overflow", 0) > 0:
+            extras.append(f"{filtered_stats['overflow']} → additional_relevant")
         extras_str = (", " + ", ".join(extras)) if extras else ""
         logger.info(
             f"Filtered {total_filtered} papers: "

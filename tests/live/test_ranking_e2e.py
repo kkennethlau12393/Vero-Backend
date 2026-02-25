@@ -119,7 +119,7 @@ def _all_items(result: dict) -> list[dict]:
     if result.get("items"):
         return result["items"]
     items = []
-    for cat in ("foundational", "methodology", "reviews", "applications", "textbooks"):
+    for cat in ("foundational", "methodology", "reviews", "applications", "textbooks", "additional_relevant"):
         items.extend(result.get(cat, []))
     return items
 
@@ -175,7 +175,7 @@ def test_ranking_quality(case, live_client, auth_headers, results_dir):
     # --- Save results FIRST (before assertions, so we never lose data) ---
     # Build full category breakdown with all papers (not just top 10)
     full_categories = {}
-    for cat in ("foundational", "methodology", "reviews", "applications", "textbooks"):
+    for cat in ("foundational", "methodology", "reviews", "applications", "textbooks", "additional_relevant"):
         cat_items = result.get(cat, [])
         full_categories[cat] = [
             {
@@ -194,7 +194,7 @@ def test_ranking_quality(case, live_client, auth_headers, results_dir):
         "total_items": len(all_items),
         "categories": {
             cat: len(result.get(cat, []))
-            for cat in ("foundational", "methodology", "reviews", "applications", "textbooks")
+            for cat in ("foundational", "methodology", "reviews", "applications", "textbooks", "additional_relevant")
         },
         "full_categories": full_categories,
         "top_10_titles": titles[:10],
