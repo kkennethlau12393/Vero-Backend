@@ -113,6 +113,7 @@ class GapCard(BaseModel):
     type_explanation: str  # From GAP_TYPE_EXPLANATIONS
     title: str
     description: str  # Long paragraph with inline citations (Author, Year)
+    why_it_matters: str = ""  # Researcher-facing motivation: why pursuing this gap advances understanding
     evidence: list[Evidence] = []  # Full list of papers supporting this gap
     suggested_direction: str
     confidence: float = Field(ge=0.0, le=1.0)  # Computed percentage
