@@ -271,3 +271,53 @@ IMPACT_LLM_RESPONSE_SOFTWARE = json.dumps({
     "is_paradigm_shift": False,
     "shift_description": None,
 })
+
+
+# ============================================================================
+# Prior Art Validation Mock Responses
+# ============================================================================
+
+def make_prior_art_paper(
+    work_id="W5555555501",
+    title="Prior Art Paper",
+    year=2015,
+    cited_by_count=300,
+    abstract="This paper applies a similar method to the same problem domain.",
+):
+    """Build a prior art candidate paper dict."""
+    return {
+        "work_id": work_id,
+        "title": title,
+        "year": year,
+        "cited_by_count": cited_by_count,
+        "abstract": abstract,
+    }
+
+
+def make_prior_art_papers(n=5):
+    """Generate n prior art candidate papers."""
+    papers = []
+    for i in range(n):
+        papers.append(make_prior_art_paper(
+            work_id=f"W555555550{i}",
+            title=f"Prior Art Paper {i+1}",
+            year=2015 - i,
+            cited_by_count=300 * (i + 1),
+            abstract=f"This paper applies technique variant {i+1} to the target problem.",
+        ))
+    return papers
+
+
+PRIOR_ART_LLM_RESPONSE_HAS_MATCH = json.dumps({
+    "has_prior_art": True,
+    "matching_paper_ids": ["W5555555501", "W5555555502"],
+    "reasoning": "Papers W5555555501 and W5555555502 both apply the same attention mechanism to machine translation before the target paper.",
+})
+
+PRIOR_ART_LLM_RESPONSE_NO_MATCH = json.dumps({
+    "has_prior_art": False,
+    "matching_paper_ids": [],
+    "reasoning": "None of the prior papers apply self-attention as the sole mechanism for sequence transduction.",
+})
+
+PRIOR_ART_LLM_RESPONSE_MALFORMED = '{"has_prior_art": true, "matching_paper_ids": '  # truncated

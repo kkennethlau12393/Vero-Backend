@@ -246,3 +246,250 @@ class TestDefaultResponse:
         result = _default_response("My Paper", [], [])
         assert result["novelty_assessment"]["novelty_level"] == "medium"
         assert result["novelty_assessment"]["grounding_papers"] == []
+
+
+# ============================================================================
+# Novelty Validation Tests
+# ============================================================================
+
+from unittest.mock import patch, MagicMock
+from app.feature3.novelty_validation import (
+    validate_novelty_level,
+    evaluate_prior_art_overlap,
+    search_prior_art,
+    _merge_and_dedup,
+)
+from tests.fixtures.novelty_responses import (
+    make_work_data,
+    make_reference_paper,
+    make_landmark_paper,
+    make_prior_art_paper,
+    make_prior_art_papers,
+    PRIOR_ART_LLM_RESPONSE_HAS_MATCH,
+    PRIOR_ART_LLM_RESPONSE_NO_MATCH,
+    PRIOR_ART_LLM_RESPONSE_MALFORMED,
+    make_groq_chat_response,
+)
+
+
+@pytest.mark.unit
+class TestMergeAndDedup:
+    def test_deduplicates_by_work_id(self):
+        papers_a = [make_prior_art_paper(work_id="W1", title="Paper A")]
+        papers_b = [make_prior_art_paper(work_id="W1", title="Paper A duplicate")]
+        result = _merge_and_dedup(papers_a, papers_b, set(), "Target Paper")
+        assert len(result) == 1
+
+    def test_excludes_known_work_ids(self):
+        papers = [make_prior_art_paper(work_id="W1"), make_prior_art_paper(work_id="W2")]
+        result = _merge_and_dedup(papers, [], {"W1"}, "Target Paper")
+        assert len(result) == 1
+        assert result[0]["work_id"] == "W2"
+
+    def test_excludes_self_similar_titles(self):
+        papers = [make_prior_art_paper(work_id="W1", title="Deep Residual Learning for Image Recognition")]
+        result = _merge_and_dedup(papers, [], set(), "Deep Residual Learning for Image Recognition")
+        assert len(result) == 0
+
+    def test_excludes_papers_without_abstract(self):
+        papers = [make_prior_art_paper(work_id="W1", abstract=None)]
+        result = _merge_and_dedup(papers, [], set(), "Target Paper")
+        assert len(result) == 0
+
+    def test_sorts_by_citation_count(self):
+        papers = [
+            make_prior_art_paper(work_id="W1", cited_by_count=100),
+            make_prior_art_paper(work_id="W2", cited_by_count=500),
+            make_prior_art_paper(work_id="W3", cited_by_count=300),
+        ]
+        result = _merge_and_dedup(papers, [], set(), "Target Paper")
+        assert result[0]["work_id"] == "W2"
+        assert result[1]["work_id"] == "W3"
+        assert result[2]["work_id"] == "W1"
+
+
+@pytest.mark.unit
+class TestEvaluatePriorArtOverlap:
+    @patch("app.feature3.novelty_validation.OpenAI")
+    def test_has_prior_art(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.return_value = make_groq_chat_response(
+            PRIOR_ART_LLM_RESPONSE_HAS_MATCH
+        )
+
+        result = evaluate_prior_art_overlap(
+            target_title="Attention Is All You Need",
+            target_abstract="We propose a new architecture based on attention.",
+            target_whats_new="Self-attention replaces recurrence.",
+            prior_papers=make_prior_art_papers(3),
+        )
+        assert result["has_prior_art"] is True
+        assert len(result["matching_paper_ids"]) == 2
+
+    @patch("app.feature3.novelty_validation.OpenAI")
+    def test_no_prior_art(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.return_value = make_groq_chat_response(
+            PRIOR_ART_LLM_RESPONSE_NO_MATCH
+        )
+
+        result = evaluate_prior_art_overlap(
+            target_title="Attention Is All You Need",
+            target_abstract="We propose a new architecture based on attention.",
+            target_whats_new="Self-attention replaces recurrence.",
+            prior_papers=make_prior_art_papers(3),
+        )
+        assert result["has_prior_art"] is False
+        assert result["matching_paper_ids"] == []
+
+    def test_no_api_key(self):
+        with patch.dict("os.environ", {}, clear=True):
+            result = evaluate_prior_art_overlap(
+                target_title="Test",
+                target_abstract="Test",
+                target_whats_new="Test",
+                prior_papers=make_prior_art_papers(1),
+            )
+        assert result["has_prior_art"] is False
+        assert "no_api_key" in result["reasoning"]
+
+    def test_empty_prior_papers(self):
+        result = evaluate_prior_art_overlap(
+            target_title="Test",
+            target_abstract="Test",
+            target_whats_new="Test",
+            prior_papers=[],
+        )
+        assert result["has_prior_art"] is False
+        assert "no_candidates" in result["reasoning"]
+
+    @patch("app.feature3.novelty_validation.OpenAI")
+    def test_malformed_llm_response(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.return_value = make_groq_chat_response(
+            PRIOR_ART_LLM_RESPONSE_MALFORMED
+        )
+
+        result = evaluate_prior_art_overlap(
+            target_title="Test",
+            target_abstract="Test",
+            target_whats_new="Test",
+            prior_papers=make_prior_art_papers(1),
+        )
+        assert result["has_prior_art"] is False
+        assert "parse_error" in result["reasoning"] or "error" in result["reasoning"]
+
+
+@pytest.mark.unit
+class TestValidateNoveltyLevel:
+    """Test validate_novelty_level entry point logic."""
+
+    def test_medium_skipped(self):
+        """Medium papers should not trigger validation."""
+        assessment = {"novelty_level": "medium", "whats_new": "test"}
+        work_data = make_work_data()
+        validate_novelty_level(assessment, work_data, [], [])
+        assert assessment["novelty_level"] == "medium"
+
+    def test_low_skipped(self):
+        """Low papers should not trigger validation."""
+        assessment = {"novelty_level": "low", "whats_new": "test"}
+        work_data = make_work_data()
+        validate_novelty_level(assessment, work_data, [], [])
+        assert assessment["novelty_level"] == "low"
+
+    @patch("app.feature3.novelty_validation.search_prior_art")
+    def test_high_no_prior_art_keeps_level(self, mock_search):
+        """High paper with no prior art found stays high."""
+        mock_search.return_value = []
+        assessment = {"novelty_level": "high", "whats_new": "Introduces new method"}
+        work_data = make_work_data(title="Test Paper", year=2020)
+        validate_novelty_level(assessment, work_data, [], [])
+        assert assessment["novelty_level"] == "high"
+
+    @patch("app.feature3.novelty_validation.evaluate_prior_art_overlap")
+    @patch("app.feature3.novelty_validation.search_prior_art")
+    def test_high_with_prior_art_downgraded(self, mock_search, mock_eval):
+        """High paper with confirmed prior art gets downgraded to medium."""
+        mock_search.return_value = make_prior_art_papers(3)
+        mock_eval.return_value = {
+            "has_prior_art": True,
+            "matching_paper_ids": ["W5555555501"],
+            "reasoning": "Prior work exists.",
+        }
+        assessment = {"novelty_level": "high", "whats_new": "Introduces new method"}
+        work_data = make_work_data(title="Test Paper", year=2020)
+        validate_novelty_level(assessment, work_data, [], [])
+        assert assessment["novelty_level"] == "medium"
+        assert assessment["_validation"]["original_level"] == "high"
+
+    @patch("app.feature3.novelty_validation.evaluate_prior_art_overlap")
+    @patch("app.feature3.novelty_validation.search_prior_art")
+    def test_pioneering_with_prior_art_downgraded_to_high(self, mock_search, mock_eval):
+        """Pioneering paper with prior art gets downgraded to high (not medium)."""
+        mock_search.return_value = make_prior_art_papers(3)
+        mock_eval.return_value = {
+            "has_prior_art": True,
+            "matching_paper_ids": ["W5555555501"],
+            "reasoning": "Prior work exists.",
+        }
+        assessment = {"novelty_level": "pioneering", "whats_new": "Creates new field"}
+        work_data = make_work_data(title="Test Paper", year=2020)
+        validate_novelty_level(assessment, work_data, [], [])
+        assert assessment["novelty_level"] == "high"
+
+    @patch("app.feature3.novelty_validation.evaluate_prior_art_overlap")
+    @patch("app.feature3.novelty_validation.search_prior_art")
+    def test_high_prior_art_no_match_keeps_level(self, mock_search, mock_eval):
+        """High paper where LLM finds no method+problem overlap stays high."""
+        mock_search.return_value = make_prior_art_papers(3)
+        mock_eval.return_value = {
+            "has_prior_art": False,
+            "matching_paper_ids": [],
+            "reasoning": "Methods differ.",
+        }
+        assessment = {"novelty_level": "high", "whats_new": "Introduces new method"}
+        work_data = make_work_data(title="Test Paper", year=2020)
+        validate_novelty_level(assessment, work_data, [], [])
+        assert assessment["novelty_level"] == "high"
+
+    @patch("app.feature3.novelty_validation.search_prior_art")
+    def test_fail_open_on_error(self, mock_search):
+        """Errors should keep original level (fail-open)."""
+        mock_search.side_effect = Exception("API timeout")
+        assessment = {"novelty_level": "high", "whats_new": "Introduces new method"}
+        work_data = make_work_data(title="Test Paper", year=2020)
+        validate_novelty_level(assessment, work_data, [], [])
+        assert assessment["novelty_level"] == "high"
+
+    def test_missing_title_skips(self):
+        """Missing title should skip validation."""
+        assessment = {"novelty_level": "high", "whats_new": "test"}
+        work_data = make_work_data(title="", year=2020)
+        validate_novelty_level(assessment, work_data, [], [])
+        assert assessment["novelty_level"] == "high"
+
+    def test_missing_year_skips(self):
+        """Missing year should skip validation."""
+        assessment = {"novelty_level": "high", "whats_new": "test"}
+        work_data = make_work_data(year=None)
+        validate_novelty_level(assessment, work_data, [], [])
+        assert assessment["novelty_level"] == "high"
+
+    @patch("app.feature3.novelty_validation.search_prior_art")
+    def test_known_ids_passed_correctly(self, mock_search):
+        """Should exclude target + grounding paper IDs from search."""
+        mock_search.return_value = []
+        assessment = {"novelty_level": "high", "whats_new": "test"}
+        work_data = make_work_data(work_id="W_TARGET", title="Test", year=2020)
+        refs = [make_reference_paper(work_id="W_REF1")]
+        landmarks = [make_landmark_paper(work_id="W_LM1")]
+        validate_novelty_level(assessment, work_data, refs, landmarks)
+
+        call_kwargs = mock_search.call_args[1]
+        assert "W_TARGET" in call_kwargs["known_work_ids"]
+        assert "W_REF1" in call_kwargs["known_work_ids"]
+        assert "W_LM1" in call_kwargs["known_work_ids"]
