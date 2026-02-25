@@ -56,7 +56,7 @@ MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Bump this when model OR prompt changes to auto-invalidate cached assessments
-ASSESSMENT_VERSION = "maverick-v15"
+ASSESSMENT_VERSION = "maverick-v16"
 
 
 def get_cached_details(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
@@ -1454,6 +1454,71 @@ def _validate_llm_response(
     }
 
 
+def _enforce_novelty_level(
+    novelty_assessment: Dict[str, Any],
+    cited_by_count: int,
+    year: Optional[int],
+) -> None:
+    """Deterministic post-processing to enforce novelty level thresholds.
+
+    The LLM consistently over-classifies papers as 'high' and 'pioneering'
+    regardless of prompt strictness. This function applies citation-based
+    minimum thresholds as a NECESSARY condition for elevated levels.
+
+    Rationale: citation count alone doesn't determine novelty, but
+    widespread adoption (the definition of 'high') produces citations.
+    A paper whose technique was 'adopted by independent researchers for
+    different purposes' would have accumulated significant citations.
+    These thresholds are floors, not classifiers.
+    """
+    llm_level = novelty_assessment.get("novelty_level", "medium")
+
+    if llm_level in ("low", "medium"):
+        return  # Already at default or below — no enforcement needed
+
+    cited = cited_by_count or 0
+    current_year = 2026
+    age = max(current_year - (year or current_year), 0)
+
+    # --- PIONEERING enforcement ---
+    # Papers that created entirely new fields are always extremely highly cited.
+    if llm_level == "pioneering":
+        if cited >= 5000:
+            return  # Legitimate pioneering
+        if cited >= 1000:
+            novelty_assessment["novelty_level"] = "high"
+            logger.info(
+                f"Enforced pioneering→high: {cited} citations < 5000 threshold"
+            )
+            # Fall through to HIGH enforcement below
+            llm_level = "high"
+        else:
+            novelty_assessment["novelty_level"] = "medium"
+            logger.info(
+                f"Enforced pioneering→medium: {cited} citations < 1000 threshold"
+            )
+            return
+
+    # --- HIGH enforcement ---
+    # Scale threshold by paper age — newer papers haven't accumulated yet.
+    if llm_level == "high":
+        if age >= 10:
+            threshold = 1000
+        elif age >= 5:
+            threshold = 500
+        elif age >= 3:
+            threshold = 200
+        else:
+            threshold = 50  # Very new papers get benefit of doubt
+
+        if cited < threshold:
+            novelty_assessment["novelty_level"] = "medium"
+            logger.info(
+                f"Enforced high→medium: {cited} citations < {threshold} "
+                f"threshold (age={age} years)"
+            )
+
+
 def _build_impact_analysis_obj(impact_data: Optional[Dict[str, Any]]) -> Optional[PaperImpactAnalysis]:
     """Convert impact_analysis dict to PaperImpactAnalysis Pydantic model. Legacy."""
     if not impact_data:
@@ -2174,6 +2239,13 @@ def get_node_details(
             }
         )
 
+        # Enforce novelty level with deterministic citation thresholds
+        _enforce_novelty_level(
+            llm_result["novelty_assessment"],
+            cited_by_count=work_data.get("cited_by_count", 0) or 0,
+            year=work_data.get("year"),
+        )
+
         # Cache the result
         cache_details(
             conn,
@@ -2182,7 +2254,7 @@ def get_node_details(
             llm_result["keywords"],
             llm_result["novelty_assessment"],
         )
-        # Persist permanently (survives version bumps)
+        # Persist permanently
         persist_assessment(conn, work_id, llm_result["novelty_assessment"])
 
         # Build timeline if requested
