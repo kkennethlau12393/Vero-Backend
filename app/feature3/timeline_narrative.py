@@ -39,7 +39,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
-NARRATIVE_VERSION = "narrative-v7"
+NARRATIVE_VERSION = "narrative-v8"
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MAX_RETRIES = 3
@@ -186,14 +186,21 @@ where each advance motivated the next.",
 specifically introduced. Name the exact mechanism (e.g., skip connections, self-attention, \
 batch normalization) and explain the technical insight — WHY it works, not just WHAT it is. \
 Include concrete results if notable (e.g., trained 152-layer networks, reduced error by X%).",
-    "downstream_impact": "A mini paragraph (5-8 sentences) on what new research directions \
-this paper opened. Name specific techniques, architectures, or applications that successors \
-built. Explain how they extended, adapted, or combined the contribution with other ideas. \
-Cite specific [W...] work_ids inline. Cover both direct extensions and unexpected \
-applications in other domains.",
-    "cross_domain_influence": "2-3 sentences naming specific fields and applications \
-where this paper's ideas were adopted (e.g., NLP transformers applied to protein \
-folding, GANs used in drug discovery). null if not applicable.",
+    "downstream_impact": "A mini paragraph (5-8 sentences) on the VERTICAL downstream \
+effects within the SAME research direction. Focus on successor papers that directly \
+extend, refine, scale, or apply this paper's contribution to the same problem domain. \
+For each successor: name the specific architecture or technique it introduced, what \
+benchmark or metric it pushed, and exactly how it built on the target paper's mechanism \
+(e.g., replaced component X with Y, scaled from N to M parameters, adapted loss \
+function Z). Cite specific [W...] work_ids inline. Do NOT include cross-domain \
+adoptions here — those belong in cross_domain_influence.",
+    "cross_domain_influence": "A mini paragraph (3-5 sentences) on HORIZONTAL translations \
+to DIFFERENT fields. For each adoption: name the specific target field, the technique \
+that was adapted from this paper, what modification was required to make it work in \
+the new domain (e.g., different tokenization for protein sequences, modified attention \
+for graph-structured data), and the concrete result achieved. This covers ideas crossing \
+disciplinary boundaries — different problem domains, different data modalities, different \
+research communities. Cite specific [W...] work_ids inline. null if not applicable.",
     "before_approach": "Dominant methodology in predecessor papers — name the specific \
 technique and its key limitation (1-2 sentences)",
     "after_approach": "Dominant methodology in successor papers — name the specific \
@@ -201,8 +208,8 @@ technique and what it enabled (1-2 sentences)"
 }}
 
 RULES:
-- historical_context, contribution_statement, and downstream_impact must each cite at \
-least 3 work_ids.
+- historical_context, contribution_statement, downstream_impact, and cross_domain_influence \
+(when not null) must each cite at least 2 work_ids.
 - ONLY "foundational" papers can have is_paradigm_shift=true. Software, review, and \
 measurement papers are NEVER paradigm shifts.
 - Write in definitive prose. No hedging verbs. No "this paper explores/discusses/examines".
