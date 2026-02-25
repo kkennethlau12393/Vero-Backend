@@ -1053,6 +1053,7 @@ def create_gap_cards(
             type_explanation=GAP_TYPE_EXPLANATIONS.get(gap_type, ""),
             title=gap_title,
             description=gap.get("description", ""),
+            why_it_matters=_ensure_str(gap.get("why_it_matters", "")),
             evidence=evidence,
             suggested_direction=_ensure_str(gap.get("suggested_direction", "")),
             confidence=0.0,  # Will be set after validation

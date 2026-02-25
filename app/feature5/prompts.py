@@ -64,7 +64,8 @@ For each ACCEPTED gap, create a structured description:
 
 1. **Title**: Clear, concise (10-15 words max)
 2. **Description**: 150-250 words with inline citations (Author, Year) explaining what the gap is, the evidence, and why it matters
-3. **Suggested Direction**: 2-3 specific, actionable sentences
+3. **Why It Matters**: 2-4 sentences explaining why a researcher should pursue this direction. This is NOT a restatement of the gap type. It should answer: What new understanding would this unlock? What problems remain unsolvable without this knowledge? What would change in the field if this gap were filled? Frame it as motivation for a researcher considering this direction.
+4. **Suggested Direction**: 2-3 specific, actionable sentences
 
 ## Output Format
 
@@ -78,6 +79,7 @@ Return a JSON array. For REJECTED candidates, include a brief rejection entry. F
     "type": "structural|coverage|temporal|methodological|novelty",
     "title": "Clear gap title",
     "description": "Detailed description with inline citations (Author, Year). Be SPECIFIC about what each evidence paper assumes or leaves unanswered.",
+    "why_it_matters": "2-4 sentences: What understanding would this unlock? Why should a researcher invest years pursuing this? What remains unsolvable without this knowledge?",
     "suggested_direction": "Specific research direction...",
     "evidence_work_ids": ["W123", "W456", "W789"],
     "data_sources_used": ["abstracts", "methodology_fingerprints"],
@@ -238,7 +240,7 @@ Read the abstracts. Identify what the papers assume, what they acknowledge as li
 
 Analyze ALL the data above — papers, abstracts, methodology fingerprints, novelty assessments, ranking scores, citation structure, and cluster groupings — to identify 2-3 genuine research gaps. Prefer fewer, deeply-grounded gaps over many shallow ones.
 
-Use the methodology fingerprints to understand what each paper DOES and ASSUMES. Use the novelty assessments to understand what's truly new vs. incremental. Use the abstracts to find acknowledged limitations and open questions. Use the cluster structure to find disconnects between subfields.
+Use the methodology fingerprints to understand what each paper DOES and ASSUMES. Use the novelty assessments to understand what's truly new vs. incremental. Use the abstracts to find acknowledged limitations and open questions. Use the cluster structure to find disconnects between subfields. Use timeline narratives to understand how the field evolved and where momentum stalled.
 
 Consider:
 
@@ -280,6 +282,7 @@ Return a JSON array:
     "type": "structural|coverage|temporal|methodological|novelty",
     "title": "Clear, concise gap title (10-15 words max)",
     "description": "150-250 words with inline citations (Author, Year). Explain what the gap is, cite evidence from the papers above, and explain why it matters. Be SPECIFIC about what each evidence paper assumes or leaves unanswered.",
+    "why_it_matters": "2-4 sentences answering: Why should a researcher pursue this direction? What new understanding would filling this gap unlock? What problems remain unsolvable without this knowledge? What would change in the field if this were addressed? This should validate a researcher's motivation for going in this direction — not just describe the gap type.",
     "suggested_direction": "2-3 specific, actionable sentences describing what research would fill this gap.",
     "evidence_work_ids": ["W123", "W456", "W789", "W012"],
     "data_sources_used": ["abstracts", "methodology_fingerprints", "citation_structure"],
@@ -288,7 +291,7 @@ Return a JSON array:
 ]
 ```
 
-For `data_sources_used`, list which internal data you actually relied on. Valid values: "abstracts", "methodology_fingerprints", "novelty_assessments", "citation_structure", "cluster_structure", "ranking_scores", "paper_summaries", "publication_timeline".
+For `data_sources_used`, list which internal data you actually relied on. Valid values: "abstracts", "methodology_fingerprints", "novelty_assessments", "citation_structure", "cluster_structure", "ranking_scores", "paper_summaries", "publication_timeline", "timeline_narratives", "methodology_comparisons", "full_text".
 
 Return ONLY the JSON array, no additional text.
 """
