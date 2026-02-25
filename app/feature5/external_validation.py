@@ -89,21 +89,23 @@ def validate_gap(
 
 Search for academic papers, preprints (ArXiv, bioRxiv, SSRN), technical reports, dissertations, or industry research that addresses this gap. Search using multiple query formulations including synonyms and related terminology from adjacent fields.
 
-Respond with a JSON object:
+Respond with a JSON object. STRICT FORMAT RULES:
+- "reasoning" MUST be 2-4 sentences max. Third person only (never "I searched" or "I found").
+- State what exists, what doesn't, and the verdict. No essays.
+
 {{
     "status": "open" | "partial" | "addressed",
     "coverage_pct": 0-100,
-    "reasoning": "Honest explanation of what you found and didn't find. If addressed, cite what addresses it. If open, explain what you searched and why you believe it remains unaddressed.",
-    "search_queries_used": ["query 1", "query 2", "query 3"],
+    "reasoning": "2-4 sentences, third person. E.g.: 'Several papers address X but none tackle Y. Work by Author (2024) partially covers Z. The specific question of W remains open.'",
     "sources": [
-        {{"title": "Paper title", "url": "URL if available", "year": 2024, "relevance": "How it relates to the gap"}}
+        {{"title": "Paper title", "url": "URL if available", "year": 2024, "relevance": "One sentence: how it relates"}}
     ]
 }}
 
-Where:
-- "open" = Thorough search found no work substantively addressing this gap (coverage_pct should be 0-10)
-- "partial" = Found related work that touches on this gap but does not fully address it, OR search was inconclusive. Set coverage_pct to your honest estimate of what percentage of this gap is addressed by existing work (0-100)
-- "addressed" = Found existing work that directly addresses this gap (coverage_pct should be 80-100)
+Status definitions:
+- "open" = No work substantively addresses this gap (coverage_pct: 0-10)
+- "partial" = Related work exists but does not fully address it (coverage_pct: 10-80)
+- "addressed" = Existing work directly addresses this gap (coverage_pct: 80-100)
 """
 
     try:
@@ -152,9 +154,14 @@ Where:
                 except (TypeError, ValueError):
                     pass
 
+            # Truncate reasoning to max 400 chars
+            reasoning = result_data.get("reasoning", "Unable to parse reasoning")
+            if len(reasoning) > 400:
+                reasoning = reasoning[:397] + "..."
+
             return ExternalValidationResult(
                 status=result_data.get("status", "partial"),
-                reasoning=result_data.get("reasoning", "Unable to parse reasoning"),
+                reasoning=reasoning,
                 sources=result_data.get("sources", []),
                 coverage_pct=coverage_pct,
             )
