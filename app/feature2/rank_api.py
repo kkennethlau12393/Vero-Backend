@@ -668,7 +668,7 @@ def rank_novelty_endpoint(
             log_activity(
                 conn, tenant_id, "novelty_assessed",
                 rank_job_id=rank_job_id,
-                work_ids=[work_id],
+                work_id=work_id,
                 node_count=1,
                 metadata={"novelty_level": result_obj.novelty_level if result_obj else None},
             )
@@ -785,7 +785,7 @@ def rank_timeline_endpoint(
             log_activity(
                 conn, tenant_id, "timeline_per_node",
                 rank_job_id=rank_job_id,
-                work_ids=[work_id],
+                work_id=work_id,
                 node_count=1,
             )
 
@@ -848,8 +848,8 @@ def rank_compare_methodologies_endpoint(
             log_activity(
                 conn, tenant_id, "methodology_compared",
                 rank_job_id=rank_job_id,
-                work_ids=req.work_ids,
                 node_count=len(req.work_ids),
+                metadata={"work_ids": req.work_ids},
             )
 
         return result

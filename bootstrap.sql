@@ -769,7 +769,7 @@ CREATE TABLE IF NOT EXISTS public.research_activity_log (
     map_id uuid REFERENCES public.maps(map_id) ON DELETE CASCADE,
     rank_job_id uuid REFERENCES public.rank_jobs(rank_job_id) ON DELETE CASCADE,
     activity_type text NOT NULL,
-    work_ids text[] DEFAULT '{}',
+    work_id text,
     node_count integer DEFAULT 0,
     metadata jsonb DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now()
