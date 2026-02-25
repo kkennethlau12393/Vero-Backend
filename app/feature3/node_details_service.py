@@ -27,6 +27,7 @@ from app.feature3.json_utils import extract_json_from_llm_response
 from app.feature3.paper_identity import title_word_overlap, content_word_overlap
 from app.feature3.landmark_retrieval import get_topic_landmarks
 from app.feature3.node_timeline import build_node_timeline
+from app.feature3.novelty_validation import validate_novelty_level
 from app.feature3.reference_store import get_referenced_works
 from app.feature3.schemas import (
     ConnectedWork,
@@ -56,7 +57,7 @@ MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Bump this when model OR prompt changes to auto-invalidate cached assessments
-ASSESSMENT_VERSION = "maverick-v16"
+ASSESSMENT_VERSION = "maverick-v17"
 
 
 def get_cached_details(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
@@ -718,12 +719,12 @@ If NOT pioneering → proceed to Q3. Do NOT assign any level here.
 **Q3: Assign the novelty level (HIGH vs MEDIUM vs LOW)**
 (Only if Q0 = NO, Q1 = NO, and Q2 = not pioneering)
 
-**START: This paper is MEDIUM.** This is the default. Most papers — including excellent, well-cited, influential papers — are medium. Medium means a solid contribution within an existing paradigm. Being medium is not a criticism.
+**START: This paper is MEDIUM.** This is the default. Most papers — including excellent, well-cited, influential papers — are medium. Being medium is not a criticism.
 
 Your job: determine whether hard evidence forces you to change the level to LOW or HIGH.
 
 **STEP 1 — Check for LOW first:**
-LOW means no methodological contribution:
+LOW = applies existing methods without significant contribution:
 - Applies off-the-shelf methods without modification (ran scikit-learn, used standard CNN, applied BERT out of the box)
 - Negative results, failed replications, null findings
 - Position papers, commentaries, editorials with no empirical work
@@ -731,62 +732,54 @@ LOW means no methodological contribution:
 - Workshop or short papers sketching ideas without full implementation or evaluation
 If LOW → assign "low" and STOP.
 
-**STEP 2 — The paper is MEDIUM. Read on to see if evidence forces HIGH.**
+**STEP 2 — The paper is MEDIUM unless evidence forces HIGH.**
 
-MEDIUM covers the vast majority of research. These are ALL medium:
+MEDIUM = builds upon an existing approach with significant improvement. This is the vast majority of research:
 - New method for an existing task (even if it achieves SOTA)
 - Applying an existing technique to a new domain or dataset
 - Variant or extension of an existing method (new module, different loss, combining known components)
-- Incremental improvements on benchmarks
+- Incremental or significant improvements on benchmarks
 - Empirical study or comparison of existing approaches
-- Replication, validation, or extension of prior findings
-- Parameter tuning, engineering improvements, optimization tricks
 - Framework that organizes or unifies existing methods
-- Systematizing, guidelines, or best practices for existing methods
-- Theory that organizes existing knowledge without new testable predictions
 - Influential datasets, benchmarks, or resources (even highly cited ones like ImageNet, CIFAR, COCO)
 - Any paper where the core contribution is applying METHOD X to DOMAIN Y
 
-**STEP 3 — The 3-CHECK TEST for HIGH (you must pass ALL three):**
+**STEP 3 — Check for HIGH:**
 
-HIGH is RARE. It requires a paper that introduced a specific technique that became a reusable building block adopted by independent researchers for different purposes.
+HIGH = first to apply this specific method/approach to this specific problem. Nobody did it before.
 
-CHECK 1 — NAME THE TECHNIQUE: What is the specific, named technique this paper introduced? It must be a concrete method, algorithm, or architecture with its own widely-recognized name that researchers use to refer to it (e.g., "ResNet", "dropout", "BERT", "Adam", "GAN", "transformer", "BLEU score"). A "novel approach" or "new framework" without a recognized name does not count.
-→ Cannot name a widely-recognized technique → STOP, assign MEDIUM.
+HIGH requires ALL of:
+1. The paper introduces a specific, identifiable method, algorithm, or architecture
+2. NO prior paper applied this SAME method to this SAME problem — the combination of method+problem is new
+3. The grounding papers (listed above) that work on the SAME problem use DIFFERENT methods
+4. This is NOT just an improvement of an existing method (better hyperparameters, added module, new loss function on the same architecture) — that is MEDIUM
 
-CHECK 2 — EVIDENCE OF INDEPENDENT ADOPTION: Is there concrete evidence that researchers OUTSIDE the original authors' group adopted this technique as a component in their own work? IMPORTANT: The grounding papers listed above are mostly PRIOR work that this paper BUILDS ON — they are NOT adopters. Adopters are papers that came AFTER this one and incorporated its technique. Evidence sources: (a) the abstract mentions widespread adoption, (b) you have specific knowledge of independent adoption, (c) successor papers in the grounding list post-date and explicitly use this technique.
-→ No concrete evidence of independent adoption → STOP, assign MEDIUM.
+KEY DISTINCTION — HIGH vs MEDIUM:
+- "First paper to use attention mechanisms for machine translation" → HIGH (new method for this problem)
+- "Better attention mechanism for machine translation" → MEDIUM (improving existing approach)
+- "First paper to apply transformers to protein folding" → HIGH (new method for this problem)
+- "Improved transformer for protein folding" → MEDIUM (building on existing approach)
 
-CHECK 3 — ADOPTED FOR DIFFERENT PURPOSES: Did adopters use the technique for a DIFFERENT problem than the original paper? Using ResNet as a backbone for object detection counts. A follow-up that improves ResNet accuracy on the same benchmark does NOT count. Same-group follow-ups do NOT count.
-→ Adopters only replicated, extended, or improved on the same task → STOP, assign MEDIUM.
-
-ALL three checks pass → assign HIGH.
-ANY check fails → assign MEDIUM.
+IMPORTANT: You are classifying the paper's novelty AT THE TIME OF PUBLICATION. A paper that was first to do X in 2015 is HIGH even if X is now common. Look at what the grounding papers (prior work) were doing — if they used DIFFERENT methods for the same problem, this paper's method+problem combination was new.
 
 CITATION COUNT IS NOT A NOVELTY INDICATOR:
 - High citations mean IMPACT, not NOVELTY
 - A highly-cited paper that applies existing methods well is MEDIUM
 - A highly-cited dataset or benchmark is MEDIUM
 
-**THEORIES AND FRAMEWORKS:**
-- Theory with new TESTABLE PREDICTIONS that were later empirically validated → can be "high" (if it passes the 3-check test — the "technique" is the testable prediction/framework)
-- Theory that organizes existing knowledge → "medium"
-- Framework that unifies existing methods without new capabilities → "medium"
+**Examples of HIGH:**
+- "Attention Is All You Need" — first to use ONLY self-attention (no RNN/CNN) for sequence transduction
+- ResNet — first to use skip connections / residual learning for image classification
+- Word2Vec — first to use shallow neural networks for dense word embeddings at scale
+- GAN — first to use adversarial training for generative modeling
 
-**Examples of HIGH (all three checks pass):**
-- ResNet: Technique = skip connections. Adopted by Faster R-CNN (detection), U-Net++ (segmentation), DenseNet (dense prediction). Different problems = yes.
-- Word2Vec: Technique = skip-gram word embeddings. Adopted by sentiment classifiers, machine translation systems, QA systems. Different problems = yes.
-- Adam: Technique = adaptive moment estimation. Adopted by virtually all deep learning after 2015. Different problems = yes.
-- Dropout: Technique = random neuron deactivation during training. Adopted across all deep learning architectures. Different problems = yes.
-
-**Examples of MEDIUM (common patterns that do NOT pass):**
-- Paper achieves SOTA on ImageNet with better training schedule → no named technique, just better hyperparameters
-- Paper proposes "attention-enhanced U-Net" for retinal vessels → combines existing components for specific domain, no evidence of independent adoption
-- Paper introduces loss function adopted by 2 follow-ups from same group → not independent adoption
-- Paper establishes important empirical finding ("batch size affects generalization") → finding, not reusable technique
-- Paper applies transformer architecture to protein structure prediction → domain application of existing method
+**Examples of MEDIUM (common patterns that are NOT high):**
+- Paper achieves SOTA on ImageNet with better training schedule → improving existing approach
+- Paper proposes "attention-enhanced U-Net" for retinal vessels → combining existing components
+- Paper applies transformer architecture to protein structure prediction → applying existing method to new domain (HIGH only if nobody applied transformers to this domain before AND the adaptation required novel methodology)
 - Paper introduces GAN variant for face generation → extension of existing technique
-- Paper creates large-scale benchmark dataset (even if widely used) → resource, not technique
+- Paper creates large-scale benchmark dataset (even if widely used) → resource, not method
+- Paper applies BERT to sentiment analysis → applying existing method to existing task
 - Paper proposes new training procedure that improves convergence → engineering improvement
 
 **CRITICAL LANGUAGE RULES (READ FIRST):**
@@ -797,13 +790,17 @@ BANNED VERBS - NEVER use these in summary, whats_new, explanation, or relevance:
 
 ## DETAILED FIELD INSTRUCTIONS — READ CAREFULLY BEFORE WRITING
 
-**WHATS_NEW — What THIS paper introduces (3-5 sentences, 80-150 words)**
+**WHATS_NEW — What THIS paper introduces (4-6 sentences, 120-200 words)**
+
+SCOPE: Technical mechanism and methodology ONLY. Do NOT describe what the paper enabled for the field or what came after — that belongs in the timeline's contribution_statement.
 
 This field describes ONLY the novel contributions of the target paper. Do NOT mention prior work here — that belongs in compared_to_prior_work.
 
 REQUIRED CONTENT:
 - The specific method, framework, architecture, or finding the paper introduces
 - Technical details: what mechanism, algorithm, or approach is new
+- Name specific components (layers, modules, loss functions, architectures) and explain HOW they work mechanistically — not just what they achieve
+- Include mathematical intuition where relevant (e.g., "reformulates layers to learn residual functions F(x) = H(x) - x" rather than "uses residual connections")
 - Key results: quantitative improvements, benchmarks achieved, or empirical findings
 - Why it matters: what problem does this solve or what limitation does it overcome
 
@@ -815,40 +812,48 @@ BAD (too shallow):
 "Introduces deep residual networks that simplify training of deeper networks, achieving state-of-the-art on ImageNet."
 
 GOOD (specific mechanism, quantitative results, technical depth):
-"Introduces residual learning via skip connections that add identity mappings between layers, directly addressing the degradation problem where deeper networks paradoxically produce higher training error. The core innovation reformulates layers to learn residual functions F(x) = H(x) - x rather than the underlying mapping H(x), which is easier to optimize. This enables training networks with 152 layers (8x deeper than VGG [W2109255472]), achieving 3.57% top-5 error and winning ILSVRC 2015. The residual blocks are modular and demonstrated on both classification (ImageNet) and detection (COCO) tasks."
+"Introduces residual learning via skip connections that add identity mappings between layers, directly addressing the degradation problem where deeper networks paradoxically produce higher training error. The core innovation reformulates layers to learn residual functions F(x) = H(x) - x rather than the underlying mapping H(x), which is easier to optimize. The residual block consists of two 3x3 convolution layers with batch normalization, where the input is added directly to the output via a shortcut connection that requires no additional parameters. For dimension mismatches, 1x1 convolutions with stride 2 perform linear projection. This enables training networks with 152 layers (8x deeper than VGG [W2109255472]), achieving 3.57% top-5 error and winning ILSVRC 2015. The residual blocks are modular and demonstrated on both classification (ImageNet) and detection (COCO) tasks."
 
-**COMPARED_TO_PRIOR_WORK — How this paper differs from what came before (3-5 sentences, 80-150 words)**
+**COMPARED_TO_PRIOR_WORK — How this paper differs from what came before (4-7 sentences, 150-250 words)**
+
+SCOPE: Technical differences between methods ONLY. Do NOT tell the chronological story of field evolution — that belongs in the timeline's historical_context.
 
 This field describes ONLY how the target paper's approach differs from specific prior methods. Do NOT re-describe what the target paper introduces — that belongs in whats_new.
 
 REQUIRED CONTENT:
-- Name specific prior methods by work_id and describe what THEY did (their approach, their limitations)
+- For each grounding paper that is technically relevant to this paper's contribution, dedicate a sentence explaining what THAT paper specifically did (its approach, its limitation)
+- For each cited prior paper, name its SPECIFIC technical approach (e.g., "used max-pooling over per-point features for global representation" not just "processed point clouds")
+- Describe the specific technical limitation (e.g., "could not capture local geometric relationships between neighboring points" not just "had limitations")
 - Explain the concrete technical difference between prior approaches and this paper
-- Identify what limitation of prior work this paper overcomes
 - If applicable, quantify the improvement (accuracy gains, speed improvements, capability gaps filled)
 
-Cite 2-4 grounding paper work_ids with meaningful context about what each cited paper actually contributed.
+Do NOT group papers — each paper gets its own explanation.
+
+Do NOT cite a paper just to fill space. Every citation must provide unique technical context that helps the reader understand what existed before and why this paper's approach is different.
+
+BAD (groups papers, no specific detail):
+"Prior work such as PointNet [W1] and PointNet++ [W2] processed point clouds."
+
+GOOD (each paper gets its own specific explanation):
+"PointNet [W1] introduced per-point MLPs with max-pooling to extract global features from unordered point sets, but could not capture local geometric structure. PointNet++ [W2] addressed this by adding hierarchical grouping with ball queries at multiple scales, though the fixed radius grouping struggled with varying point densities. DGCNN [W3] replaced the fixed radius grouping with dynamic edge convolutions that recompute nearest neighbors at each layer, but required O(n*k) memory for k-nearest neighbor graphs."
 
 ONLY null if novelty_level is "pioneering". For reviews: explain what prior surveys existed and how this review extends or re-organizes them.
 
-BAD (name-drops citations without explaining what they did):
-"Compared to landmark papers like ImageNet classification [W2163605009] and VGGNet [W2109255472], this paper updates the existing framework."
+**NOVELTY_EXPLANATION — Summary justification of the novelty classification (4-6 sentences, 120-200 words)**
 
-GOOD (explains what each prior method did and the specific technical difference):
-"Prior deep networks like AlexNet [W2163605009] demonstrated that 8-layer CNNs could achieve breakthrough accuracy on ImageNet, and VGGNet [W2109255472] showed that increasing depth to 19 layers further improved performance. However, both architectures suffered from the degradation problem — accuracy saturated and then degraded rapidly beyond ~20 layers due to vanishing gradients in plain networks. Highway Networks [W2153625789] introduced gating mechanisms for information flow but added significant parameter overhead. ResNet solves this with parameter-free identity shortcuts, enabling 152-layer training without degradation while maintaining lower complexity than VGG."
-
-**NOVELTY_EXPLANATION — Summary justification of the novelty classification (3-5 sentences, 80-150 words)**
+SCOPE: Classification justification ONLY. Do NOT describe downstream impact or what successors built — that belongs in the timeline.
 
 This field synthesizes findings from whats_new and compared_to_prior_work to justify WHY the assigned novelty level is correct. It should read as a self-contained justification.
 
 REQUIRED CONTENT:
 - State the novelty level and primary reason in the first sentence
-- Cite at least 2 work_ids [W...] with specific context about what those papers established
+- Cite grounding paper work_ids where they strengthen the argument. Where possible, reference DIFFERENT papers than those emphasized in compared_to_prior_work to demonstrate breadth of evidence
+- Each citation must explain what that paper established and how it relates to the novelty classification argument. Do NOT cite papers that don't add to the justification
 - Explain the causal chain: what existed before (with citations) → what this paper changed → why that warrants this level
 - For "pioneering": explain what task/field DID NOT EXIST before this paper, cite grounding papers from DIFFERENT domains that were combined, and explain why no prior paper attempted this specific application
-- For "high": explain why not "pioneering" (task existed before) and not "medium" (contribution is substantial — became a building block for subsequent work)
-- For "medium": explain why the contribution is a solid adaptation or extension rather than a new building block — what existing method/framework was applied, and why this doesn't constitute a fundamental advance
-- For "low": explain why the contribution lacks methodological novelty — what off-the-shelf method was used without modification, or why this is a commentary/report rather than a research contribution
+- For "high": explain why not "pioneering" (task existed before) and not "medium" (this paper was the FIRST to apply this method to this problem — no prior paper did it)
+- For "medium": explain why the contribution builds on existing approaches rather than being first-of-its-kind — what existing method/framework was applied, and what prior paper already did something similar
+- For "low": explain why the contribution lacks methodological novelty — what off-the-shelf method was used without modification
 
 FORBIDDEN patterns (will fail validation):
 - "Classified as X due to title containing..."
@@ -859,16 +864,16 @@ BAD (circular reasoning, no technical substance):
 "Classified as high because it introduces deep residual learning that builds upon previous architectures [W2163605009] and updates traditional approaches."
 
 GOOD "high" (clear causal chain, specific claims, cited evidence):
-"Classified as high because deep image classification networks already existed — AlexNet [W2163605009] demonstrated 8-layer CNNs and VGGNet [W2109255472] showed depth improves accuracy up to 19 layers. ResNet solves the specific degradation problem that prevented training beyond ~20 layers, enabling 152-layer networks that reduced top-5 error from 7.3% (VGG) to 3.57%. This is not pioneering because image classification with deep CNNs was established by 2015, but represents a major architectural breakthrough that became the default backbone for subsequent vision models."
+"Classified as high because while deep image classification networks already existed — AlexNet [W2163605009] demonstrated 8-layer CNNs and VGGNet [W2109255472] showed depth improves accuracy up to 19 layers — NO prior paper solved training of very deep networks (100+ layers) via identity shortcut connections. Highway Networks [W2153625789] attempted gated information flow but required learned gating parameters and could not scale beyond ~50 layers. ResNet's parameter-free skip connections were the first method to successfully train 152-layer networks, reducing top-5 error from 7.3% to 3.57%. This is not pioneering because image classification with deep CNNs was well-established by 2015."
 
 GOOD "medium" (acknowledges solid contribution while explaining why it's not high):
-"Classified as medium because this paper applies the established transformer architecture [W2118176668] to medical image segmentation, adapting the self-attention mechanism with domain-specific preprocessing for CT scans. While achieving competitive results on the BTCV benchmark, the core methodology — vision transformers for dense prediction — was already demonstrated by ViT [W3035667763] and Swin Transformer [W3134447684]. The contribution is a domain-specific adaptation rather than a new architectural building block that subsequent work built upon."
+"Classified as medium because this paper applies the established transformer architecture [W2118176668] to medical image segmentation, adapting the self-attention mechanism with domain-specific preprocessing for CT scans. Vision transformers for dense prediction were already demonstrated by ViT [W3035667763] for image classification and Swin Transformer [W3134447684] for hierarchical vision tasks. TransUNet [W3128763281] had already applied transformers to medical image segmentation before this paper. The contribution is a domain-specific refinement of existing transformer-based segmentation approaches."
 
 GOOD "pioneering" (demonstrates a task/field that did not exist before):
-"Classified as pioneering because no prior work attempted neural artistic style transfer — the task of rendering a photograph in the style of a painting while preserving content. Gatys et al. combined convolutional feature representations from VGGNet [W2109255472], originally developed for object classification, with a Gram-matrix-based style representation that had no precedent in computer vision. Prior texture synthesis methods [W2100339939] operated on low-level statistics without separating content from style. This paper created an entirely new research direction: subsequent work on fast style transfer, video stylization, and controllable generation all trace directly to this formulation."
+"Classified as pioneering because no prior work attempted neural artistic style transfer — the task of rendering a photograph in the style of a painting while preserving content. Gatys et al. combined convolutional feature representations from VGGNet [W2109255472], originally developed for object classification, with a Gram-matrix-based style representation that had no precedent in computer vision. Prior texture synthesis methods [W2100339939] operated on low-level statistics without separating content from style. This paper created an entirely new research direction that combined two previously unrelated domains."
 
 GOOD "low" (explains lack of methodological novelty):
-"Classified as low because this paper applies standard logistic regression and random forest classifiers [W2034096913] to a customer churn dataset without modification to the algorithms or training procedure. The feature engineering follows established practices from prior work [W2056891283], and the evaluation uses standard accuracy/AUC metrics on a single proprietary dataset. While the results confirm that ensemble methods outperform linear models for this task, no new method, insight, or benchmark is introduced."
+"Classified as low because this paper applies standard logistic regression and random forest classifiers [W2034096913] to a customer churn dataset without modification to the algorithms or training procedure. The feature engineering follows established practices from prior work [W2056891283], and the evaluation uses standard accuracy/AUC metrics on a single proprietary dataset. No new method, insight, or benchmark is introduced."
 
 ---
 
@@ -883,9 +888,9 @@ Return JSON (include q0_is_review, q1_is_software, q2_new_framework, q3_improvem
         "q3_improvement": "major" | "incremental" | "n/a",
         "novelty_level": "low" | "medium" | "high" | "pioneering",
         "confidence": "low" | "medium" | "high",
-        "whats_new": "Follow WHATS_NEW instructions above. 3-5 sentences, 80-150 words. Technical depth required.",
-        "compared_to_prior_work": "Follow COMPARED_TO_PRIOR_WORK instructions above. 3-5 sentences, 80-150 words. Must cite 2-4 work_ids with context.",
-        "novelty_explanation": "Follow NOVELTY_EXPLANATION instructions above. 3-5 sentences, 80-150 words. Must cite 2+ work_ids. Must explain causal chain.",
+        "whats_new": "Follow WHATS_NEW instructions above. 4-6 sentences, 120-200 words. Mechanistic depth required.",
+        "compared_to_prior_work": "Follow COMPARED_TO_PRIOR_WORK instructions above. 4-7 sentences, 150-250 words. Each cited paper gets its own explanation.",
+        "novelty_explanation": "Follow NOVELTY_EXPLANATION instructions above. 4-6 sentences, 120-200 words. Must explain causal chain with citations.",
         "grounding_papers": [
             {{
                 "work_id": "W...",
@@ -929,13 +934,13 @@ If your novelty_explanation says "Classified as X due to title/abstract" → REW
 - If uncertain, lower your confidence level instead of hedging in the text
 
 **NOVELTY_EXPLANATION REQUIREMENTS:**
-- MUST cite at least 2 work_ids [W...] in the explanation
+- Cite grounding paper work_ids [W...] where they strengthen the justification argument
 - MUST make specific technical claims (what method? what finding? what improvement?)
 - FORBIDDEN patterns (will fail validation):
   - "Classified as X due to title containing..."
   - "Classified as review due to its synthesis..."
   - "The paper is X because it doesn't create..."
-- REQUIRED pattern: "Classified as X because [specific technical contribution] builds upon [W...] and updates [specific prior work]"
+- REQUIRED pattern: "Classified as X because [specific technical evidence with citations]"
 
 **HANDLING MISSING ABSTRACTS:**
 - If abstract says "No abstract available", you MUST still provide a meaningful summary
@@ -1454,69 +1459,9 @@ def _validate_llm_response(
     }
 
 
-def _enforce_novelty_level(
-    novelty_assessment: Dict[str, Any],
-    cited_by_count: int,
-    year: Optional[int],
-) -> None:
-    """Deterministic post-processing to enforce novelty level thresholds.
 
-    The LLM consistently over-classifies papers as 'high' and 'pioneering'
-    regardless of prompt strictness. This function applies citation-based
-    minimum thresholds as a NECESSARY condition for elevated levels.
-
-    Rationale: citation count alone doesn't determine novelty, but
-    widespread adoption (the definition of 'high') produces citations.
-    A paper whose technique was 'adopted by independent researchers for
-    different purposes' would have accumulated significant citations.
-    These thresholds are floors, not classifiers.
-    """
-    llm_level = novelty_assessment.get("novelty_level", "medium")
-
-    if llm_level in ("low", "medium"):
-        return  # Already at default or below — no enforcement needed
-
-    cited = cited_by_count or 0
-    current_year = 2026
-    age = max(current_year - (year or current_year), 0)
-
-    # --- PIONEERING enforcement ---
-    # Papers that created entirely new fields are always extremely highly cited.
-    if llm_level == "pioneering":
-        if cited >= 5000:
-            return  # Legitimate pioneering
-        if cited >= 1000:
-            novelty_assessment["novelty_level"] = "high"
-            logger.info(
-                f"Enforced pioneering→high: {cited} citations < 5000 threshold"
-            )
-            # Fall through to HIGH enforcement below
-            llm_level = "high"
-        else:
-            novelty_assessment["novelty_level"] = "medium"
-            logger.info(
-                f"Enforced pioneering→medium: {cited} citations < 1000 threshold"
-            )
-            return
-
-    # --- HIGH enforcement ---
-    # Scale threshold by paper age — newer papers haven't accumulated yet.
-    if llm_level == "high":
-        if age >= 10:
-            threshold = 1000
-        elif age >= 5:
-            threshold = 500
-        elif age >= 3:
-            threshold = 200
-        else:
-            threshold = 50  # Very new papers get benefit of doubt
-
-        if cited < threshold:
-            novelty_assessment["novelty_level"] = "medium"
-            logger.info(
-                f"Enforced high→medium: {cited} citations < {threshold} "
-                f"threshold (age={age} years)"
-            )
+# _enforce_novelty_level DELETED — replaced by novelty_validation.validate_novelty_level()
+# which uses external prior art search instead of citation thresholds.
 
 
 def _build_impact_analysis_obj(impact_data: Optional[Dict[str, Any]]) -> Optional[PaperImpactAnalysis]:
@@ -2239,11 +2184,12 @@ def get_node_details(
             }
         )
 
-        # Enforce novelty level with deterministic citation thresholds
-        _enforce_novelty_level(
+        # Validate novelty level with external prior art search
+        validate_novelty_level(
             llm_result["novelty_assessment"],
-            cited_by_count=work_data.get("cited_by_count", 0) or 0,
-            year=work_data.get("year"),
+            work_data=work_data,
+            referenced_works=referenced_works,
+            landmarks=landmarks,
         )
 
         # Cache the result

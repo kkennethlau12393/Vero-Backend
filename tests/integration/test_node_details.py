@@ -53,10 +53,12 @@ REQUESTS_GET_TOPIC_INF = "app.feature3.topic_inference.requests.get"
 REQUESTS_GET_GROUNDING = "app.feature3.grounding_supplement.requests.get"
 REQUESTS_GET_ACCESS = "app.settings.access_links.requests.get"
 REQUESTS_GET_PAPER_CACHE = "app.feature3.paper_cache.requests.get"
+REQUESTS_GET_VALIDATION = "app.feature3.novelty_validation.requests.get"
 HTTPX_GET_TOPIC_LOOKUP = "app.feature3.topic_lookup.httpx.get"
 OPENAI_CLASS_NODE = "app.feature3.node_details_service.OpenAI"
 OPENAI_CLASS_TOPIC = "app.feature3.topic_inference.OpenAI"
 OPENAI_CLASS_GROUNDING = "app.feature3.grounding_supplement.OpenAI"
+OPENAI_CLASS_VALIDATION = "app.feature3.novelty_validation.OpenAI"
 
 
 # ── Mock Helper ──────────────────────────────────────────────────────────────
@@ -360,6 +362,10 @@ def _patch_all_external_apis(
     openai_node_cls, openai_node_client = _make_openai_mock(openai_response)
     openai_topic_cls, _ = _make_openai_mock("{}")
     openai_grounding_cls, openai_grounding_client = _make_openai_mock("[]")
+    # Validation module: return "no prior art" by default (no downgrade)
+    openai_validation_cls, _ = _make_openai_mock(
+        '{"has_prior_art": false, "matching_paper_ids": [], "reasoning": "mock"}'
+    )
 
     if openai_side_effect is not None:
         openai_node_client.chat.completions.create.side_effect = openai_side_effect
@@ -372,10 +378,12 @@ def _patch_all_external_apis(
         patch(REQUESTS_GET_GROUNDING, side_effect=handler),
         patch(REQUESTS_GET_ACCESS, side_effect=handler),
         patch(REQUESTS_GET_PAPER_CACHE, side_effect=handler),
+        patch(REQUESTS_GET_VALIDATION, side_effect=handler),
         patch(HTTPX_GET_TOPIC_LOOKUP, return_value=default_httpx),
         patch(OPENAI_CLASS_NODE, openai_node_cls),
         patch(OPENAI_CLASS_TOPIC, openai_topic_cls),
         patch(OPENAI_CLASS_GROUNDING, openai_grounding_cls),
+        patch(OPENAI_CLASS_VALIDATION, openai_validation_cls),
     ):
         yield {
             "openai_node_client": openai_node_client,
@@ -1053,7 +1061,7 @@ class TestGetNodeDetailsAccessInfo:
                     VALUES
                         (:wid, 'medium', 'high', 'Test whats new',
                          'Test comparison', 'Test explanation',
-                         :grounding, 'test-version')
+                         :grounding, :version)
                 """),
                 {
                     "wid": work_id,
@@ -1063,6 +1071,7 @@ class TestGetNodeDetailsAccessInfo:
                         "relationship": "cited_reference",
                         "relevance": "Test relevance",
                     }]),
+                    "version": ASSESSMENT_VERSION,
                 },
             )
             conn.commit()
