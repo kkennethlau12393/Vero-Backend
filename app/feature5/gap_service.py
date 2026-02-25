@@ -288,6 +288,54 @@ def get_all_map_paper_data(
     return paper_data
 
 
+def get_all_rank_paper_data(
+    conn: Connection,
+    rank_job_id: UUID,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Get paper metadata for ALL papers in a rank job's results.
+
+    Same shape as get_all_map_paper_data() but queries rank_results.
+    """
+    result = conn.execute(
+        text("""
+            SELECT
+                w.work_id, w.title, w.year, w.cited_by_count, w.authors_json,
+                w.venue, w.abstract, w.primary_topic_id,
+                ot.display_name AS topic_name
+            FROM rank_results rr
+            JOIN works w ON w.work_id = rr.work_id
+            LEFT JOIN openalex_topics ot ON ot.topic_id = w.primary_topic_id
+            WHERE rr.rank_job_id = :rjid
+        """),
+        {"rjid": rank_job_id},
+    ).mappings().all()
+
+    missing_authors = []
+    paper_data = {}
+    for row in result:
+        authors = _parse_authors(row["authors_json"])
+        if not authors:
+            missing_authors.append(row["work_id"])
+        paper_data[row["work_id"]] = {
+            "title": row["title"],
+            "year": row["year"],
+            "cited_by_count": row["cited_by_count"],
+            "authors": authors,
+            "venue": row["venue"],
+            "abstract": row["abstract"],
+            "topic_name": row["topic_name"] or "",
+        }
+
+    if missing_authors:
+        backfilled = _backfill_authors_from_openalex(conn, missing_authors)
+        for wid, authors in backfilled.items():
+            if wid in paper_data:
+                paper_data[wid]["authors"] = authors
+
+    return paper_data
+
+
 def synthesize_gaps_with_llm(
     candidates_by_type: Dict[str, List[Any]],
     paper_data: Dict[str, Dict[str, Any]],
@@ -370,7 +418,7 @@ def synthesize_gaps_with_llm(
 
 def _gather_internal_context(
     conn: Connection,
-    map_id: UUID,
+    map_id: Optional[UUID],
     paper_data: Dict[str, Dict[str, Any]],
 ) -> str:
     """
@@ -446,16 +494,27 @@ def _gather_internal_context(
 
     # --- Cluster structure (topic-based grouping) ---
     try:
-        topic_rows = conn.execute(
-            text("""
-                SELECT mn.work_id, w.primary_topic_id, ot.display_name
-                FROM map_nodes mn
-                JOIN works w ON w.work_id = mn.work_id
-                LEFT JOIN openalex_topics ot ON ot.topic_id = w.primary_topic_id
-                WHERE mn.map_id = :map_id
-            """),
-            {"map_id": map_id},
-        ).mappings().all()
+        if map_id:
+            topic_rows = conn.execute(
+                text("""
+                    SELECT mn.work_id, w.primary_topic_id, ot.display_name
+                    FROM map_nodes mn
+                    JOIN works w ON w.work_id = mn.work_id
+                    LEFT JOIN openalex_topics ot ON ot.topic_id = w.primary_topic_id
+                    WHERE mn.map_id = :map_id
+                """),
+                {"map_id": map_id},
+            ).mappings().all()
+        else:
+            topic_rows = conn.execute(
+                text("""
+                    SELECT w.work_id, w.primary_topic_id, ot.display_name
+                    FROM works w
+                    LEFT JOIN openalex_topics ot ON ot.topic_id = w.primary_topic_id
+                    WHERE w.work_id = ANY(:wids)
+                """),
+                {"wids": work_ids},
+            ).mappings().all()
 
         if topic_rows:
             clusters: Dict[str, List[str]] = {}
@@ -559,7 +618,7 @@ def _gather_internal_context(
 
 def detect_gaps_with_llm(
     conn: Connection,
-    map_id: UUID,
+    map_id: Optional[UUID],
     paper_data: Dict[str, Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     """
@@ -569,28 +628,35 @@ def detect_gaps_with_llm(
     directly ask the LLM to identify research gaps from the paper list.
     Supplements the prompt with rich internal data (methodology fingerprints,
     novelty assessments, cluster structure).
+
+    Args:
+        conn: Database connection
+        map_id: Map ID (None for rank-based analysis)
+        paper_data: Paper metadata keyed by work_id
     """
     client = get_groq_client()
 
-    # Build citation summary from edges
-    edges = conn.execute(
-        text("""
-            SELECT from_work_id, to_work_id
-            FROM map_edges
-            WHERE map_id = :map_id
-        """),
-        {"map_id": map_id},
-    ).mappings().all()
-
     node_count = len(paper_data)
-    edge_count = len(edges)
 
-    # Count incoming/outgoing for each paper
+    # Build citation summary from edges (only for map-based)
+    edge_count = 0
     in_degree: Dict[str, int] = {}
     out_degree: Dict[str, int] = {}
-    for e in edges:
-        out_degree[e["from_work_id"]] = out_degree.get(e["from_work_id"], 0) + 1
-        in_degree[e["to_work_id"]] = in_degree.get(e["to_work_id"], 0) + 1
+
+    if map_id:
+        edges = conn.execute(
+            text("""
+                SELECT from_work_id, to_work_id
+                FROM map_edges
+                WHERE map_id = :map_id
+            """),
+            {"map_id": map_id},
+        ).mappings().all()
+        edge_count = len(edges)
+
+        for e in edges:
+            out_degree[e["from_work_id"]] = out_degree.get(e["from_work_id"], 0) + 1
+            in_degree[e["to_work_id"]] = in_degree.get(e["to_work_id"], 0) + 1
 
     # Find bridge papers (cited by many, cite many) and isolated papers
     bridge_papers = []
@@ -601,7 +667,7 @@ def detect_gaps_with_llm(
         title = paper_data[wid].get("title", "?")[:60]
         if i >= 3 and o >= 2:
             bridge_papers.append(f"{wid} ({title}) [in:{i}, out:{o}]")
-        elif i == 0 and o == 0:
+        elif i == 0 and o == 0 and map_id:
             isolated_papers.append(f"{wid} ({title})")
 
     citation_lines = [
@@ -1161,6 +1227,206 @@ def get_cached_gap_analysis(
                    total_candidates_detected, candidates_validated
             FROM gap_analysis_results
             WHERE map_id = :map_id
+            AND created_at > NOW() - INTERVAL '1 hour' * :ttl_hours
+        """
+        if tenant_id is not None:
+            query += " AND tenant_id = :tenant_id"
+            params["tenant_id"] = tenant_id
+
+        query += " ORDER BY created_at DESC LIMIT 1"
+
+        result = conn.execute(text(query), params).mappings().first()
+
+        if not result:
+            return None
+
+        gaps_data = result["gaps"]
+        if isinstance(gaps_data, str):
+            gaps_data = json.loads(gaps_data)
+
+        gap_cards = [GapCard(**g) for g in gaps_data]
+
+        return GapAnalysisResponse(
+            job_id=result["id"],
+            gaps=gap_cards,
+            coverage_pct=result["coverage_pct"],
+            data_sources_used=result["data_sources_used"],
+            total_candidates_detected=result["total_candidates_detected"],
+            candidates_validated=result["candidates_validated"],
+        )
+
+
+def run_rank_gap_analysis(
+    engine: Engine,
+    rank_job_id: UUID,
+    tenant_id: UUID,
+) -> GapAnalysisResponse:
+    """
+    Run gap analysis for a rank job.
+
+    Simplified pipeline that skips heuristic detection (no graph) and goes
+    straight to LLM-direct detection using the ranked paper list.
+
+    1. Check unlock status
+    2. Get paper data from rank_results
+    3. Detect gaps via LLM-direct
+    4. Validate evidence grounding
+    5. External validation via GPT
+    6. Store and return results
+    """
+    status = get_gap_analysis_status(engine, rank_job_id=rank_job_id)
+    if not status.unlocked:
+        raise ValueError(f"Gap analysis not unlocked: {status.message}")
+
+    with engine.connect() as conn:
+        # Step 1: Get available data sources
+        available_sources = get_available_data_sources(conn, rank_job_id=rank_job_id)
+        logger.info(f"Rank gap analysis — available sources: {available_sources}")
+
+        # Step 2: Get all paper data from rank results
+        all_paper_data = get_all_rank_paper_data(conn, rank_job_id)
+
+        if not all_paper_data:
+            logger.warning(f"No paper data found for rank job {rank_job_id}")
+            return GapAnalysisResponse(
+                job_id=uuid4(),
+                gaps=[],
+                coverage_pct=status.coverage_pct,
+                data_sources_used=available_sources,
+                total_candidates_detected=0,
+                candidates_validated=0,
+            )
+
+        # Step 3: LLM-direct gap detection (no heuristics for rank jobs)
+        logger.info("Rank gap analysis: LLM-direct detection")
+        llm_direct_gaps = detect_gaps_with_llm(conn, None, all_paper_data)
+
+        # Validate evidence grounding
+        all_work_ids = set(all_paper_data.keys())
+        before_count = len(llm_direct_gaps)
+        llm_direct_gaps = [
+            g for g in llm_direct_gaps
+            if len(set(g.get("evidence_work_ids", [])) & all_work_ids) >= 3
+        ]
+        dropped = before_count - len(llm_direct_gaps)
+        if dropped:
+            logger.info(f"Dropped {dropped} LLM-direct gaps with insufficient evidence grounding")
+
+        if not llm_direct_gaps:
+            logger.warning("No gaps identified by LLM-direct detection")
+            return GapAnalysisResponse(
+                job_id=uuid4(),
+                gaps=[],
+                coverage_pct=status.coverage_pct,
+                data_sources_used=available_sources,
+                total_candidates_detected=0,
+                candidates_validated=0,
+            )
+
+        # Step 4: Create gap cards, filter, deduplicate
+        gap_cards = create_gap_cards(llm_direct_gaps, all_paper_data)
+
+        pre_filter = len(gap_cards)
+        gap_cards = [g for g in gap_cards if g.detection_score >= MIN_DETECTION_SCORE]
+        if pre_filter - len(gap_cards) > 0:
+            logger.info(
+                f"Filtered {pre_filter - len(gap_cards)} gap cards below "
+                f"detection_score threshold ({MIN_DETECTION_SCORE})"
+            )
+
+        gap_cards = _deduplicate_gap_cards(gap_cards)
+
+        # Step 5: External validation
+        logger.info("Rank gap analysis: external validation")
+        gaps_for_validation = [
+            {
+                "gap_id": g.gap_id,
+                "type": g.type,
+                "title": g.title,
+                "description": g.description,
+                "suggested_direction": g.suggested_direction,
+                "detection_score": g.detection_score,
+            }
+            for g in gap_cards
+        ]
+
+        validated_gaps = validate_gaps_batch(
+            gaps_for_validation,
+            min_confidence_threshold=MIN_CONFIDENCE_THRESHOLD,
+        )
+
+        # Update gap cards with validation results
+        validated_gap_ids = {g["gap_id"]: g for g in validated_gaps}
+        final_cards = []
+
+        for card in gap_cards:
+            if card.gap_id in validated_gap_ids:
+                v = validated_gap_ids[card.gap_id]
+                card.confidence = v["confidence"]
+                card.validation_result = v["validation_result"]
+
+                coverage = card.validation_result.coverage_pct
+                if coverage is not None and coverage > MAX_COVERAGE_PCT:
+                    logger.info(
+                        f"Filtered gap '{card.title}': "
+                        f"coverage_pct {coverage:.0f}% > {MAX_COVERAGE_PCT:.0f}% max"
+                    )
+                    continue
+
+                final_cards.append(card)
+
+        final_cards.sort(key=lambda x: x.confidence, reverse=True)
+
+        # Step 6: Store results
+        result_id = uuid4()
+        job_id = uuid4()
+
+        conn.execute(
+            text("""
+                INSERT INTO gap_analysis_results
+                (id, rank_job_id, tenant_id, gaps, data_sources_used, coverage_pct,
+                 total_candidates_detected, candidates_validated)
+                VALUES
+                (:id, :rank_job_id, :tenant_id, :gaps, :data_sources_used, :coverage_pct,
+                 :total_candidates_detected, :candidates_validated)
+            """),
+            {
+                "id": result_id,
+                "rank_job_id": rank_job_id,
+                "tenant_id": tenant_id,
+                "gaps": json.dumps([c.model_dump() for c in final_cards]),
+                "data_sources_used": available_sources,
+                "coverage_pct": status.coverage_pct,
+                "total_candidates_detected": len(llm_direct_gaps),
+                "candidates_validated": len(final_cards),
+            },
+        )
+        conn.commit()
+
+        return GapAnalysisResponse(
+            job_id=job_id,
+            gaps=final_cards,
+            coverage_pct=status.coverage_pct,
+            data_sources_used=available_sources,
+            total_candidates_detected=len(llm_direct_gaps),
+            candidates_validated=len(final_cards),
+        )
+
+
+def get_cached_rank_gap_analysis(
+    engine: Engine,
+    rank_job_id: UUID,
+    tenant_id: Optional[UUID] = None,
+) -> Optional[GapAnalysisResponse]:
+    """Get cached gap analysis results for a rank job if available and not stale."""
+    with engine.connect() as conn:
+        params: Dict[str, Any] = {"rank_job_id": rank_job_id, "ttl_hours": CACHE_TTL_HOURS}
+
+        query = """
+            SELECT id, gaps, data_sources_used, coverage_pct,
+                   total_candidates_detected, candidates_validated
+            FROM gap_analysis_results
+            WHERE rank_job_id = :rank_job_id
             AND created_at > NOW() - INTERVAL '1 hour' * :ttl_hours
         """
         if tenant_id is not None:

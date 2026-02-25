@@ -690,7 +690,8 @@ CREATE INDEX IF NOT EXISTS idx_gap_feature_usage_map_type
 -- Gap analysis results
 CREATE TABLE IF NOT EXISTS public.gap_analysis_results (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    map_id uuid NOT NULL REFERENCES public.maps(map_id) ON DELETE CASCADE,
+    map_id uuid REFERENCES public.maps(map_id) ON DELETE CASCADE,
+    rank_job_id uuid REFERENCES public.rank_jobs(rank_job_id) ON DELETE CASCADE,
     tenant_id uuid NOT NULL,
     gaps jsonb NOT NULL DEFAULT '[]'::jsonb,
     data_sources_used text[] NOT NULL DEFAULT '{}',
@@ -702,6 +703,9 @@ CREATE TABLE IF NOT EXISTS public.gap_analysis_results (
 
 CREATE INDEX IF NOT EXISTS idx_gap_analysis_results_map
     ON public.gap_analysis_results (map_id);
+
+CREATE INDEX IF NOT EXISTS idx_gap_analysis_results_rank_job
+    ON public.gap_analysis_results (rank_job_id);
 
 CREATE INDEX IF NOT EXISTS idx_gap_analysis_results_tenant
     ON public.gap_analysis_results (tenant_id);
