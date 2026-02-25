@@ -1045,15 +1045,20 @@ def create_gap_cards(
                 role=roles.get(work_id, "Supporting evidence"),
             ))
 
+        # Use LLM-generated why_it_matters for type_explanation if available,
+        # otherwise fall back to static dict
+        why_it_matters = _ensure_str(gap.get("why_it_matters", ""))
+        type_explanation = why_it_matters if why_it_matters else GAP_TYPE_EXPLANATIONS.get(gap_type, "")
+
         # Always assign sequential IDs to avoid collisions between
         # heuristic and LLM-direct gaps that both start at gap_1
         cards.append(GapCard(
             gap_id=f"gap_{len(cards) + 1}",
             type=gap_type,
-            type_explanation=GAP_TYPE_EXPLANATIONS.get(gap_type, ""),
+            type_explanation=type_explanation,
             title=gap_title,
             description=gap.get("description", ""),
-            why_it_matters=_ensure_str(gap.get("why_it_matters", "")),
+            why_it_matters=why_it_matters,
             evidence=evidence,
             suggested_direction=_ensure_str(gap.get("suggested_direction", "")),
             confidence=0.0,  # Will be set after validation
