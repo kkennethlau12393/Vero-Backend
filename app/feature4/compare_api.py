@@ -53,8 +53,8 @@ def compare_methodologies_endpoint(
             log_activity(
                 conn, tenant_id, "methodology_compared",
                 map_id=UUID(map_id),
-                work_ids=req.work_ids,
                 node_count=len(req.work_ids),
+                metadata={"work_ids": req.work_ids},
             )
         return result
 

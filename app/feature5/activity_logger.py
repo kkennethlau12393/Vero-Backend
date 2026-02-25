@@ -38,7 +38,7 @@ def log_activity(
     activity_type: str,
     map_id: Optional[UUID] = None,
     rank_job_id: Optional[UUID] = None,
-    work_ids: Optional[List[str]] = None,
+    work_id: Optional[str] = None,
     node_count: int = 0,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
@@ -48,6 +48,9 @@ def log_activity(
     At least one of map_id or rank_job_id must be provided.
     Failures are logged but never raise — activity logging must not
     break the primary API response.
+
+    For methodology comparisons, pass the compared work_ids list in
+    metadata["work_ids"] since the table only has a single work_id column.
     """
     if activity_type not in ACTIVITY_TYPES:
         logger.warning(f"Unknown activity_type: {activity_type}")
@@ -63,16 +66,16 @@ def log_activity(
         conn.execute(
             text("""
                 INSERT INTO research_activity_log
-                    (tenant_id, map_id, rank_job_id, activity_type, work_ids, node_count, metadata)
+                    (tenant_id, map_id, rank_job_id, activity_type, work_id, node_count, metadata)
                 VALUES
-                    (:tid, :mid, :rjid, :atype, :wids, :nc, CAST(:meta AS jsonb))
+                    (:tid, :mid, :rjid, :atype, :wid, :nc, CAST(:meta AS jsonb))
             """),
             {
                 "tid": tenant_id,
                 "mid": map_id,
                 "rjid": rank_job_id,
                 "atype": activity_type,
-                "wids": work_ids or [],
+                "wid": work_id,
                 "nc": node_count,
                 "meta": json.dumps(metadata) if metadata else "{}",
             },
@@ -108,7 +111,7 @@ def get_activity_summary(
 
     rows = conn.execute(
         text(f"""
-            SELECT activity_type, work_ids, node_count, created_at
+            SELECT activity_type, work_id, node_count, metadata, created_at
             FROM research_activity_log
             WHERE {where}
             ORDER BY created_at ASC
@@ -133,9 +136,10 @@ def get_activity_summary(
 
     for row in rows:
         atype = row["activity_type"]
-        wids = row["work_ids"] or []
+        wid = row["work_id"]
         nc = row["node_count"] or 0
         ts = row["created_at"]
+        meta = row["metadata"] or {}
 
         if first_at is None:
             first_at = ts
@@ -158,15 +162,16 @@ def get_activity_summary(
             by_nc = activities[atype].setdefault("by_node_count", {})
             nc_key = str(nc)
             by_nc[nc_key] = by_nc.get(nc_key, 0) + 1
+            # Methodology work_ids are stored in metadata
             compared = activities[atype].setdefault("work_ids_compared", [])
-            for wid in wids:
-                if wid not in compared:
-                    compared.append(wid)
+            meth_wids = meta.get("work_ids", []) if isinstance(meta, dict) else []
+            for mwid in meth_wids:
+                if mwid not in compared:
+                    compared.append(mwid)
         elif atype in ("novelty_assessed", "timeline_per_node", "node_details_viewed"):
             wid_list = activities[atype].setdefault("work_ids", [])
-            for wid in wids:
-                if wid not in wid_list:
-                    wid_list.append(wid)
+            if wid and wid not in wid_list:
+                wid_list.append(wid)
 
     return {
         "entry_point": entry_point,

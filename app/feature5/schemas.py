@@ -34,13 +34,15 @@ GAP_TYPE_EXPLANATIONS: dict[GapType, str] = {
 
 class CoverageBreakdown(BaseModel):
     """Breakdown of coverage percentage by source."""
-    map_wide_timeline: float = 0.0  # Up to 25%
-    methodology_comparisons: float = 0.0  # Up to 30% (15% each, capped)
-    per_node_exploration: float = 0.0  # Up to 30%
+    map_wide_timeline: float = 0.0  # Up to 15%
+    methodology_comparisons: float = 0.0  # Up to 30% (with stale penalty)
+    node_specific_exploration: float = 0.0  # Up to 28% (4% per unique action)
     methodology_comparison_count: int = 0
+    methodology_stale_penalty: float = 0.0  # Total penalty applied
+    node_specific_count: int = 0  # Unique (work_id, activity_type) pairs
+    novelty_count: int = 0
     nodes_explored: int = 0
     total_nodes: int = 0
-    novelty_count: int = 0
     entry_point: Optional[str] = None  # "rank" | "citation_map" | None
 
 

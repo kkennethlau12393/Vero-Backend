@@ -78,7 +78,7 @@ def get_node_details_endpoint(
             log_activity(
                 conn, tenant_id, "node_details_viewed",
                 map_id=map_id,
-                work_ids=[work_id],
+                work_id=work_id,
                 node_count=1,
                 metadata={"include_novelty": include_novelty, "include_timeline": include_timeline},
             )
@@ -129,7 +129,7 @@ def get_work_details_from_rank_job(
             log_activity(
                 conn, tenant_id, "node_details_viewed",
                 rank_job_id=rank_job_id,
-                work_ids=[work_id],
+                work_id=work_id,
                 node_count=1,
                 metadata={"include_novelty": include_novelty, "include_timeline": include_timeline},
             )
