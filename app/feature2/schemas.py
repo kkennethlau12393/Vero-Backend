@@ -230,9 +230,10 @@ class DirectRankResponse(BaseModel):
     # Flat list of ranked papers (used by drill-down endpoint)
     # When present, categorized fields are empty
     items: list[RankedItem] = []
-    # FIVE CATEGORIES (matching rank_service.py implementation):
+    # SIX CATEGORIES (matching rank_service.py implementation):
     foundational: list[RankedItem] = []  # Field-defining foundational papers
     methodology: list[RankedItem] = []  # Methods, tools, techniques
     reviews: list[RankedItem] = []  # Review papers and surveys
     applications: list[RankedItem] = []  # Clinical trials, case studies, implementations
     textbooks: list[RankedItem] = []  # Educational materials
+    additional_relevant: list[RankedItem] = []  # Quality papers that passed LLM+RRF but missed citation thresholds

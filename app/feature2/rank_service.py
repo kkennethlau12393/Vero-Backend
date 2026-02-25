@@ -101,7 +101,12 @@ from .methodological_alignment import (
 #      (foundational, methodology, reviews, applications, textbooks) now sort by
 #      item["score"] (combined relevance from 4 RRF rankers). Fixes systematic
 #      promotion of off-topic highly-cited papers above on-topic lower-cited papers.
-RANKING_VERSION = "rank-v92"
+# v93: Increased output target from ~30 to ~50 papers. Raised category limits
+#      (methodology 12→16, applications 10→14, foundational 8→10, reviews 8→10,
+#      textbooks 5→2), relaxed methodology recency thresholds (age≤2/cites≥3,
+#      age≤4/cites≥8), added "additional_relevant" overflow category (10 slots)
+#      for quality papers that pass LLM+RRF but fail citation thresholds.
+RANKING_VERSION = "rank-v93"
 
 
 def _stable_rank_hash(
@@ -359,6 +364,9 @@ def direct_rank_prod(
                         "textbooks": [
                             _fmt_cached(item, idx) for idx, item in enumerate(categorized.get("textbooks", []))
                         ],
+                        "additional_relevant": [
+                            _fmt_cached(item, idx) for idx, item in enumerate(categorized.get("additional_relevant", []))
+                        ],
                     }
             else:
                 return {"rank_job_id": rank_job_id, **loaded}
@@ -371,6 +379,7 @@ def direct_rank_prod(
                 "reviews": [],
                 "applications": [],
                 "textbooks": [],
+                "additional_relevant": [],
             }
         if not created_new and status == "failed":
             # Failed jobs should be retried - delete old results and job, then re-run
@@ -722,6 +731,7 @@ def direct_rank_prod(
                     "reviews": [],
                     "applications": [],
                     "textbooks": [],
+                    "additional_relevant": [],
                 }
 
             # Normalise features for display/reasons (not used for scoring)
@@ -1023,6 +1033,9 @@ def direct_rank_prod(
             ],
             "textbooks": [
                 _format_item(item, idx) for idx, item in enumerate(categorized.get("textbooks", []))
+            ],
+            "additional_relevant": [
+                _format_item(item, idx) for idx, item in enumerate(categorized.get("additional_relevant", []))
             ],
             "convergence": convergence_info,
         }
