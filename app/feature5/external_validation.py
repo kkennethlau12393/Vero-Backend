@@ -90,13 +90,13 @@ def validate_gap(
 Search for academic papers, preprints (ArXiv, bioRxiv, SSRN), technical reports, dissertations, or industry research that addresses this gap. Search using multiple query formulations including synonyms and related terminology from adjacent fields.
 
 Respond with a JSON object. STRICT FORMAT RULES:
-- "reasoning" MUST be 2-4 sentences max. Third person only (never "I searched" or "I found").
-- State what exists, what doesn't, and the verdict. No essays.
+- "reasoning" should be a concise paragraph (4-8 sentences, ~150-250 words). Third person only (never "I searched" or "I found").
+- State what exists, what doesn't, and the verdict. No bullet lists, no essays.
 
 {{
     "status": "open" | "partial" | "addressed",
     "coverage_pct": 0-100,
-    "reasoning": "2-4 sentences, third person. E.g.: 'Several papers address X but none tackle Y. Work by Author (2024) partially covers Z. The specific question of W remains open.'",
+    "reasoning": "Concise paragraph, third person, 150-250 words. E.g.: 'Several papers address X but none tackle Y. Work by Author (2024) partially covers Z by showing... However, the specific question of W remains open because no existing work provides...'",
     "sources": [
         {{"title": "Paper title", "url": "URL if available", "year": 2024, "relevance": "One sentence: how it relates"}}
     ]
@@ -154,14 +154,9 @@ Status definitions:
                 except (TypeError, ValueError):
                     pass
 
-            # Truncate reasoning to max 400 chars
-            reasoning = result_data.get("reasoning", "Unable to parse reasoning")
-            if len(reasoning) > 400:
-                reasoning = reasoning[:397] + "..."
-
             return ExternalValidationResult(
                 status=result_data.get("status", "partial"),
-                reasoning=reasoning,
+                reasoning=result_data.get("reasoning", "Unable to parse reasoning"),
                 sources=result_data.get("sources", []),
                 coverage_pct=coverage_pct,
             )
