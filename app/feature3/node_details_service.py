@@ -43,7 +43,7 @@ from app.feature3.schemas import (
 )
 from app.feature3.topic_inference import ensure_topic
 from app.feature3.topic_lookup import get_topic_display_name
-from app.shared.pdf_utils import download_and_extract_pdf, extract_paper_sections
+from app.shared.pdf_utils import download_and_extract_pdf
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
@@ -559,7 +559,7 @@ def _build_grounded_prompt(
     referenced_works: List[Dict[str, Any]],
     landmarks: List[Dict[str, Any]],
     cited_by_count: int = 0,
-    full_text_sections: Optional[Dict[str, str]] = None,
+    full_text_sections: Optional[str] = None,
 ) -> str:
     """Build the LLM prompt with grounded paper context."""
     year_str = f" ({year})" if year else ""
@@ -594,15 +594,7 @@ Key question: Did the field fundamentally change how it operates AFTER this pape
     # Build full text context block if available
     full_text_block = ""
     if full_text_sections:
-        parts = []
-        if full_text_sections.get("introduction"):
-            parts.append(f"=== INTRODUCTION ===\n{full_text_sections['introduction']}")
-        if full_text_sections.get("methods"):
-            parts.append(f"=== METHODOLOGY ===\n{full_text_sections['methods']}")
-        if full_text_sections.get("results_conclusion"):
-            parts.append(f"=== RESULTS & CONCLUSIONS ===\n{full_text_sections['results_conclusion']}")
-        if parts:
-            full_text_block = "\n\nFULL TEXT SECTIONS (extracted from PDF — use these for detailed analysis):\n" + "\n\n".join(parts)
+        full_text_block = "\n\nFULL TEXT (extracted from PDF — use this for detailed technical analysis):\n" + full_text_sections
 
     # Build references section
     refs_section = ""
@@ -667,6 +659,16 @@ Abstract: {abstract_text}
 ---
 
 {landmark_instruction}
+
+## GLOBAL CITATION RULE (applies to ALL text fields: whats_new, compared_to_prior_work, novelty_explanation)
+You may ONLY cite papers from the reference and landmark lists above. ALWAYS use their work_id format: [W2163605009].
+NEVER use in-paper reference numbers like [3], [28], [22] — the reader cannot look those up.
+NEVER mention papers by name alone (e.g., "ManiReg", "DeepWalk") without a work_id — if a paper is not in the lists above, do NOT cite it at all.
+
+## TECHNICAL DEPTH RULE
+Each reference and landmark above includes an abstract. USE these abstracts to write technically specific comparisons.
+When describing what a grounding paper did, reference the SPECIFIC method, architecture, or finding described in its abstract — not a vague summary.
+BAD: "Prior work used graph-based methods" — GOOD: "GCN [W2163605009] introduced spectral-domain convolutions using a first-order Chebyshev approximation of graph Laplacian filters"
 
 ## NOVELTY CLASSIFICATION - ANSWER THESE IN ORDER:
 
@@ -820,6 +822,13 @@ SCOPE: Technical differences between methods ONLY. Do NOT tell the chronological
 
 This field describes ONLY how the target paper's approach differs from specific prior methods. Do NOT re-describe what the target paper introduces — that belongs in whats_new.
 
+CITATION RULES (CRITICAL — READ BEFORE WRITING):
+- You may ONLY cite papers from the grounding_papers list (the reference and landmark papers provided above)
+- ALWAYS cite by work_id: [W2163605009], [W2109255472], etc.
+- NEVER cite by in-paper reference number: [3], [28], [22] — the reader has NO access to the paper's bibliography
+- NEVER cite papers by name only without a work_id: "ManiReg", "DeepWalk", "SemiEmb" — if a paper is not in the grounding list, do NOT cite it
+- Aim for 3+ UNIQUE work_id citations (3 different papers, not the same paper cited 3 times)
+
 REQUIRED CONTENT:
 - For each grounding paper that is technically relevant to this paper's contribution, dedicate a sentence explaining what THAT paper specifically did (its approach, its limitation)
 - For each cited prior paper, name its SPECIFIC technical approach (e.g., "used max-pooling over per-point features for global representation" not just "processed point clouds")
@@ -844,6 +853,13 @@ ONLY null if novelty_level is "pioneering". For reviews: explain what prior surv
 SCOPE: Classification justification ONLY. Do NOT describe downstream impact or what successors built — that belongs in the timeline.
 
 This field synthesizes findings from whats_new and compared_to_prior_work to justify WHY the assigned novelty level is correct. It should read as a self-contained justification.
+
+CITATION RULES (same as compared_to_prior_work):
+- You may ONLY cite papers from the grounding_papers list (the reference and landmark papers provided above)
+- ALWAYS cite by work_id: [W2163605009], [W2109255472], etc.
+- NEVER cite by in-paper reference number: [3], [28], [22] — the reader has NO access to the paper's bibliography
+- NEVER cite papers by name only without a work_id — if a paper is not in the grounding list, do NOT cite it
+- Aim for 3+ UNIQUE work_id citations (3 different papers, not the same paper cited 3 times)
 
 REQUIRED CONTENT:
 - State the novelty level and primary reason in the first sentence
@@ -934,13 +950,16 @@ If your novelty_explanation says "Classified as X due to title/abstract" → REW
 - If uncertain, lower your confidence level instead of hedging in the text
 
 **NOVELTY_EXPLANATION REQUIREMENTS:**
-- Cite grounding paper work_ids [W...] where they strengthen the justification argument
+- ONLY cite grounding paper work_ids [W...] from the lists above — NEVER use in-paper reference numbers [3], [28]
+- Aim for 3+ UNIQUE work_id citations (3 different grounding papers, not repeats)
 - MUST make specific technical claims (what method? what finding? what improvement?)
 - FORBIDDEN patterns (will fail validation):
   - "Classified as X due to title containing..."
   - "Classified as review due to its synthesis..."
   - "The paper is X because it doesn't create..."
-- REQUIRED pattern: "Classified as X because [specific technical evidence with citations]"
+  - Citing papers by in-paper reference numbers: "[3]", "[28]", "[22]"
+  - Citing papers by name without work_id: "ManiReg", "DeepWalk", "SemiEmb"
+- REQUIRED pattern: "Classified as X because [specific technical evidence with work_id citations]"
 
 **HANDLING MISSING ABSTRACTS:**
 - If abstract says "No abstract available", you MUST still provide a meaningful summary
@@ -963,7 +982,7 @@ def generate_node_details_llm(
     landmarks: List[Dict[str, Any]],
     target_work_id: Optional[str] = None,
     cited_by_count: int = 0,
-    full_text_sections: Optional[Dict[str, str]] = None,
+    full_text_sections: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Call LLM to generate summary, keywords, and grounded novelty assessment."""
     api_key = os.environ.get("GROQ_API_KEY")
@@ -985,7 +1004,9 @@ def generate_node_details_llm(
                     {
                         "role": "system",
                         "content": "You are an expert academic paper analyst. Return only valid JSON. "
-                        "Always cite specific papers by their work_id when making claims about prior work.",
+                        "ONLY cite papers from the provided reference/landmark lists using their work_id [W...]. "
+                        "NEVER use in-paper reference numbers like [3] or [28]. "
+                        "NEVER cite papers not in the provided lists.",
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -2120,9 +2141,9 @@ def get_node_details(
             ).mappings().first()
 
             if cached_ft and cached_ft["full_text_available"] and cached_ft["methods_text"]:
-                full_text_sections = extract_paper_sections(cached_ft["methods_text"])
+                full_text_sections = cached_ft["methods_text"]
                 context_depth = "full_text"
-                logger.info(f"Using cached full text for {work_id}")
+                logger.info(f"Using cached full text for {work_id}: {len(full_text_sections)} chars")
             else:
                 # Try to download PDF
                 pdf_url = work_data.get("oa_pdf_url")
@@ -2133,9 +2154,9 @@ def get_node_details(
                     logger.info(f"Attempting PDF download for novelty assessment: {pdf_url[:80]}")
                     full_text = download_and_extract_pdf(pdf_url)
                     if full_text:
-                        full_text_sections = extract_paper_sections(full_text)
+                        full_text_sections = full_text
                         context_depth = "full_text"
-                        logger.info(f"Full text extracted for {work_id}: {sum(len(v) for v in full_text_sections.values())} chars")
+                        logger.info(f"Full text extracted for {work_id}: {len(full_text)} chars")
                         # Cache for future use
                         try:
                             conn.execute(
@@ -2481,9 +2502,9 @@ def get_novelty_for_work(
             ).mappings().first()
 
             if cached_ft and cached_ft["full_text_available"] and cached_ft["methods_text"]:
-                full_text_sections = extract_paper_sections(cached_ft["methods_text"])
+                full_text_sections = cached_ft["methods_text"]
                 context_depth = "full_text"
-                logger.info(f"Using cached full text for {work_id}")
+                logger.info(f"Using cached full text for {work_id}: {len(full_text_sections)} chars")
             else:
                 # Try to download PDF
                 pdf_url = work_data.get("oa_pdf_url")
@@ -2494,9 +2515,9 @@ def get_novelty_for_work(
                     logger.info(f"Attempting PDF download for novelty assessment: {pdf_url[:80]}")
                     full_text = download_and_extract_pdf(pdf_url)
                     if full_text:
-                        full_text_sections = extract_paper_sections(full_text)
+                        full_text_sections = full_text
                         context_depth = "full_text"
-                        logger.info(f"Full text extracted for {work_id}: {sum(len(v) for v in full_text_sections.values())} chars")
+                        logger.info(f"Full text extracted for {work_id}: {len(full_text)} chars")
                         # Cache for future use
                         try:
                             conn.execute(
