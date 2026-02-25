@@ -56,7 +56,7 @@ MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Bump this when model OR prompt changes to auto-invalidate cached assessments
-ASSESSMENT_VERSION = "maverick-v14"
+ASSESSMENT_VERSION = "maverick-v15"
 
 
 def get_cached_details(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
@@ -122,13 +122,13 @@ def cache_details(
 
 
 # ---------------------------------------------------------------------------
-# Permanent novelty assessment storage (survives ASSESSMENT_VERSION bumps)
+# Permanent novelty assessment storage (version-gated by ASSESSMENT_VERSION)
 # ---------------------------------------------------------------------------
 
 def get_persisted_assessment(
     conn: Connection, work_id: str
 ) -> Optional[Dict[str, Any]]:
-    """Read a permanently stored novelty assessment (no version gate)."""
+    """Read a permanently stored novelty assessment (version-gated)."""
     try:
         row = conn.execute(
             text("""
@@ -138,8 +138,9 @@ def get_persisted_assessment(
                        assessment_unavailable_reason
                 FROM novelty_assessments
                 WHERE work_id = :work_id
+                  AND model_version = :model_version
             """),
-            {"work_id": work_id},
+            {"work_id": work_id, "model_version": ASSESSMENT_VERSION},
         ).mappings().first()
 
         if not row:
@@ -174,7 +175,7 @@ def persist_assessment(
     novelty_assessment: Optional[Dict[str, Any]],
     assessment_unavailable_reason: Optional[str] = None,
 ) -> None:
-    """Permanently store a novelty assessment (survives version bumps)."""
+    """Permanently store a novelty assessment."""
     try:
         if novelty_assessment:
             conn.execute(
@@ -690,96 +691,103 @@ Abstract: {abstract_text}
 - If abstract describes implementing/providing software → YES
 - If YES → novelty_level = "medium" (STOP HERE - no exceptions, even for highly cited software)
 
-**Q2: Did this paper CREATE something new that fundamentally changed the field?**
+**Q2: Is this paper PIONEERING? (Did it create an entirely new research task or field?)**
 (Only if Q1 = NO)
 
-USE THE GROUNDING PAPERS AS EVIDENCE - look at the references/landmarks provided above:
+This question ONLY determines whether the paper is "pioneering". It does NOT assign "high" or "medium". If the paper is not pioneering, proceed to Q3.
 
-**TEST: Do the grounding papers address the SAME TASK as the target paper?**
+TEST: Do the grounding papers address the SAME TASK as the target paper?
 
 If YES (grounding papers work on the same task/problem):
-- The task EXISTED before → this paper IMPROVED it → "high" at most
-- Examples: better accuracy, faster speed, new architecture for same problem
-- If prior papers do object detection and this paper does object detection → "high"
-- If prior papers do image classification and this paper does image classification → "high"
-- If prior papers do segmentation and this paper does segmentation → "high"
+→ NOT pioneering. Proceed to Q3.
 
-If NO (grounding papers work on FUNDAMENTALLY DIFFERENT tasks):
-- Check: did this paper create a task that HAD NO PRIOR PAPERS attempting it?
-- "pioneering" only if the APPLICATION itself is new (not just the method)
-- Example: if no prior papers attempted artistic style transfer, and this paper created it → "pioneering"
+If NO (grounding papers are from fundamentally different domains):
+→ Did this paper create a task/application that NO prior paper attempted?
+→ "pioneering" ONLY if the APPLICATION itself is new, not just the method
+→ Example: First paper on neural artistic style transfer → pioneering (nobody had attempted this task before)
 
-PIONEERING is EXTREMELY RARE - requires:
+PIONEERING requires ALL of:
 1. A task/application that NOBODY was working on before
 2. The grounding papers are from different domains being COMBINED into something new
 3. NOT just a new method for an existing task
-4. NOT a dataset, benchmark, tool, or resource — these ENABLE research, they don't shift paradigms
+4. NOT a dataset, benchmark, tool, or resource
 
-HIGH means:
-- The task/problem already existed (grounding papers work on it)
-- This paper provided a major improvement (new method, better results)
-- This paper created an influential dataset, benchmark, or resource that became widely adopted
+If pioneering → assign "pioneering" and STOP.
+If NOT pioneering → proceed to Q3. Do NOT assign any level here.
 
-CRITICAL - Default to "high" unless evidence strongly supports "pioneering":
-- Most influential papers are "high" (major improvements to existing tasks)
-- "Pioneering" is RARE - reserved for papers that DEFINED new fields
-- If ANY grounding paper addresses the same task → "high" not "pioneering"
-- Datasets and benchmarks are ALWAYS "high" at most — they are resources, not methodological paradigm shifts
-- Even extremely highly-cited datasets (e.g., ImageNet, CIFAR, COCO) are "high" — they enabled breakthroughs but didn't create a new research paradigm
+**Q3: Assign the novelty level (HIGH vs MEDIUM vs LOW)**
+(Only if Q0 = NO, Q1 = NO, and Q2 = not pioneering)
 
-CRITICAL - NOT high (these are "medium"):
-- Systematizing or providing guidelines for an EXISTING method → "medium"
-- Providing best practices or tutorials → "medium"
-- Proposing better parameters/thresholds for existing methods → "medium"
-- Creating a framework that UNIFIES existing methods without new capabilities → "medium"
+**START: This paper is MEDIUM.** This is the default. Most papers — including excellent, well-cited, influential papers — are medium. Medium means a solid contribution within an existing paradigm. Being medium is not a criticism.
+
+Your job: determine whether hard evidence forces you to change the level to LOW or HIGH.
+
+**STEP 1 — Check for LOW first:**
+LOW means no methodological contribution:
+- Applies off-the-shelf methods without modification (ran scikit-learn, used standard CNN, applied BERT out of the box)
+- Negative results, failed replications, null findings
+- Position papers, commentaries, editorials with no empirical work
+- Data collection or annotation described without novel methodology
+- Workshop or short papers sketching ideas without full implementation or evaluation
+If LOW → assign "low" and STOP.
+
+**STEP 2 — The paper is MEDIUM. Read on to see if evidence forces HIGH.**
+
+MEDIUM covers the vast majority of research. These are ALL medium:
+- New method for an existing task (even if it achieves SOTA)
+- Applying an existing technique to a new domain or dataset
+- Variant or extension of an existing method (new module, different loss, combining known components)
+- Incremental improvements on benchmarks
+- Empirical study or comparison of existing approaches
+- Replication, validation, or extension of prior findings
+- Parameter tuning, engineering improvements, optimization tricks
+- Framework that organizes or unifies existing methods
+- Systematizing, guidelines, or best practices for existing methods
+- Theory that organizes existing knowledge without new testable predictions
+- Influential datasets, benchmarks, or resources (even highly cited ones like ImageNet, CIFAR, COCO)
+- Any paper where the core contribution is applying METHOD X to DOMAIN Y
+
+**STEP 3 — The 3-CHECK TEST for HIGH (you must pass ALL three):**
+
+HIGH is RARE. It requires a paper that introduced a specific technique that became a reusable building block adopted by independent researchers for different purposes.
+
+CHECK 1 — NAME THE TECHNIQUE: What is the specific, named technique this paper introduced? It must be a concrete method, algorithm, or architecture with its own widely-recognized name that researchers use to refer to it (e.g., "ResNet", "dropout", "BERT", "Adam", "GAN", "transformer", "BLEU score"). A "novel approach" or "new framework" without a recognized name does not count.
+→ Cannot name a widely-recognized technique → STOP, assign MEDIUM.
+
+CHECK 2 — EVIDENCE OF INDEPENDENT ADOPTION: Is there concrete evidence that researchers OUTSIDE the original authors' group adopted this technique as a component in their own work? IMPORTANT: The grounding papers listed above are mostly PRIOR work that this paper BUILDS ON — they are NOT adopters. Adopters are papers that came AFTER this one and incorporated its technique. Evidence sources: (a) the abstract mentions widespread adoption, (b) you have specific knowledge of independent adoption, (c) successor papers in the grounding list post-date and explicitly use this technique.
+→ No concrete evidence of independent adoption → STOP, assign MEDIUM.
+
+CHECK 3 — ADOPTED FOR DIFFERENT PURPOSES: Did adopters use the technique for a DIFFERENT problem than the original paper? Using ResNet as a backbone for object detection counts. A follow-up that improves ResNet accuracy on the same benchmark does NOT count. Same-group follow-ups do NOT count.
+→ Adopters only replicated, extended, or improved on the same task → STOP, assign MEDIUM.
+
+ALL three checks pass → assign HIGH.
+ANY check fails → assign MEDIUM.
 
 CITATION COUNT IS NOT A NOVELTY INDICATOR:
 - High citations mean IMPACT, not NOVELTY
-- A highly-cited improvement to an existing task is "high", not "pioneering"
+- A highly-cited paper that applies existing methods well is MEDIUM
+- A highly-cited dataset or benchmark is MEDIUM
 
 **THEORIES AND FRAMEWORKS:**
-- Theory with NEW TESTABLE PREDICTIONS → "high"
-- Theory that ORGANIZES existing knowledge → "medium"
-- Framework that UNIFIES existing interpretation methods → "medium" (not pioneering)
+- Theory with new TESTABLE PREDICTIONS that were later empirically validated → can be "high" (if it passes the 3-check test — the "technique" is the testable prediction/framework)
+- Theory that organizes existing knowledge → "medium"
+- Framework that unifies existing methods without new capabilities → "medium"
 
-**Q3: Did subsequent work ADOPT this paper's specific technique as a reusable component?**
-(Only if Q1 = NO and Q2 did not result in pioneering)
+**Examples of HIGH (all three checks pass):**
+- ResNet: Technique = skip connections. Adopted by Faster R-CNN (detection), U-Net++ (segmentation), DenseNet (dense prediction). Different problems = yes.
+- Word2Vec: Technique = skip-gram word embeddings. Adopted by sentiment classifiers, machine translation systems, QA systems. Different problems = yes.
+- Adam: Technique = adaptive moment estimation. Adopted by virtually all deep learning after 2015. Different problems = yes.
+- Dropout: Technique = random neuron deactivation during training. Adopted across all deep learning architectures. Different problems = yes.
 
-**CRITICAL: "medium" is the DEFAULT. Assume medium unless you can pass the test below.**
-
-Most papers — including good, well-cited papers — are "medium". Being medium is not a criticism. It means the paper makes a solid contribution within an existing paradigm. "High" means the paper introduced a specific, named technique that other researchers then used as a component in their own distinct work.
-
-**THE TEST FOR "high" (you must pass ALL three checks):**
-
-CHECK 1 — NAME THE TECHNIQUE: Can you name the specific, reusable technique this paper introduced? Not a "finding" or "result", but a concrete method, algorithm, architecture, loss function, training procedure, or benchmark that has its own identity (often its own name, like "ResNet", "dropout", "BERT", "Adam optimizer", "BLEU score").
-→ If you cannot name a specific technique → "medium"
-
-CHECK 2 — FIND THE ADOPTERS: Can you identify at least 2 papers from the grounding papers or successor papers that USED this technique as a component in their own different work? "Used" means they incorporated the technique into their pipeline, not just compared against it or cited it in related work.
-→ If you cannot point to 2+ specific adopters → "medium"
-
-CHECK 3 — DIFFERENT FROM SOURCE: Did those adopter papers solve a DIFFERENT specific problem than this paper? (Using ResNet as a backbone for object detection counts. A follow-up paper that just trains ResNet on a different dataset does NOT count.)
-→ If adopters just replicated/extended rather than reused the technique for their own goal → "medium"
-
-If all three checks pass → "high"
-If any check fails → "medium"
-
-**Examples of "high" passing the test:**
-- ResNet: Technique = residual skip connections. Adopters = Faster R-CNN used ResNet backbone for detection, DenseNet extended skip connections to dense connectivity. Different problems = detection, dense prediction.
-- Word2Vec: Technique = word embedding via skip-gram/CBOW. Adopters = sentiment classifiers used Word2Vec embeddings as input features, Doc2Vec extended it to documents. Different problems = sentiment analysis, document similarity.
-- Adam optimizer: Technique = adaptive moment estimation for SGD. Adopters = virtually every deep learning paper after 2015 uses Adam. Different problems = everything.
-
-**Examples of "medium" failing the test:**
-- A paper achieving new SOTA on ImageNet with a tweaked training schedule: No new named technique — just better hyperparameters. → "medium"
-- A paper proposing "attention-enhanced U-Net" for retinal vessel segmentation: Combines existing components (attention + U-Net) for a specific domain. No evidence other papers adopted "attention-enhanced U-Net" as a reusable component. → "medium"
-- A paper introducing a new loss function for face recognition that 2 follow-up papers from the same group used: The adopters are from the same group, not independent adoption. → "medium"
-- A highly-cited paper that established an important empirical finding (e.g., "batch size affects generalization"): Important finding, but no reusable technique that others plug into their work. → "medium"
-
-**"low" — no methodological contribution:**
-- Direct application of off-the-shelf methods (e.g., ran scikit-learn random forest on a dataset) without modification or new insight
-- Negative results, failed replications, or null findings
-- Position papers, commentaries, editorials, or opinion pieces with no empirical work
-- Data collection or annotation process described without novel methodology
-- Workshop or short papers that sketch an idea without full implementation or evaluation
+**Examples of MEDIUM (common patterns that do NOT pass):**
+- Paper achieves SOTA on ImageNet with better training schedule → no named technique, just better hyperparameters
+- Paper proposes "attention-enhanced U-Net" for retinal vessels → combines existing components for specific domain, no evidence of independent adoption
+- Paper introduces loss function adopted by 2 follow-ups from same group → not independent adoption
+- Paper establishes important empirical finding ("batch size affects generalization") → finding, not reusable technique
+- Paper applies transformer architecture to protein structure prediction → domain application of existing method
+- Paper introduces GAN variant for face generation → extension of existing technique
+- Paper creates large-scale benchmark dataset (even if widely used) → resource, not technique
+- Paper proposes new training procedure that improves convergence → engineering improvement
 
 **CRITICAL LANGUAGE RULES (READ FIRST):**
 BANNED VERBS - NEVER use these in summary, whats_new, explanation, or relevance:
@@ -1804,7 +1812,7 @@ def get_node_details(
         if force_regenerate:
             delete_persisted_assessment(conn, work_id)
 
-        # Check permanent storage first (no version gate, survives bumps)
+        # Check permanent storage first (version-gated by ASSESSMENT_VERSION)
         if not enrichment_happened and not force_regenerate:
             persisted = get_persisted_assessment(conn, work_id)
             if persisted:
