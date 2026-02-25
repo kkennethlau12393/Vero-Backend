@@ -56,7 +56,7 @@ MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Bump this when model OR prompt changes to auto-invalidate cached assessments
-ASSESSMENT_VERSION = "maverick-v13"
+ASSESSMENT_VERSION = "maverick-v14"
 
 
 def get_cached_details(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
@@ -742,10 +742,33 @@ CITATION COUNT IS NOT A NOVELTY INDICATOR:
 - Theory that ORGANIZES existing knowledge → "medium"
 - Framework that UNIFIES existing interpretation methods → "medium" (not pioneering)
 
-**Q3: Did this paper significantly improve how we do something?**
+**Q3: What is the SCOPE and ADOPTION of this paper's contribution?**
 (Only if Q1 = NO and Q2 did not result in pioneering)
-- Major improvement that became widely adopted → "high"
-- Incremental improvement or application → "medium"
+
+**CRITICAL: "medium" is the DEFAULT. When in doubt between medium and high, choose medium.**
+Most papers are medium — they make solid contributions within existing paradigms. "High" is reserved for papers that introduced something other researchers then built upon as a building block.
+
+**"high" requires at least ONE of these (with evidence from the grounding papers):**
+- Introduces a new method, algorithm, or architecture that became a BUILDING BLOCK in subsequent work — other papers adopted or extended this specific technique (not just cited it)
+- Achieves a significant quantitative leap on an established benchmark that SHIFTED the state of the art — not just marginal gains but a clear step change that made prior methods obsolete
+- Provides the FIRST empirical validation of a theoretical prediction, or the FIRST theoretical explanation of an observed phenomenon — bridging a theory-experiment gap
+- Introduces a dataset or benchmark that became a STANDARD evaluation tool across the subfield — widely used for benchmarking by other groups, not just by the authors
+
+**"medium" is the DEFAULT — applies when:**
+- Paper applies an existing method to a new domain or dataset without fundamental modification to the method itself
+- Paper introduces a variant or extension of an existing method (adding a module, changing a loss function, combining known components in a new way)
+- Paper provides incremental improvements on existing benchmarks (better hyperparameters, more data, minor architectural tweaks)
+- Paper replicates, validates, or extends prior findings in a new context or population
+- Paper proposes parameter tuning, engineering improvements, or optimization tricks
+- Paper introduces a framework that organizes or unifies existing methods without new capabilities
+- Paper provides an empirical study, comparison, or ablation of existing approaches
+- Paper demonstrates a known technique works in an additional setting
+
+**"low" applies when:**
+- Paper is a direct application of off-the-shelf methods without modification or new insight
+- Paper reports negative results or failed approaches
+- Paper is a position paper, commentary, or editorial with no empirical contribution
+- Paper describes a data collection process without novel methodology
 
 **CRITICAL LANGUAGE RULES (READ FIRST):**
 BANNED VERBS - NEVER use these in summary, whats_new, explanation, or relevance:
@@ -803,8 +826,10 @@ REQUIRED CONTENT:
 - State the novelty level and primary reason in the first sentence
 - Cite at least 2 work_ids [W...] with specific context about what those papers established
 - Explain the causal chain: what existed before (with citations) → what this paper changed → why that warrants this level
-- For "high": explain why not "pioneering" (task existed before) and not "medium" (contribution is substantial)
-- For "medium": explain why the contribution is incremental rather than a major advance
+- For "pioneering": explain what task/field DID NOT EXIST before this paper, cite grounding papers from DIFFERENT domains that were combined, and explain why no prior paper attempted this specific application
+- For "high": explain why not "pioneering" (task existed before) and not "medium" (contribution is substantial — became a building block for subsequent work)
+- For "medium": explain why the contribution is a solid adaptation or extension rather than a new building block — what existing method/framework was applied, and why this doesn't constitute a fundamental advance
+- For "low": explain why the contribution lacks methodological novelty — what off-the-shelf method was used without modification, or why this is a commentary/report rather than a research contribution
 
 FORBIDDEN patterns (will fail validation):
 - "Classified as X due to title containing..."
@@ -814,8 +839,17 @@ FORBIDDEN patterns (will fail validation):
 BAD (circular reasoning, no technical substance):
 "Classified as high because it introduces deep residual learning that builds upon previous architectures [W2163605009] and updates traditional approaches."
 
-GOOD (clear causal chain, specific claims, cited evidence):
+GOOD "high" (clear causal chain, specific claims, cited evidence):
 "Classified as high because deep image classification networks already existed — AlexNet [W2163605009] demonstrated 8-layer CNNs and VGGNet [W2109255472] showed depth improves accuracy up to 19 layers. ResNet solves the specific degradation problem that prevented training beyond ~20 layers, enabling 152-layer networks that reduced top-5 error from 7.3% (VGG) to 3.57%. This is not pioneering because image classification with deep CNNs was established by 2015, but represents a major architectural breakthrough that became the default backbone for subsequent vision models."
+
+GOOD "medium" (acknowledges solid contribution while explaining why it's not high):
+"Classified as medium because this paper applies the established transformer architecture [W2118176668] to medical image segmentation, adapting the self-attention mechanism with domain-specific preprocessing for CT scans. While achieving competitive results on the BTCV benchmark, the core methodology — vision transformers for dense prediction — was already demonstrated by ViT [W3035667763] and Swin Transformer [W3134447684]. The contribution is a domain-specific adaptation rather than a new architectural building block that subsequent work built upon."
+
+GOOD "pioneering" (demonstrates a task/field that did not exist before):
+"Classified as pioneering because no prior work attempted neural artistic style transfer — the task of rendering a photograph in the style of a painting while preserving content. Gatys et al. combined convolutional feature representations from VGGNet [W2109255472], originally developed for object classification, with a Gram-matrix-based style representation that had no precedent in computer vision. Prior texture synthesis methods [W2100339939] operated on low-level statistics without separating content from style. This paper created an entirely new research direction: subsequent work on fast style transfer, video stylization, and controllable generation all trace directly to this formulation."
+
+GOOD "low" (explains lack of methodological novelty):
+"Classified as low because this paper applies standard logistic regression and random forest classifiers [W2034096913] to a customer churn dataset without modification to the algorithms or training procedure. The feature engineering follows established practices from prior work [W2056891283], and the evaluation uses standard accuracy/AUC metrics on a single proprietary dataset. While the results confirm that ensemble methods outperform linear models for this task, no new method, insight, or benchmark is introduced."
 
 ---
 
