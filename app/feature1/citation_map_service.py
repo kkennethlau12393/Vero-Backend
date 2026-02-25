@@ -96,7 +96,43 @@ GROQ_TIMEOUT = int(os.environ.get("GROQ_TIMEOUT", "20"))
 S2_MAX_RETRIES = 3
 S2_RETRY_BASE_DELAY = 1.0  # seconds — S2 rate limit is 1 RPS for batch/search, 10 RPS for others
 S2_RATE_LIMIT_COOLDOWN_SECONDS = int(os.environ.get("S2_RATE_LIMIT_COOLDOWN_SECONDS", "60"))
+S2_MIN_REQUEST_INTERVAL = 1.05  # seconds between S2 requests (their limit is 1 RPS)
+OA_MIN_REQUEST_INTERVAL = 0.11  # seconds between OpenAlex requests (their limit is 10 RPS)
+ARXIV_MIN_REQUEST_INTERVAL = 3.1  # seconds between ArXiv requests (their limit is 1 req/3s)
 _s2_rate_limited_until_ts: float = 0.0
+_s2_last_request_ts: float = 0.0
+_oa_last_request_ts: float = 0.0
+_arxiv_last_request_ts: float = 0.0
+
+
+def _s2_throttle():
+    """Proactively rate-limit S2 requests to avoid 429s."""
+    global _s2_last_request_ts
+    now = time.time()
+    elapsed = now - _s2_last_request_ts
+    if elapsed < S2_MIN_REQUEST_INTERVAL:
+        time.sleep(S2_MIN_REQUEST_INTERVAL - elapsed)
+    _s2_last_request_ts = time.time()
+
+
+def _oa_throttle():
+    """Proactively rate-limit OpenAlex requests to avoid 429s."""
+    global _oa_last_request_ts
+    now = time.time()
+    elapsed = now - _oa_last_request_ts
+    if elapsed < OA_MIN_REQUEST_INTERVAL:
+        time.sleep(OA_MIN_REQUEST_INTERVAL - elapsed)
+    _oa_last_request_ts = time.time()
+
+
+def _arxiv_throttle():
+    """Proactively rate-limit ArXiv requests to avoid 429s."""
+    global _arxiv_last_request_ts
+    now = time.time()
+    elapsed = now - _arxiv_last_request_ts
+    if elapsed < ARXIV_MIN_REQUEST_INTERVAL:
+        time.sleep(ARXIV_MIN_REQUEST_INTERVAL - elapsed)
+    _arxiv_last_request_ts = time.time()
 
 
 def _s2_get_with_retry(
@@ -112,6 +148,7 @@ def _s2_get_with_retry(
     On exhausted retries, returns the last 429 response (caller decides what to do).
     """
     global _s2_rate_limited_until_ts
+    _s2_throttle()  # Proactive rate limiting — wait if needed before request
     now_ts = time.time()
     if now_ts < _s2_rate_limited_until_ts:
         # #region agent log
@@ -205,6 +242,7 @@ def _search_openalex(query: str, k: int = OPENALEX_LIMIT) -> List[Dict[str, Any]
 
     for attempt in range(MAX_RETRIES):
         try:
+            _oa_throttle()
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
@@ -259,6 +297,7 @@ def _search_openalex_highly_cited(query: str, k: int = OPENALEX_HIGHLY_CITED_LIM
 
     for attempt in range(MAX_RETRIES):
         try:
+            _oa_throttle()
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
@@ -321,6 +360,7 @@ def _search_openalex_by_title(
             params["api_key"] = OPENALEX_API_KEY
 
         try:
+            _oa_throttle()
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
             resp.raise_for_status()
             for r in resp.json().get("results", []):
@@ -390,67 +430,57 @@ def _search_semantic_scholar(query: str, k: int = S2_LIMIT) -> List[Dict[str, An
         if continuation_token:
             params["token"] = continuation_token
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                resp = requests.get(url, params=params, headers=headers, timeout=30)
+        try:
+            resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=30)
 
-                # 400 error = query too broad, fall back to regular search
-                if resp.status_code == 400:
-                    return _search_s2_regular(query, min(k, 100), headers)
+            # 400 error = query too broad, fall back to regular search
+            if resp.status_code == 400:
+                return _search_s2_regular(query, min(k, 100), headers)
 
-                resp.raise_for_status()
-                data = resp.json()
-                results = data.get("data", [])
-                continuation_token = data.get("token")
+            if resp.status_code == 429:
+                logger.warning("S2 bulk search rate limited after retries")
+                return out
 
-                if not results:
-                    logger.info(f"S2 bulk search: {len(out)} papers for '{query[:30]}...'")
-                    return out
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get("data", [])
+            continuation_token = data.get("token")
 
-                for paper in results:
-                    paper_id = paper.get("paperId")
-                    if not paper_id or paper_id in seen_ids:
-                        continue
+            if not results:
+                logger.info(f"S2 bulk search: {len(out)} papers for '{query[:30]}...'")
+                return out
 
-                    seen_ids.add(paper_id)
-                    external_ids = paper.get("externalIds") or {}
-                    openalex_id = external_ids.get("OpenAlex")
-
-                    # Use OpenAlex ID if available, otherwise S2 ID
-                    work_id = openalex_id if openalex_id else f"S2:{paper_id}"
-
-                    out.append({
-                        "work_id": work_id,
-                        "title": paper.get("title", ""),
-                        "year": paper.get("year"),
-                        "cited_by_count": paper.get("citationCount") or 0,
-                        "source": "semantic_scholar",
-                    })
-
-                    if len(out) >= k:
-                        logger.info(f"S2 bulk search: {len(out)} papers for '{query[:30]}...'")
-                        return out
-
-                if not continuation_token:
-                    logger.info(f"S2 bulk search: {len(out)} papers for '{query[:30]}...'")
-                    return out
-
-                time.sleep(SEMANTIC_SCHOLAR_DELAY)
-                break
-
-            except requests.exceptions.RequestException as e:
-                is_rate_limit = "429" in str(e)
-                if attempt < MAX_RETRIES - 1:
-                    backoff = (2 ** (attempt + 1)) if is_rate_limit else RETRY_BACKOFF_BASE * (2 ** attempt)
-                    time.sleep(backoff)
+            for paper in results:
+                paper_id = paper.get("paperId")
+                if not paper_id or paper_id in seen_ids:
                     continue
-                logger.warning(f"S2 bulk search failed: {e}")
+
+                seen_ids.add(paper_id)
+                external_ids = paper.get("externalIds") or {}
+                openalex_id = external_ids.get("OpenAlex")
+
+                # Use OpenAlex ID if available, otherwise S2 ID
+                work_id = openalex_id if openalex_id else f"S2:{paper_id}"
+
+                out.append({
+                    "work_id": work_id,
+                    "title": paper.get("title", ""),
+                    "year": paper.get("year"),
+                    "cited_by_count": paper.get("citationCount") or 0,
+                    "source": "semantic_scholar",
+                })
+
+                if len(out) >= k:
+                    logger.info(f"S2 bulk search: {len(out)} papers for '{query[:30]}...'")
+                    return out
+
+            if not continuation_token:
+                logger.info(f"S2 bulk search: {len(out)} papers for '{query[:30]}...'")
                 return out
-            except Exception as e:
-                logger.warning(f"S2 bulk search error: {e}")
-                return out
-        else:
-            break
+
+        except Exception as e:
+            logger.warning(f"S2 bulk search error: {e}")
+            return out
 
     return out
 
@@ -471,49 +501,46 @@ def _search_s2_regular(query: str, k: int, headers: dict) -> List[Dict[str, Any]
             "offset": offset,
         }
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                resp = requests.get(url, params=params, headers=headers, timeout=15)
-                resp.raise_for_status()
-                data = resp.json()
-                results = data.get("data", [])
+        try:
+            resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=15)
 
-                if not results:
+            if resp.status_code == 429:
+                logger.warning("S2 regular search rate limited after retries")
+                return out
+
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get("data", [])
+
+            if not results:
+                return out
+
+            for paper in results:
+                paper_id = paper.get("paperId")
+                if not paper_id or paper_id in seen_ids:
+                    continue
+
+                seen_ids.add(paper_id)
+                external_ids = paper.get("externalIds") or {}
+                openalex_id = external_ids.get("OpenAlex")
+                work_id = openalex_id if openalex_id else f"S2:{paper_id}"
+
+                out.append({
+                    "work_id": work_id,
+                    "title": paper.get("title", ""),
+                    "year": paper.get("year"),
+                    "cited_by_count": paper.get("citationCount") or 0,
+                    "source": "semantic_scholar",
+                })
+
+                if len(out) >= k:
                     return out
 
-                for paper in results:
-                    paper_id = paper.get("paperId")
-                    if not paper_id or paper_id in seen_ids:
-                        continue
+            offset += page_size
 
-                    seen_ids.add(paper_id)
-                    external_ids = paper.get("externalIds") or {}
-                    openalex_id = external_ids.get("OpenAlex")
-                    work_id = openalex_id if openalex_id else f"S2:{paper_id}"
-
-                    out.append({
-                        "work_id": work_id,
-                        "title": paper.get("title", ""),
-                        "year": paper.get("year"),
-                        "cited_by_count": paper.get("citationCount") or 0,
-                        "source": "semantic_scholar",
-                    })
-
-                    if len(out) >= k:
-                        return out
-
-                offset += page_size
-                time.sleep(SEMANTIC_SCHOLAR_DELAY)
-                break
-
-            except Exception as e:
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
-                    continue
-                logger.warning(f"S2 regular search failed: {e}")
-                return out
-        else:
-            break
+        except Exception as e:
+            logger.warning(f"S2 regular search failed: {e}")
+            return out
 
     return out
 
@@ -538,6 +565,7 @@ def _search_arxiv(query: str, k: int = ARXIV_LIMIT) -> List[Dict[str, Any]]:
 
     for attempt in range(MAX_RETRIES):
         try:
+            _arxiv_throttle()
             resp = requests.get(url, timeout=15)
             resp.raise_for_status()
 
@@ -608,6 +636,7 @@ def _get_doi_for_work(work_id: str) -> Optional[str]:
         if OPENALEX_API_KEY:
             params["api_key"] = OPENALEX_API_KEY
 
+        _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
@@ -662,6 +691,7 @@ def _lookup_openalex_by_doi(doi: str) -> Optional[str]:
         if OPENALEX_API_KEY:
             params["api_key"] = OPENALEX_API_KEY
 
+        _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
         resp.raise_for_status()
         results = resp.json().get("results", [])
@@ -726,6 +756,7 @@ def _batch_lookup_openalex_by_dois(dois: List[str]) -> Dict[str, str]:
             if OPENALEX_API_KEY:
                 params["api_key"] = OPENALEX_API_KEY
 
+            _oa_throttle()
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
             resp.raise_for_status()
             works = resp.json().get("results", [])
@@ -975,6 +1006,7 @@ def fetch_citing_papers(work_id: str, limit: int = 25, fetch_limit: int = 100) -
         if OPENALEX_API_KEY:
             params["api_key"] = OPENALEX_API_KEY
 
+        _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
         resp.raise_for_status()
 
@@ -1035,6 +1067,7 @@ def fetch_references(work_id: str, limit: int = 25, fetch_limit: int = 100) -> L
         if OPENALEX_API_KEY:
             params["api_key"] = OPENALEX_API_KEY
 
+        _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
         resp.raise_for_status()
 
@@ -1063,6 +1096,7 @@ def fetch_references(work_id: str, limit: int = 25, fetch_limit: int = 100) -> L
         if OPENALEX_API_KEY:
             params["api_key"] = OPENALEX_API_KEY
 
+        _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
         resp.raise_for_status()
 
@@ -1163,6 +1197,7 @@ def _fetch_arxiv_paper_details(arxiv_id: str, work_id: str) -> Optional[Dict[str
     # Fallback: ArXiv Atom API (no citations, no abstract, 1 req/3s limit)
     try:
         url = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
+        _arxiv_throttle()
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
@@ -1210,6 +1245,7 @@ def fetch_seed_paper_details(work_id: str) -> Optional[Dict[str, Any]]:
         if OPENALEX_API_KEY:
             params["api_key"] = OPENALEX_API_KEY
 
+        _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
         resp.raise_for_status()
 
@@ -1452,6 +1488,7 @@ def _batch_resolve_s2_ids(papers_to_resolve: List[Dict[str, Any]]) -> Dict[str, 
             # POST with retry on 429
             last_resp = None
             for attempt in range(S2_MAX_RETRIES + 1):
+                _s2_throttle()
                 resp = requests.post(url, json=payload, params=params, headers=headers, timeout=30)
                 if resp.status_code != 429:
                     break
@@ -2363,6 +2400,7 @@ def _search_openalex_by_doi(doi: str) -> Optional[Dict[str, Any]]:
         params["api_key"] = OPENALEX_API_KEY
 
     try:
+        _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
         resp.raise_for_status()
         results = resp.json().get("results", [])
@@ -2558,6 +2596,7 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
                 params = {"select": "abstract_inverted_index"}
                 if OPENALEX_API_KEY:
                     params["api_key"] = OPENALEX_API_KEY
+                _oa_throttle()
                 resp = requests.get(url, params=params, timeout=10)
                 if resp.status_code == 200:
                     abstract = _extract_abstract(resp.json())
