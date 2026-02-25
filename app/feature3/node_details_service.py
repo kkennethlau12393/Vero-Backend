@@ -742,33 +742,44 @@ CITATION COUNT IS NOT A NOVELTY INDICATOR:
 - Theory that ORGANIZES existing knowledge → "medium"
 - Framework that UNIFIES existing interpretation methods → "medium" (not pioneering)
 
-**Q3: What is the SCOPE and ADOPTION of this paper's contribution?**
+**Q3: Did subsequent work ADOPT this paper's specific technique as a reusable component?**
 (Only if Q1 = NO and Q2 did not result in pioneering)
 
-**CRITICAL: "medium" is the DEFAULT. When in doubt between medium and high, choose medium.**
-Most papers are medium — they make solid contributions within existing paradigms. "High" is reserved for papers that introduced something other researchers then built upon as a building block.
+**CRITICAL: "medium" is the DEFAULT. Assume medium unless you can pass the test below.**
 
-**"high" requires at least ONE of these (with evidence from the grounding papers):**
-- Introduces a new method, algorithm, or architecture that became a BUILDING BLOCK in subsequent work — other papers adopted or extended this specific technique (not just cited it)
-- Achieves a significant quantitative leap on an established benchmark that SHIFTED the state of the art — not just marginal gains but a clear step change that made prior methods obsolete
-- Provides the FIRST empirical validation of a theoretical prediction, or the FIRST theoretical explanation of an observed phenomenon — bridging a theory-experiment gap
-- Introduces a dataset or benchmark that became a STANDARD evaluation tool across the subfield — widely used for benchmarking by other groups, not just by the authors
+Most papers — including good, well-cited papers — are "medium". Being medium is not a criticism. It means the paper makes a solid contribution within an existing paradigm. "High" means the paper introduced a specific, named technique that other researchers then used as a component in their own distinct work.
 
-**"medium" is the DEFAULT — applies when:**
-- Paper applies an existing method to a new domain or dataset without fundamental modification to the method itself
-- Paper introduces a variant or extension of an existing method (adding a module, changing a loss function, combining known components in a new way)
-- Paper provides incremental improvements on existing benchmarks (better hyperparameters, more data, minor architectural tweaks)
-- Paper replicates, validates, or extends prior findings in a new context or population
-- Paper proposes parameter tuning, engineering improvements, or optimization tricks
-- Paper introduces a framework that organizes or unifies existing methods without new capabilities
-- Paper provides an empirical study, comparison, or ablation of existing approaches
-- Paper demonstrates a known technique works in an additional setting
+**THE TEST FOR "high" (you must pass ALL three checks):**
 
-**"low" applies when:**
-- Paper is a direct application of off-the-shelf methods without modification or new insight
-- Paper reports negative results or failed approaches
-- Paper is a position paper, commentary, or editorial with no empirical contribution
-- Paper describes a data collection process without novel methodology
+CHECK 1 — NAME THE TECHNIQUE: Can you name the specific, reusable technique this paper introduced? Not a "finding" or "result", but a concrete method, algorithm, architecture, loss function, training procedure, or benchmark that has its own identity (often its own name, like "ResNet", "dropout", "BERT", "Adam optimizer", "BLEU score").
+→ If you cannot name a specific technique → "medium"
+
+CHECK 2 — FIND THE ADOPTERS: Can you identify at least 2 papers from the grounding papers or successor papers that USED this technique as a component in their own different work? "Used" means they incorporated the technique into their pipeline, not just compared against it or cited it in related work.
+→ If you cannot point to 2+ specific adopters → "medium"
+
+CHECK 3 — DIFFERENT FROM SOURCE: Did those adopter papers solve a DIFFERENT specific problem than this paper? (Using ResNet as a backbone for object detection counts. A follow-up paper that just trains ResNet on a different dataset does NOT count.)
+→ If adopters just replicated/extended rather than reused the technique for their own goal → "medium"
+
+If all three checks pass → "high"
+If any check fails → "medium"
+
+**Examples of "high" passing the test:**
+- ResNet: Technique = residual skip connections. Adopters = Faster R-CNN used ResNet backbone for detection, DenseNet extended skip connections to dense connectivity. Different problems = detection, dense prediction.
+- Word2Vec: Technique = word embedding via skip-gram/CBOW. Adopters = sentiment classifiers used Word2Vec embeddings as input features, Doc2Vec extended it to documents. Different problems = sentiment analysis, document similarity.
+- Adam optimizer: Technique = adaptive moment estimation for SGD. Adopters = virtually every deep learning paper after 2015 uses Adam. Different problems = everything.
+
+**Examples of "medium" failing the test:**
+- A paper achieving new SOTA on ImageNet with a tweaked training schedule: No new named technique — just better hyperparameters. → "medium"
+- A paper proposing "attention-enhanced U-Net" for retinal vessel segmentation: Combines existing components (attention + U-Net) for a specific domain. No evidence other papers adopted "attention-enhanced U-Net" as a reusable component. → "medium"
+- A paper introducing a new loss function for face recognition that 2 follow-up papers from the same group used: The adopters are from the same group, not independent adoption. → "medium"
+- A highly-cited paper that established an important empirical finding (e.g., "batch size affects generalization"): Important finding, but no reusable technique that others plug into their work. → "medium"
+
+**"low" — no methodological contribution:**
+- Direct application of off-the-shelf methods (e.g., ran scikit-learn random forest on a dataset) without modification or new insight
+- Negative results, failed replications, or null findings
+- Position papers, commentaries, editorials, or opinion pieces with no empirical work
+- Data collection or annotation process described without novel methodology
+- Workshop or short papers that sketch an idea without full implementation or evaluation
 
 **CRITICAL LANGUAGE RULES (READ FIRST):**
 BANNED VERBS - NEVER use these in summary, whats_new, explanation, or relevance:
