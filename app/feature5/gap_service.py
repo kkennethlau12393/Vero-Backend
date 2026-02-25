@@ -463,14 +463,14 @@ def _gather_internal_context(
     except Exception as e:
         logger.debug(f"Could not load methodology fingerprints: {e}")
 
-    # --- Novelty assessments ---
+    # --- Novelty assessments (persistent table) ---
     try:
         novelty_rows = conn.execute(
             text("""
-                SELECT n.work_id, n.novelty_assessment
-                FROM node_details_cache n
-                WHERE n.work_id = ANY(:wids)
-                  AND n.novelty_assessment IS NOT NULL
+                SELECT work_id, novelty_level, whats_new,
+                       compared_to_prior_work, novelty_explanation
+                FROM novelty_assessments
+                WHERE work_id = ANY(:wids)
             """),
             {"wids": work_ids},
         ).mappings().all()
@@ -478,15 +478,15 @@ def _gather_internal_context(
         if novelty_rows:
             novelty_lines = ["### Novelty Assessments\n"]
             for r in novelty_rows:
-                na = r["novelty_assessment"]
-                if isinstance(na, str):
-                    na = json.loads(na)
-                level = na.get("novelty_level", "unknown")
-                whats_new = na.get("whats_new", "")[:120]
-                compared_to = na.get("compared_to_prior_work", "")[:120]
+                level = r["novelty_level"] or "unknown"
+                whats_new = (r["whats_new"] or "")[:120]
+                compared_to = (r["compared_to_prior_work"] or "")[:120]
+                explanation = (r["novelty_explanation"] or "")[:200]
                 line = f"- {r['work_id']}: [{level}] {whats_new}"
                 if compared_to:
                     line += f" (vs prior: {compared_to})"
+                if explanation:
+                    line += f" | {explanation}"
                 novelty_lines.append(line)
             sections.append("\n".join(novelty_lines))
     except Exception as e:
@@ -598,6 +598,133 @@ def _gather_internal_context(
             sections.append("\n".join(detail_lines))
     except Exception as e:
         logger.debug(f"Could not load node summaries: {e}")
+
+    # --- Timeline narratives (persistent) ---
+    try:
+        timeline_rows = conn.execute(
+            text("""
+                SELECT work_id, result
+                FROM node_timelines
+                WHERE work_id = ANY(:wids)
+            """),
+            {"wids": work_ids},
+        ).mappings().all()
+
+        if timeline_rows:
+            tl_lines = ["### Timeline Narratives\n"]
+            for r in timeline_rows:
+                result = r["result"]
+                if isinstance(result, str):
+                    result = json.loads(result)
+                narrative = result.get("narrative") or {}
+                hist = (narrative.get("historical_context") or "")[:200]
+                contrib = (narrative.get("contribution_statement") or "")[:150]
+                downstream = (narrative.get("downstream_impact") or "")[:150]
+                era_coms = narrative.get("era_commentaries") or []
+
+                parts = [f"- {r['work_id']}:"]
+                if hist:
+                    parts.append(f"  Context: {hist}")
+                if contrib:
+                    parts.append(f"  Contribution: {contrib}")
+                if downstream:
+                    parts.append(f"  Impact: {downstream}")
+                for ec in era_coms[:4]:
+                    headline = ec.get("headline", "")
+                    era_narr = (ec.get("narrative") or "")[:120]
+                    parts.append(f"  [{ec.get('era', '?')}] {headline}: {era_narr}")
+                tl_lines.append("\n".join(parts))
+            sections.append("\n".join(tl_lines))
+    except Exception as e:
+        logger.debug(f"Could not load timeline narratives: {e}")
+
+    # --- Full text for top-4 ranked papers ---
+    try:
+        # Get top 4 by rank score (fall back to citation count if no rank data)
+        top_ranked = conn.execute(
+            text("""
+                SELECT work_id FROM rank_results
+                WHERE work_id = ANY(:wids)
+                ORDER BY score DESC
+                LIMIT 4
+            """),
+            {"wids": work_ids},
+        ).scalars().all()
+
+        # Fall back to citation count if no rank results
+        if not top_ranked:
+            top_ranked = sorted(
+                work_ids,
+                key=lambda w: paper_data.get(w, {}).get("cited_by_count", 0),
+                reverse=True,
+            )[:4]
+
+        if top_ranked:
+            ft_rows = conn.execute(
+                text("""
+                    SELECT work_id, methods_text, full_text_available
+                    FROM paper_full_text_cache
+                    WHERE work_id = ANY(:wids)
+                      AND methods_text IS NOT NULL
+                """),
+                {"wids": list(top_ranked)},
+            ).mappings().all()
+
+            if ft_rows:
+                ft_lines = ["### Paper Full Text (top-4 ranked papers)\n"]
+                for r in ft_rows:
+                    source = "full text" if r["full_text_available"] else "abstract"
+                    content = (r["methods_text"] or "")[:3000]
+                    if content:
+                        title = paper_data.get(r["work_id"], {}).get("title", "?")[:80]
+                        ft_lines.append(
+                            f"- {r['work_id']} ({title}) [{source}]:\n{content}"
+                        )
+                sections.append("\n".join(ft_lines))
+    except Exception as e:
+        logger.debug(f"Could not load paper full text: {e}")
+
+    # --- Methodology comparisons (persistent) ---
+    try:
+        meth_rows = conn.execute(
+            text("""
+                SELECT work_ids, result
+                FROM methodology_comparisons
+                WHERE work_ids && :wids
+                ORDER BY created_at DESC
+                LIMIT 10
+            """),
+            {"wids": work_ids},
+        ).mappings().all()
+
+        if meth_rows:
+            meth_lines = ["### Methodology Comparisons\n"]
+            for r in meth_rows:
+                result = r["result"]
+                if isinstance(result, str):
+                    result = json.loads(result)
+                compared_wids = r["work_ids"] or []
+
+                # Extract key insights
+                conv_div = result.get("convergence_divergence") or {}
+                convergences = conv_div.get("convergences") or []
+                divergences = conv_div.get("divergences") or []
+                rec = result.get("recommendation") or {}
+                rec_text = (rec.get("summary") or rec.get("recommendation") or "")[:200]
+
+                parts = [f"- Compared: {', '.join(compared_wids)}"]
+                if convergences:
+                    conv_strs = [c if isinstance(c, str) else (c.get("description") or "")[:80] for c in convergences[:3]]
+                    parts.append(f"  Convergences: {'; '.join(conv_strs)}")
+                if divergences:
+                    div_strs = [d if isinstance(d, str) else (d.get("description") or "")[:80] for d in divergences[:3]]
+                    parts.append(f"  Divergences: {'; '.join(div_strs)}")
+                if rec_text:
+                    parts.append(f"  Recommendation: {rec_text}")
+                meth_lines.append("\n".join(parts))
+            sections.append("\n".join(meth_lines))
+    except Exception as e:
+        logger.debug(f"Could not load methodology comparisons: {e}")
 
     # --- Year distribution ---
     year_counts: Dict[int, int] = {}
