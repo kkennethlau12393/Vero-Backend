@@ -7,6 +7,7 @@ Two input modes:
 """
 from __future__ import annotations
 
+from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import Any, Literal, Optional
 from uuid import UUID
@@ -86,6 +87,7 @@ class CitationMapStats(BaseModel):
 
 class CitationMapResponse(BaseModel):
     """Response with citation graph data."""
+    citation_map_id: Optional[UUID] = None  # Set after persistence
     seed_info: SeedSelectionInfo
     nodes: list[CitationNode]
     edges: list[CitationEdge]
@@ -94,3 +96,13 @@ class CitationMapResponse(BaseModel):
     graph_draft_id: Optional[UUID] = None
 
     stats: CitationMapStats
+
+
+class CitationMapListItem(BaseModel):
+    """Lightweight summary for listing saved citation maps."""
+    citation_map_id: UUID
+    seed_work_id: str
+    seed_title: Optional[str] = None
+    query_text: Optional[str] = None
+    node_count: int = 0
+    created_at: datetime

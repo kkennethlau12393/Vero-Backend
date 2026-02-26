@@ -13,9 +13,9 @@ from sqlalchemy.engine import Engine
 
 from app.auth.tenant import get_tenant_id
 from app.db import make_engine
-from app.feature1.citation_map_service import build_citation_map
+from app.feature1.citation_map_service import build_citation_map, get_citation_map, list_citation_maps
 from app.feature1.pdf_parser import extract_metadata_from_pdf
-from app.feature1.schemas import CitationMapRequest, CitationMapResponse
+from app.feature1.schemas import CitationMapListItem, CitationMapRequest, CitationMapResponse
 from app.feature5.activity_logger import log_activity
 
 router = APIRouter(prefix="/v1", tags=["citation-map"])
@@ -190,3 +190,29 @@ async def build_citation_map_from_pdf(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@router.get("/citation-map/{citation_map_id}", response_model=CitationMapResponse)
+def get_citation_map_endpoint(
+    citation_map_id: UUID,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    """Retrieve a previously built citation map by ID."""
+    try:
+        return get_citation_map(engine, tenant_id=tenant_id, citation_map_id=citation_map_id)
+    except ValueError as e:
+        msg = str(e)
+        if msg == "citation_map_not_found":
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+
+
+@router.get("/citation-maps", response_model=list[CitationMapListItem])
+def list_citation_maps_endpoint(
+    limit: int = 50,
+    engine: Engine = Depends(get_engine),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    """List saved citation maps for the current tenant."""
+    return list_citation_maps(engine, tenant_id=tenant_id, limit=limit)
