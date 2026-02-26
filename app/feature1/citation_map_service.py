@@ -801,7 +801,7 @@ def _fetch_citing_papers_s2(identifier: str, limit: int = 50, id_type: str = "DO
         else:
             url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{identifier}/citations"
         params = {
-            "fields": "paperId,title,year,citationCount,externalIds,abstract",
+            "fields": "paperId,title,year,citationCount,externalIds,abstract,authors,venue",
             "limit": min(limit, 1000),
         }
         resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=30)
@@ -828,6 +828,7 @@ def _fetch_citing_papers_s2(identifier: str, limit: int = 50, id_type: str = "DO
 
             external_ids = citing.get("externalIds") or {}
             citing_doi = external_ids.get("DOI")
+            authors = [a.get("name") for a in citing.get("authors") or [] if a.get("name")]
 
             result.append({
                 "doi": citing_doi,
@@ -836,6 +837,8 @@ def _fetch_citing_papers_s2(identifier: str, limit: int = 50, id_type: str = "DO
                 "year": citing.get("year"),
                 "cited_by_count": citing.get("citationCount") or 0,
                 "abstract": citing.get("abstract"),
+                "authors": authors,
+                "venue": citing.get("venue") or None,
             })
 
         logger.info(f"S2 citations: {len(result)} papers for {id_type}:{identifier}")
@@ -867,7 +870,7 @@ def _fetch_references_s2(identifier: str, limit: int = 50, id_type: str = "DOI")
         else:
             url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{identifier}/references"
         params = {
-            "fields": "paperId,title,year,citationCount,externalIds,abstract",
+            "fields": "paperId,title,year,citationCount,externalIds,abstract,authors,venue",
             "limit": min(limit, 1000),
         }
         resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=30)
@@ -894,6 +897,7 @@ def _fetch_references_s2(identifier: str, limit: int = 50, id_type: str = "DOI")
 
             external_ids = ref.get("externalIds") or {}
             ref_doi = external_ids.get("DOI")
+            authors = [a.get("name") for a in ref.get("authors") or [] if a.get("name")]
 
             result.append({
                 "doi": ref_doi,
@@ -902,6 +906,8 @@ def _fetch_references_s2(identifier: str, limit: int = 50, id_type: str = "DOI")
                 "year": ref.get("year"),
                 "cited_by_count": ref.get("citationCount") or 0,
                 "abstract": ref.get("abstract"),
+                "authors": authors,
+                "venue": ref.get("venue") or None,
             })
 
         logger.info(f"S2 references: {len(result)} papers for {id_type}:{identifier}")
@@ -1036,12 +1042,26 @@ def fetch_citing_papers(work_id: str, limit: int = 25, fetch_limit: int = 100) -
                 logger.debug(f"Skipping suspicious paper: {title[:50]} ({cited_by_count:,} cites)")
                 continue
 
+            doi_raw = w.get("doi")
+            doi = doi_raw.replace("https://doi.org/", "") if doi_raw else None
+
+            authors = [a["author"]["display_name"]
+                       for a in w.get("authorships", [])
+                       if a.get("author", {}).get("display_name")]
+            venue = (w.get("primary_location") or {}).get("source", {})
+            venue_name = venue.get("display_name") if isinstance(venue, dict) else None
+            is_oa = (w.get("open_access") or {}).get("is_oa")
+
             result.append({
                 "work_id": wid,
                 "title": title,
                 "year": year,
                 "cited_by_count": cited_by_count,
                 "abstract": _extract_abstract(w),
+                "doi": doi,
+                "authors": authors,
+                "venue": venue_name,
+                "is_open_access": is_oa,
             })
 
         logger.info(f"Fetched {len(result)} citing papers for {work_id}")
@@ -1126,12 +1146,26 @@ def fetch_references(work_id: str, limit: int = 25, fetch_limit: int = 100) -> L
                 logger.debug(f"Skipping suspicious reference: {title[:50] if title else 'N/A'} ({cited_by_count:,} cites)")
                 continue
 
+            doi_raw = w.get("doi")
+            doi = doi_raw.replace("https://doi.org/", "") if doi_raw else None
+
+            authors = [a["author"]["display_name"]
+                       for a in w.get("authorships", [])
+                       if a.get("author", {}).get("display_name")]
+            venue = (w.get("primary_location") or {}).get("source", {})
+            venue_name = venue.get("display_name") if isinstance(venue, dict) else None
+            is_oa = (w.get("open_access") or {}).get("is_oa")
+
             result.append({
                 "work_id": wid,
                 "title": title,
                 "year": year,
                 "cited_by_count": cited_by_count,
                 "abstract": _extract_abstract(w),
+                "doi": doi,
+                "authors": authors,
+                "venue": venue_name,
+                "is_open_access": is_oa,
             })
 
         # Sort by citation count to get most influential references
@@ -1152,18 +1186,21 @@ def _fetch_s2_paper_details(s2_id: str, work_id: str) -> Optional[Dict[str, Any]
         headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
-        params = {"fields": "paperId,title,year,citationCount,abstract,externalIds"}
+        params = {"fields": "paperId,title,year,citationCount,abstract,externalIds,authors,venue"}
         resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=15)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
         data = resp.json()
+        authors = [a.get("name") for a in data.get("authors") or [] if a.get("name")]
         return {
             "work_id": work_id,
             "title": data.get("title"),
             "year": data.get("year"),
             "cited_by_count": data.get("citationCount") or 0,
             "abstract": data.get("abstract"),
+            "authors": authors,
+            "venue": data.get("venue") or None,
         }
     except Exception as e:
         logger.warning(f"Failed to fetch S2 paper details for {s2_id}: {e}")
@@ -1182,16 +1219,19 @@ def _fetch_arxiv_paper_details(arxiv_id: str, work_id: str) -> Optional[Dict[str
         headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}"
-        params = {"fields": "paperId,title,year,citationCount,abstract,externalIds"}
+        params = {"fields": "paperId,title,year,citationCount,abstract,externalIds,authors,venue"}
         resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
+            authors = [a.get("name") for a in data.get("authors") or [] if a.get("name")]
             return {
                 "work_id": work_id,
                 "title": data.get("title"),
                 "year": data.get("year"),
                 "cited_by_count": data.get("citationCount") or 0,
                 "abstract": data.get("abstract"),
+                "authors": authors,
+                "venue": data.get("venue") or None,
             }
     except Exception as e:
         logger.debug(f"S2 ArXiv bridge failed for {arxiv_id}: {e}")
@@ -1259,12 +1299,25 @@ def fetch_seed_paper_details(work_id: str) -> Optional[Dict[str, Any]]:
             doi = data.get("doi")
             title = _backfill_title_from_s2(doi)
 
+        doi_raw = data.get("doi")
+        doi = doi_raw.replace("https://doi.org/", "") if doi_raw else None
+        authors = [a["author"]["display_name"]
+                   for a in data.get("authorships", [])
+                   if a.get("author", {}).get("display_name")]
+        venue = (data.get("primary_location") or {}).get("source", {})
+        venue_name = venue.get("display_name") if isinstance(venue, dict) else None
+        is_oa = (data.get("open_access") or {}).get("is_oa")
+
         return {
             "work_id": work_id,
             "title": title,
             "year": data.get("publication_year"),
             "cited_by_count": data.get("cited_by_count") or 0,
             "abstract": _extract_abstract(data),
+            "doi": doi,
+            "authors": authors,
+            "venue": venue_name,
+            "is_open_access": is_oa,
         }
 
     except Exception as e:
@@ -1435,6 +1488,8 @@ def _merge_s2_citations(
                 "year": p.get("year"),
                 "cited_by_count": p.get("cited_by_count") or 0,
                 "abstract": p.get("abstract"),
+                "authors": p.get("authors") or [],
+                "venue": p.get("venue"),
                 "source": "semantic_scholar",
             })
 
@@ -1528,80 +1583,108 @@ def _batch_resolve_s2_ids(papers_to_resolve: List[Dict[str, Any]]) -> Dict[str, 
     return result
 
 
-def _backfill_abstracts_cross_source(papers: Dict[str, Dict[str, Any]]) -> int:
-    """Cross-reference abstract backfill between OpenAlex and Semantic Scholar.
+def _backfill_metadata_cross_source(papers: Dict[str, Dict[str, Any]]) -> int:
+    """Cross-reference metadata backfill between OpenAlex and Semantic Scholar.
 
-    For OA papers (W prefix) with null abstract: batch-fetch from S2 via DOI.
-    For S2 papers (S2: prefix) with null abstract: fetch from OA via S2->OA bridge.
+    For papers missing abstract/authors/venue: batch-fetch from S2 via DOI.
+    For S2-only papers missing metadata: individual S2 fetch.
 
-    Modifies papers dict in-place. Returns count of abstracts filled.
+    Modifies papers dict in-place. Returns count of fields filled.
     """
-    # Collect OA papers missing abstracts that have a DOI we can look up in S2
-    oa_missing = []  # (work_id, doi)
+    # Collect papers missing any metadata that have a DOI we can look up in S2
+    needs_backfill = []  # (work_id, doi)
     for wid, paper in papers.items():
-        if paper.get("abstract"):
-            continue
-        if wid.startswith("W"):
-            doi = _get_doi_for_work(wid)
+        missing_abstract = not paper.get("abstract")
+        missing_authors = not paper.get("authors")
+        missing_venue = not paper.get("venue")
+        if (missing_abstract or missing_authors or missing_venue):
+            doi = paper.get("doi")
             if doi:
-                oa_missing.append((wid, doi))
+                needs_backfill.append((wid, doi))
 
     filled = 0
 
     # Batch fetch from S2 (up to 500 per call, like F2)
-    if oa_missing:
+    if needs_backfill:
         headers = {"Content-Type": "application/json"}
         if SEMANTIC_SCHOLAR_API_KEY:
             headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
 
         BATCH_SIZE = 500
-        for i in range(0, len(oa_missing), BATCH_SIZE):
-            batch = oa_missing[i:i + BATCH_SIZE]
+        for i in range(0, len(needs_backfill), BATCH_SIZE):
+            batch = needs_backfill[i:i + BATCH_SIZE]
             s2_ids = [f"DOI:{doi}" for _, doi in batch]
             try:
                 _s2_throttle()
                 resp = requests.post(
                     "https://api.semanticscholar.org/graph/v1/paper/batch",
                     json={"ids": s2_ids},
-                    params={"fields": "abstract"},
+                    params={"fields": "abstract,authors,venue"},
                     headers=headers,
                     timeout=30,
                 )
                 if resp.status_code != 200:
-                    logger.warning(f"S2 abstract backfill failed: HTTP {resp.status_code}")
+                    logger.warning(f"S2 metadata backfill failed: HTTP {resp.status_code}")
                     continue
                 data = resp.json()
                 for j, paper_data in enumerate(data):
                     if not paper_data or not isinstance(paper_data, dict):
                         continue
-                    abstract = paper_data.get("abstract")
-                    if abstract:
-                        wid = batch[j][0]
-                        papers[wid]["abstract"] = abstract
-                        filled += 1
+                    wid = batch[j][0]
+                    paper = papers[wid]
+                    # Backfill abstract
+                    if not paper.get("abstract"):
+                        abstract = paper_data.get("abstract")
+                        if abstract:
+                            paper["abstract"] = abstract
+                            filled += 1
+                    # Backfill authors
+                    if not paper.get("authors"):
+                        s2_authors = [a.get("name") for a in paper_data.get("authors") or [] if a.get("name")]
+                        if s2_authors:
+                            paper["authors"] = s2_authors
+                            filled += 1
+                    # Backfill venue
+                    if not paper.get("venue"):
+                        s2_venue = paper_data.get("venue") or None
+                        if s2_venue:
+                            paper["venue"] = s2_venue
+                            filled += 1
             except Exception as e:
-                logger.warning(f"S2 abstract backfill error: {e}")
+                logger.warning(f"S2 metadata backfill error: {e}")
 
-    # For S2-only papers missing abstracts, try OA (they may have been mapped)
-    # This is less common but handles edge cases
+    # For S2-only papers missing metadata, try individual S2 fetch
     s2_missing = [wid for wid, p in papers.items()
-                  if not p.get("abstract") and wid.startswith("S2:")]
-    for wid in s2_missing[:20]:  # Cap to avoid too many individual OA calls
+                  if wid.startswith("S2:") and (not p.get("abstract") or not p.get("authors") or not p.get("venue"))]
+    for wid in s2_missing[:20]:  # Cap to avoid too many individual calls
         s2_id = wid[3:]
         try:
             url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
-            resp = _s2_get_with_retry(url, params={"fields": "abstract"}, headers={
+            resp = _s2_get_with_retry(url, params={"fields": "abstract,authors,venue"}, headers={
                 "x-api-key": SEMANTIC_SCHOLAR_API_KEY} if SEMANTIC_SCHOLAR_API_KEY else {}, timeout=10)
             if resp.status_code == 200:
-                abstract = resp.json().get("abstract")
-                if abstract:
-                    papers[wid]["abstract"] = abstract
-                    filled += 1
+                data = resp.json()
+                paper = papers[wid]
+                if not paper.get("abstract"):
+                    abstract = data.get("abstract")
+                    if abstract:
+                        paper["abstract"] = abstract
+                        filled += 1
+                if not paper.get("authors"):
+                    s2_authors = [a.get("name") for a in data.get("authors") or [] if a.get("name")]
+                    if s2_authors:
+                        paper["authors"] = s2_authors
+                        filled += 1
+                if not paper.get("venue"):
+                    s2_venue = data.get("venue") or None
+                    if s2_venue:
+                        paper["venue"] = s2_venue
+                        filled += 1
         except Exception:
             pass
 
     if filled > 0:
-        logger.info(f"Abstract cross-reference backfill: filled {filled} missing abstracts")
+        logger.info(f"Metadata cross-reference backfill: filled {filled} missing fields")
     return filled
 
 
@@ -1796,8 +1879,8 @@ def _expand_citation_network(
             if pid:
                 add_edge(wid, pid)
 
-    # Cross-reference abstract backfill: try S2 for OA papers missing abstracts
-    _backfill_abstracts_cross_source(papers)
+    # Cross-reference metadata backfill: try S2 for papers missing abstracts/authors/venue
+    _backfill_metadata_cross_source(papers)
 
     # Calculate connectivity (degree) for each paper in the local graph
     degree: Dict[str, int] = {wid: 0 for wid in papers}
@@ -2868,6 +2951,10 @@ def _assemble_citation_graph(
         year=seed_data.get("year"),
         cited_by_count=seed_data.get("cited_by_count") or 0,
         abstract=seed_data.get("abstract"),
+        authors=seed_data.get("authors") or [],
+        venue=seed_data.get("venue"),
+        doi=seed_data.get("doi"),
+        is_open_access=seed_data.get("is_open_access"),
         is_seed=True,
         hop=0,
         relationship="seed",
@@ -2888,6 +2975,10 @@ def _assemble_citation_graph(
             year=paper.get("year"),
             cited_by_count=paper.get("cited_by_count") or 0,
             abstract=paper.get("abstract"),
+            authors=paper.get("authors") or [],
+            venue=paper.get("venue"),
+            doi=paper.get("doi"),
+            is_open_access=paper.get("is_open_access"),
             is_seed=False,
             hop=1,
             relationship="cites_seed",
@@ -2909,6 +3000,10 @@ def _assemble_citation_graph(
             year=paper.get("year"),
             cited_by_count=paper.get("cited_by_count") or 0,
             abstract=paper.get("abstract"),
+            authors=paper.get("authors") or [],
+            venue=paper.get("venue"),
+            doi=paper.get("doi"),
+            is_open_access=paper.get("is_open_access"),
             is_seed=False,
             hop=1,
             relationship="cited_by_seed",
@@ -2956,6 +3051,10 @@ def _assemble_multihop_graph(
             year=paper.get("year"),
             cited_by_count=paper.get("cited_by_count") or 0,
             abstract=paper.get("abstract"),
+            authors=paper.get("authors") or [],
+            venue=paper.get("venue"),
+            doi=paper.get("doi"),
+            is_open_access=paper.get("is_open_access"),
             is_seed=is_seed,
             hop=hop,
             relationship=relationship,
@@ -2974,6 +3073,57 @@ def _assemble_multihop_graph(
 # ============================================================================
 # Graph Draft Creation
 # ============================================================================
+
+def _persist_paper_metadata(conn: Connection, nodes: List[CitationNode]) -> int:
+    """Upsert paper metadata into the works table.
+
+    Uses COALESCE on conflict so we never overwrite richer data from F2.
+    Returns count of rows upserted.
+    """
+    if not nodes:
+        return 0
+
+    count = 0
+    for node in nodes:
+        # Skip S2-only and ArXiv-only papers — works table uses OpenAlex W-prefixed IDs
+        if node.work_id.startswith("S2:") or node.work_id.startswith("AX:"):
+            continue
+
+        authors_json = json.dumps(node.authors) if node.authors else None
+
+        conn.execute(
+            text("""
+                INSERT INTO works (work_id, title, year, cited_by_count, abstract,
+                                   authors_json, venue, doi, is_open_access)
+                VALUES (:work_id, :title, :year, :cited_by_count, :abstract,
+                        CAST(:authors_json AS jsonb), :venue, :doi, :is_open_access)
+                ON CONFLICT (work_id) DO UPDATE SET
+                    title = COALESCE(works.title, EXCLUDED.title),
+                    year = COALESCE(works.year, EXCLUDED.year),
+                    cited_by_count = GREATEST(COALESCE(works.cited_by_count, 0), COALESCE(EXCLUDED.cited_by_count, 0)),
+                    abstract = COALESCE(works.abstract, EXCLUDED.abstract),
+                    authors_json = COALESCE(works.authors_json, EXCLUDED.authors_json),
+                    venue = COALESCE(works.venue, EXCLUDED.venue),
+                    doi = COALESCE(works.doi, EXCLUDED.doi),
+                    is_open_access = COALESCE(works.is_open_access, EXCLUDED.is_open_access)
+            """),
+            {
+                "work_id": node.work_id,
+                "title": node.title,
+                "year": node.year,
+                "cited_by_count": node.cited_by_count,
+                "abstract": node.abstract,
+                "authors_json": authors_json,
+                "venue": node.venue,
+                "doi": node.doi,
+                "is_open_access": node.is_open_access,
+            },
+        )
+        count += 1
+
+    logger.info(f"Persisted metadata for {count} papers to works table")
+    return count
+
 
 def _create_graph_draft(
     conn: Connection,
@@ -3283,8 +3433,12 @@ def build_citation_map(
             min_citations=request.min_citations,
         )
 
-        # Step 4: Optionally create graph_draft
+        # Step 4: Persist metadata and optionally create graph_draft
         graph_draft_id = None
+        if nodes:
+            _persist_paper_metadata(conn, nodes)
+            if not request.create_graph_draft:
+                conn.commit()  # graph_draft path commits inside _create_graph_draft
         if request.create_graph_draft and nodes:
             graph_draft_id = _create_graph_draft(conn, tenant_id, nodes, edges)
 

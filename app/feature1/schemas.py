@@ -46,6 +46,10 @@ class CitationNode(BaseModel):
     year: Optional[int] = None
     cited_by_count: int = 0
     abstract: Optional[str] = None
+    authors: list[str] = []
+    venue: Optional[str] = None
+    doi: Optional[str] = None
+    is_open_access: Optional[bool] = None
     is_seed: bool = False
     hop: int = 0  # Distance from seed (0=seed, 1=direct connection, 2=2-hop, etc.)
     relationship: Literal["seed", "cites_seed", "cited_by_seed", "network"]  # network = multi-hop
