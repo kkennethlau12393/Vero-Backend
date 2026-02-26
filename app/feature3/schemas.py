@@ -73,7 +73,7 @@ class EraCommentary(BaseModel):
 
     era: str  # "1990s", "2000s", etc.
     headline: str  # One-line era title (e.g., "The statistical learning era")
-    narrative: str  # 2-4 sentences with [W...] citations
+    narrative: str  # 2-4 sentences with full work_id citations (e.g., [W2163605009])
     key_work_ids: list[str] = []
 
 
