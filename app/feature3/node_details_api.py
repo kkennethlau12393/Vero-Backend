@@ -82,6 +82,20 @@ def get_node_details_endpoint(
                 node_count=1,
                 metadata={"include_novelty": include_novelty, "include_timeline": include_timeline},
             )
+            if include_novelty:
+                log_activity(
+                    conn, tenant_id, "novelty_assessed",
+                    map_id=map_id,
+                    work_id=work_id,
+                    node_count=1,
+                )
+            if include_timeline:
+                log_activity(
+                    conn, tenant_id, "timeline_per_node",
+                    map_id=map_id,
+                    work_id=work_id,
+                    node_count=1,
+                )
         return result
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
