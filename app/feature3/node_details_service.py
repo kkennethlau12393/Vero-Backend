@@ -1003,7 +1003,7 @@ If your novelty_explanation says "Classified as X due to title/abstract" → REW
 - If uncertain, lower your confidence level instead of hedging in the text
 
 **NOVELTY_EXPLANATION REQUIREMENTS:**
-- ONLY cite grounding paper work_ids [W...] from the lists above — NEVER use in-paper reference numbers [3], [28]
+- ONLY cite grounding paper work_ids (e.g., [W2163605009]) from the lists above — NEVER use in-paper reference numbers [3], [28]. NEVER truncate work_ids.
 - Aim for 3+ UNIQUE work_id citations (3 different grounding papers, not repeats)
 - MUST make specific technical claims (what method? what finding? what improvement?)
 - FORBIDDEN patterns (will fail validation):
@@ -1057,7 +1057,7 @@ def generate_node_details_llm(
                     {
                         "role": "system",
                         "content": "You are an expert academic paper analyst. Return only valid JSON. "
-                        "ONLY cite papers from the provided reference/landmark lists using their work_id [W...]. "
+                        "ONLY cite papers from the provided reference/landmark lists using their FULL work_id (e.g., [W2163605009]). NEVER truncate or shorten work_ids. "
                         "NEVER use in-paper reference numbers like [3] or [28]. "
                         "NEVER cite papers not in the provided lists.",
                     },

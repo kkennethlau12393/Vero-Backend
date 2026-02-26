@@ -91,9 +91,10 @@ this paper changed, and what it unlocked afterward.
 You write in DEFINITIVE prose. Never hedge. Never use these words: explores, discusses, \
 examines, investigates, assesses, evaluates, addresses, looks at, studies, analyzes, reviews.
 
-You MUST cite specific work_ids inline using their exact IDs in brackets. \
-OpenAlex papers use [W...] (e.g., [W2163605009]), Semantic Scholar papers use [S...] \
-(e.g., [S1234abcd]), and ArXiv papers use [AX...] (e.g., [AX2301.12345]).
+You MUST cite specific work_ids inline using their FULL IDs in brackets. \
+OpenAlex papers use [W2163605009], Semantic Scholar papers use [S2:204e3073870f], \
+and ArXiv papers use [AX:2301.12345]. NEVER truncate or abbreviate work_ids — \
+always write the complete ID.
 
 CRITICAL CONSTRAINT: You are telling a VERTICAL EVOLUTION story — how ideas evolved over \
 time in a research lineage. Do NOT compare methods side-by-side. Do NOT recommend which \
@@ -180,7 +181,7 @@ Analyze this paper's place in its research lineage. Return JSON:
 at this paper. Name specific algorithms, architectures, loss functions, or theoretical \
 frameworks that predecessors introduced. Explain what each solved and what concrete \
 limitation remained — e.g., vanishing gradients at N layers, O(n^2) complexity, lack of \
-spatial invariance. Cite specific [W...] work_ids inline. Build an intellectual chain \
+spatial invariance. Cite specific work_ids inline (e.g., [W2163605009]). Build an intellectual chain \
 where each advance motivated the next.",
     "contribution_statement": "A mini paragraph (3-5 sentences) on what this paper \
 specifically introduced. Name the exact mechanism (e.g., skip connections, self-attention, \
@@ -192,7 +193,7 @@ extend, refine, scale, or apply this paper's contribution to the same problem do
 For each successor: name the specific architecture or technique it introduced, what \
 benchmark or metric it pushed, and exactly how it built on the target paper's mechanism \
 (e.g., replaced component X with Y, scaled from N to M parameters, adapted loss \
-function Z). Cite specific [W...] work_ids inline. Do NOT include cross-domain \
+function Z). Cite specific work_ids inline (e.g., [W2163605009]). Do NOT include cross-domain \
 adoptions here — those belong in cross_domain_influence.",
     "cross_domain_influence": "A mini paragraph (3-5 sentences) on HORIZONTAL translations \
 to DIFFERENT fields. For each adoption: name the specific target field, the technique \
@@ -200,7 +201,7 @@ that was adapted from this paper, what modification was required to make it work
 the new domain (e.g., different tokenization for protein sequences, modified attention \
 for graph-structured data), and the concrete result achieved. This covers ideas crossing \
 disciplinary boundaries — different problem domains, different data modalities, different \
-research communities. Cite specific [W...] work_ids inline. null if not applicable.",
+research communities. Cite specific work_ids inline (e.g., [W2163605009]). null if not applicable.",
     "before_approach": "Dominant methodology in predecessor papers — name the specific \
 technique and its key limitation (1-2 sentences)",
     "after_approach": "Dominant methodology in successor papers — name the specific \
@@ -242,7 +243,7 @@ era narrative.
 
 RULES:
 - Every sentence MUST name a concrete technique, architecture, metric, or dataset
-- Cite each paper using its exact work_id in brackets: [W...], [S...], or [AX...]
+- Cite each paper using its FULL work_id in brackets: [W2163605009], [S2:204e3073870f], or [AX:2301.12345]. NEVER truncate.
 - For each paper you mention, state WHAT it did technically: the mechanism, the numbers, \
 the result — extracted directly from its abstract
 - End each era narrative with the specific technical bottleneck or open problem that the \
