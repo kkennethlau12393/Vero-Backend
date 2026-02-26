@@ -26,11 +26,9 @@ from app.feature5.coverage_tracker import (
     get_gap_analysis_status,
 )
 from app.feature5.external_validation import validate_gaps_batch
-from app.feature5.gap_detection import detect_all_gaps
 from app.feature5.prompts import (
     EVIDENCE_ROLE_PROMPT,
     build_direct_detection_prompt,
-    build_synthesis_prompt,
 )
 from app.feature5.schemas import (
     Evidence,
@@ -1168,95 +1166,70 @@ def run_gap_analysis(
     tenant_id: UUID,
 ) -> GapAnalysisResponse:
     """
-    Run full gap analysis pipeline.
+    Run gap analysis for a citation map.
 
-    1. Check if analysis is unlocked
-    2. Detect gaps from internal data
-    3. Synthesize with LLM
-    4. Validate externally
-    5. Return gap cards
+    Same pipeline as run_rank_gap_analysis() but uses citation map papers.
+    LLM-direct detection with citation graph context (edges, bridge papers).
 
-    Args:
-        engine: Database engine
-        map_id: Map to analyze
-        tenant_id: Tenant ID
-
-    Returns:
-        GapAnalysisResponse with gap cards
+    1. Check unlock status
+    2. Get paper data from map_nodes
+    3. Detect gaps via LLM-direct
+    4. Validate evidence grounding
+    5. External validation via GPT
+    6. Store and return results
     """
-    # Check unlock status
-    status = get_gap_analysis_status(engine, map_id)
+    status = get_gap_analysis_status(engine, map_id=map_id)
     if not status.unlocked:
         raise ValueError(f"Gap analysis not unlocked: {status.message}")
 
-    # Minimum candidates to consider heuristic detection "sufficient"
-    MIN_HEURISTIC_CANDIDATES = 3
-
     with engine.connect() as conn:
         # Step 1: Get available data sources
-        available_sources = get_available_data_sources(conn, map_id)
-        logger.info(f"Available data sources: {available_sources}")
+        available_sources = get_available_data_sources(conn, map_id=map_id)
+        logger.info(f"Map gap analysis — available sources: {available_sources}")
 
-        # Step 2: Detect gaps from internal data
-        logger.info("Step 1: Detecting gaps from internal data")
-        candidates_by_type = detect_all_gaps(conn, map_id, available_sources)
-
-        total_candidates = sum(len(v) for v in candidates_by_type.values())
-
-        # Get ALL paper data for the map (needed for LLM fallback and synthesis)
+        # Step 2: Get all paper data from map nodes
         all_paper_data = get_all_map_paper_data(conn, map_id)
 
-        # Step 3: Try heuristic synthesis first, supplement with LLM-direct
-        MIN_VIABLE_GAPS = 2  # Need at least this many from heuristics to skip LLM-direct
-        synthesized_gaps = []
-
-        if total_candidates >= MIN_HEURISTIC_CANDIDATES:
-            work_ids = collect_work_ids_from_candidates(candidates_by_type)
-            paper_data = get_paper_data(conn, work_ids)
-
-            logger.info("Step 2a: Synthesizing gaps with LLM (heuristic path)")
-            synthesized_gaps = synthesize_gaps_with_llm(candidates_by_type, paper_data)
-
-        # Supplement with LLM-direct when heuristics are sparse or mostly rejected
-        if len(synthesized_gaps) < MIN_VIABLE_GAPS:
-            logger.info(
-                f"Step 2b: Heuristic synthesis produced {len(synthesized_gaps)} gaps "
-                f"(< {MIN_VIABLE_GAPS}). Supplementing with LLM-direct detection."
-            )
-            llm_direct_gaps = detect_gaps_with_llm(conn, map_id, all_paper_data)
-
-            # Validate evidence grounding: drop gaps where fewer than 3
-            # evidence papers are actual map nodes (prompt asks for 4, but
-            # allow 3 since some IDs may not match)
-            all_work_ids = set(all_paper_data.keys())
-            before_count = len(llm_direct_gaps)
-            llm_direct_gaps = [
-                g for g in llm_direct_gaps
-                if len(set(g.get("evidence_work_ids", [])) & all_work_ids) >= 3
-            ]
-            dropped = before_count - len(llm_direct_gaps)
-            if dropped:
-                logger.info(f"Dropped {dropped} LLM-direct gaps with insufficient evidence grounding")
-
-            synthesized_gaps.extend(llm_direct_gaps)
-
-        paper_data = all_paper_data
-
-        if not synthesized_gaps:
-            logger.warning("No gaps identified by any method")
+        if not all_paper_data:
+            logger.warning(f"No paper data found for map {map_id}")
             return GapAnalysisResponse(
                 job_id=uuid4(),
                 gaps=[],
                 coverage_pct=status.coverage_pct,
                 data_sources_used=available_sources,
-                total_candidates_detected=total_candidates,
+                total_candidates_detected=0,
                 candidates_validated=0,
             )
 
-        # Step 5: Create gap cards, filter weak candidates, and deduplicate
-        gap_cards = create_gap_cards(synthesized_gaps, paper_data)
+        # Step 3: LLM-direct gap detection (with citation graph context)
+        logger.info("Map gap analysis: LLM-direct detection")
+        llm_direct_gaps = detect_gaps_with_llm(conn, map_id, all_paper_data)
 
-        # Filter out weak candidates before expensive GPT validation
+        # Validate evidence grounding
+        all_work_ids = set(all_paper_data.keys())
+        before_count = len(llm_direct_gaps)
+        llm_direct_gaps = [
+            g for g in llm_direct_gaps
+            if len(set(g.get("evidence_work_ids", [])) & all_work_ids) >= 3
+        ]
+        dropped = before_count - len(llm_direct_gaps)
+        if dropped:
+            logger.info(f"Dropped {dropped} LLM-direct gaps with insufficient evidence grounding")
+
+        if not llm_direct_gaps:
+            logger.warning("No gaps identified by LLM-direct detection")
+            return GapAnalysisResponse(
+                job_id=uuid4(),
+                gaps=[],
+                coverage_pct=status.coverage_pct,
+                data_sources_used=available_sources,
+                total_candidates_detected=0,
+                candidates_validated=0,
+            )
+
+        # Step 4: Create gap cards, filter, deduplicate
+        gap_cards = create_gap_cards(llm_direct_gaps, all_paper_data)
+
         pre_filter = len(gap_cards)
         gap_cards = [g for g in gap_cards if g.detection_score >= MIN_DETECTION_SCORE]
         if pre_filter - len(gap_cards) > 0:
@@ -1267,8 +1240,8 @@ def run_gap_analysis(
 
         gap_cards = _deduplicate_gap_cards(gap_cards)
 
-        # Step 6: External validation
-        logger.info("Step 3: Validating gaps externally")
+        # Step 5: External validation
+        logger.info("Map gap analysis: external validation")
         gaps_for_validation = [
             {
                 "gap_id": g.gap_id,
@@ -1296,7 +1269,6 @@ def run_gap_analysis(
                 card.confidence = v["confidence"]
                 card.validation_result = v["validation_result"]
 
-                # Reject gaps where GPT says >60% is already addressed
                 coverage = card.validation_result.coverage_pct
                 if coverage is not None and coverage > MAX_COVERAGE_PCT:
                     logger.info(
@@ -1307,10 +1279,9 @@ def run_gap_analysis(
 
                 final_cards.append(card)
 
-        # Sort by confidence
         final_cards.sort(key=lambda x: x.confidence, reverse=True)
 
-        # Store results
+        # Step 6: Store results
         result_id = uuid4()
         job_id = uuid4()
 
@@ -1330,7 +1301,7 @@ def run_gap_analysis(
                 "gaps": json.dumps([c.model_dump() for c in final_cards]),
                 "data_sources_used": available_sources,
                 "coverage_pct": status.coverage_pct,
-                "total_candidates_detected": total_candidates,
+                "total_candidates_detected": len(llm_direct_gaps),
                 "candidates_validated": len(final_cards),
             },
         )
@@ -1341,7 +1312,7 @@ def run_gap_analysis(
             gaps=final_cards,
             coverage_pct=status.coverage_pct,
             data_sources_used=available_sources,
-            total_candidates_detected=total_candidates,
+            total_candidates_detected=len(llm_direct_gaps),
             candidates_validated=len(final_cards),
         )
 
