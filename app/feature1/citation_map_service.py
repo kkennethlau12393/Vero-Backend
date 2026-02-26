@@ -801,7 +801,7 @@ def _fetch_citing_papers_s2(identifier: str, limit: int = 50, id_type: str = "DO
         else:
             url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{identifier}/citations"
         params = {
-            "fields": "paperId,title,year,citationCount,externalIds",
+            "fields": "paperId,title,year,citationCount,externalIds,abstract",
             "limit": min(limit, 1000),
         }
         resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=30)
@@ -835,6 +835,7 @@ def _fetch_citing_papers_s2(identifier: str, limit: int = 50, id_type: str = "DO
                 "title": citing.get("title"),
                 "year": citing.get("year"),
                 "cited_by_count": citing.get("citationCount") or 0,
+                "abstract": citing.get("abstract"),
             })
 
         logger.info(f"S2 citations: {len(result)} papers for {id_type}:{identifier}")
@@ -866,7 +867,7 @@ def _fetch_references_s2(identifier: str, limit: int = 50, id_type: str = "DOI")
         else:
             url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{identifier}/references"
         params = {
-            "fields": "paperId,title,year,citationCount,externalIds",
+            "fields": "paperId,title,year,citationCount,externalIds,abstract",
             "limit": min(limit, 1000),
         }
         resp = _s2_get_with_retry(url, params=params, headers=headers, timeout=30)
@@ -900,6 +901,7 @@ def _fetch_references_s2(identifier: str, limit: int = 50, id_type: str = "DOI")
                 "title": ref.get("title"),
                 "year": ref.get("year"),
                 "cited_by_count": ref.get("citationCount") or 0,
+                "abstract": ref.get("abstract"),
             })
 
         logger.info(f"S2 references: {len(result)} papers for {id_type}:{identifier}")
@@ -1432,7 +1434,7 @@ def _merge_s2_citations(
                 "title": p.get("title"),
                 "year": p.get("year"),
                 "cited_by_count": p.get("cited_by_count") or 0,
-                "abstract": None,
+                "abstract": p.get("abstract"),
                 "source": "semantic_scholar",
             })
 
@@ -1524,6 +1526,83 @@ def _batch_resolve_s2_ids(papers_to_resolve: List[Dict[str, Any]]) -> Dict[str, 
 
     logger.info(f"S2 batch resolve: {len(papers_to_resolve)} papers -> {len(result)} S2 IDs resolved")
     return result
+
+
+def _backfill_abstracts_cross_source(papers: Dict[str, Dict[str, Any]]) -> int:
+    """Cross-reference abstract backfill between OpenAlex and Semantic Scholar.
+
+    For OA papers (W prefix) with null abstract: batch-fetch from S2 via DOI.
+    For S2 papers (S2: prefix) with null abstract: fetch from OA via S2->OA bridge.
+
+    Modifies papers dict in-place. Returns count of abstracts filled.
+    """
+    # Collect OA papers missing abstracts that have a DOI we can look up in S2
+    oa_missing = []  # (work_id, doi)
+    for wid, paper in papers.items():
+        if paper.get("abstract"):
+            continue
+        if wid.startswith("W"):
+            doi = _get_doi_for_work(wid)
+            if doi:
+                oa_missing.append((wid, doi))
+
+    filled = 0
+
+    # Batch fetch from S2 (up to 500 per call, like F2)
+    if oa_missing:
+        headers = {"Content-Type": "application/json"}
+        if SEMANTIC_SCHOLAR_API_KEY:
+            headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+
+        BATCH_SIZE = 500
+        for i in range(0, len(oa_missing), BATCH_SIZE):
+            batch = oa_missing[i:i + BATCH_SIZE]
+            s2_ids = [f"DOI:{doi}" for _, doi in batch]
+            try:
+                _s2_throttle()
+                resp = requests.post(
+                    "https://api.semanticscholar.org/graph/v1/paper/batch",
+                    json={"ids": s2_ids},
+                    params={"fields": "abstract"},
+                    headers=headers,
+                    timeout=30,
+                )
+                if resp.status_code != 200:
+                    logger.warning(f"S2 abstract backfill failed: HTTP {resp.status_code}")
+                    continue
+                data = resp.json()
+                for j, paper_data in enumerate(data):
+                    if not paper_data or not isinstance(paper_data, dict):
+                        continue
+                    abstract = paper_data.get("abstract")
+                    if abstract:
+                        wid = batch[j][0]
+                        papers[wid]["abstract"] = abstract
+                        filled += 1
+            except Exception as e:
+                logger.warning(f"S2 abstract backfill error: {e}")
+
+    # For S2-only papers missing abstracts, try OA (they may have been mapped)
+    # This is less common but handles edge cases
+    s2_missing = [wid for wid, p in papers.items()
+                  if not p.get("abstract") and wid.startswith("S2:")]
+    for wid in s2_missing[:20]:  # Cap to avoid too many individual OA calls
+        s2_id = wid[3:]
+        try:
+            url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
+            resp = _s2_get_with_retry(url, params={"fields": "abstract"}, headers={
+                "x-api-key": SEMANTIC_SCHOLAR_API_KEY} if SEMANTIC_SCHOLAR_API_KEY else {}, timeout=10)
+            if resp.status_code == 200:
+                abstract = resp.json().get("abstract")
+                if abstract:
+                    papers[wid]["abstract"] = abstract
+                    filled += 1
+        except Exception:
+            pass
+
+    if filled > 0:
+        logger.info(f"Abstract cross-reference backfill: filled {filled} missing abstracts")
+    return filled
 
 
 def _expand_citation_network(
@@ -1716,6 +1795,9 @@ def _expand_citation_network(
                 papers[pid] = {**p, "hop": 2, "is_seed": False}
             if pid:
                 add_edge(wid, pid)
+
+    # Cross-reference abstract backfill: try S2 for OA papers missing abstracts
+    _backfill_abstracts_cross_source(papers)
 
     # Calculate connectivity (degree) for each paper in the local graph
     degree: Dict[str, int] = {wid: 0 for wid in papers}
