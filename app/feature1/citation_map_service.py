@@ -3381,10 +3381,6 @@ def _persist_paper_metadata(conn: Connection, nodes: List[CitationNode]) -> int:
 
     count = 0
     for node in nodes:
-        # Skip S2-only and ArXiv-only papers — works table uses OpenAlex W-prefixed IDs
-        if node.work_id.startswith("S2:") or node.work_id.startswith("AX:"):
-            continue
-
         authors_json = json.dumps(node.authors) if node.authors else None
 
         conn.execute(

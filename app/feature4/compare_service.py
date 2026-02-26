@@ -308,14 +308,15 @@ def _validate_work_ids_in_map(
 ) -> Dict[str, Dict[str, Any]]:
     """
     Verify all work_ids belong to the map. Returns metadata dict keyed by work_id.
-    Raises ValueError if any work_id is missing.
+    Raises ValueError if any work_id is missing from map_nodes.
+    Falls back to external API for S2/AX papers not in the works table.
     """
     rows = conn.execute(
         sa_text("""
             SELECT mn.work_id, w.title, w.year, w.venue, w.cited_by_count,
                    w.doi, w.arxiv_id, w.abstract, w.referenced_works_json
             FROM map_nodes mn
-            JOIN works w ON w.work_id = mn.work_id
+            LEFT JOIN works w ON w.work_id = mn.work_id
             WHERE mn.map_id = :map_id
               AND mn.work_id = ANY(:ids)
         """),
@@ -323,6 +324,15 @@ def _validate_work_ids_in_map(
     ).mappings().all()
 
     found = {row["work_id"]: dict(row) for row in rows}
+
+    # Backfill S2/AX papers missing from works table (old maps)
+    for wid, meta in found.items():
+        if meta["title"] is None and (wid.startswith("S2:") or wid.startswith("AX:")):
+            from app.feature3.node_details_service import _fetch_external_work_data
+            ext = _fetch_external_work_data(wid)
+            if ext:
+                found[wid].update({k: v for k, v in ext.items() if v is not None})
+
     missing = set(work_ids) - set(found.keys())
     if missing:
         raise ValueError(
@@ -336,14 +346,15 @@ def _validate_work_ids_in_rank_results(
 ) -> Dict[str, Dict[str, Any]]:
     """
     Verify all work_ids belong to a rank job's results. Returns metadata dict keyed by work_id.
-    Raises ValueError if any work_id is missing.
+    Raises ValueError if any work_id is missing from rank_results.
+    Falls back to external API for S2/AX papers not in the works table.
     """
     rows = conn.execute(
         sa_text("""
             SELECT rr.work_id, w.title, w.year, w.venue, w.cited_by_count,
                    w.doi, w.arxiv_id, w.abstract, w.referenced_works_json
             FROM rank_results rr
-            JOIN works w ON w.work_id = rr.work_id
+            LEFT JOIN works w ON w.work_id = rr.work_id
             WHERE rr.rank_job_id = :rank_job_id
               AND rr.work_id = ANY(:ids)
         """),
@@ -351,6 +362,15 @@ def _validate_work_ids_in_rank_results(
     ).mappings().all()
 
     found = {row["work_id"]: dict(row) for row in rows}
+
+    # Backfill S2/AX papers missing from works table
+    for wid, meta in found.items():
+        if meta["title"] is None and (wid.startswith("S2:") or wid.startswith("AX:")):
+            from app.feature3.node_details_service import _fetch_external_work_data
+            ext = _fetch_external_work_data(wid)
+            if ext:
+                found[wid].update({k: v for k, v in ext.items() if v is not None})
+
     missing = set(work_ids) - set(found.keys())
     if missing:
         raise ValueError(
