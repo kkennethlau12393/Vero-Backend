@@ -15,6 +15,8 @@ import pytest
 from app.feature1.schemas import CitationMapRequest
 from app.feature1.citation_map_service import (
     build_citation_map,
+    get_citation_map,
+    list_citation_maps,
     select_seed_from_query,
     fetch_citing_papers,
     fetch_references,
@@ -806,3 +808,170 @@ class TestSearchOpenAlexByTitle:
         results = _search_openalex_by_title("Test", k=10)
         ids = [r["work_id"] for r in results]
         assert len(ids) == len(set(ids))
+
+
+# ============================================================================
+# Citation Map Persistence & Retrieval
+# ============================================================================
+
+def _citation_maps_table_exists(engine) -> bool:
+    """Check if citation_maps table exists in the DB."""
+    from sqlalchemy import text as sa_text
+    with engine.connect() as conn:
+        row = conn.execute(sa_text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'citation_maps')"
+        )).scalar()
+    return bool(row)
+
+
+@pytest.mark.integration
+class TestCitationMapPersistence:
+    """Test persisting, retrieving, and listing citation maps."""
+
+    @pytest.fixture(autouse=True)
+    def _require_table(self, db_engine):
+        if not _citation_maps_table_exists(db_engine):
+            pytest.skip("citation_maps table not yet created — run migration first")
+
+    @patch(REQUESTS_GET)
+    def test_build_returns_citation_map_id(self, mock_get, db_engine):
+        """build_citation_map should persist and return a citation_map_id."""
+        def route(url, **kwargs):
+            url_str = str(url)
+            if "/works/W999" in url_str:
+                return _make_mock_response(json_data=SEED_WORK_RESPONSE)
+            return _make_mock_response(json_data=CITING_PAPERS_RESPONSE)
+
+        mock_get.side_effect = route
+
+        request = CitationMapRequest(
+            seed_work_id="W999",
+            citing_limit=3,
+            references_limit=3,
+            create_graph_draft=False,
+        )
+        tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+        response = build_citation_map(db_engine, tenant_id=tenant_id, request=request)
+
+        assert response.citation_map_id is not None
+        assert isinstance(response.citation_map_id, UUID)
+
+    @patch(REQUESTS_GET)
+    def test_get_citation_map_roundtrip(self, mock_get, db_engine):
+        """Build a map, then GET it by ID — response should match."""
+        def route(url, **kwargs):
+            url_str = str(url)
+            if "/works/W999" in url_str:
+                return _make_mock_response(json_data=SEED_WORK_RESPONSE)
+            return _make_mock_response(json_data=CITING_PAPERS_RESPONSE)
+
+        mock_get.side_effect = route
+
+        request = CitationMapRequest(
+            seed_work_id="W999",
+            citing_limit=3,
+            references_limit=3,
+            create_graph_draft=False,
+        )
+        tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+        built = build_citation_map(db_engine, tenant_id=tenant_id, request=request)
+
+        # Retrieve it
+        retrieved = get_citation_map(
+            db_engine, tenant_id=tenant_id, citation_map_id=built.citation_map_id,
+        )
+
+        assert retrieved.citation_map_id == built.citation_map_id
+        assert retrieved.seed_info.seed_work_id == built.seed_info.seed_work_id
+        assert len(retrieved.nodes) == len(built.nodes)
+        assert len(retrieved.edges) == len(built.edges)
+        assert retrieved.stats.total_nodes == built.stats.total_nodes
+
+    @patch(REQUESTS_GET)
+    def test_get_citation_map_wrong_tenant(self, mock_get, db_engine):
+        """GET with a different tenant_id should raise not found."""
+        def route(url, **kwargs):
+            url_str = str(url)
+            if "/works/W999" in url_str:
+                return _make_mock_response(json_data=SEED_WORK_RESPONSE)
+            return _make_mock_response(json_data=CITING_PAPERS_RESPONSE)
+
+        mock_get.side_effect = route
+
+        request = CitationMapRequest(
+            seed_work_id="W999",
+            citing_limit=3,
+            references_limit=3,
+            create_graph_draft=False,
+        )
+        tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+        built = build_citation_map(db_engine, tenant_id=tenant_id, request=request)
+
+        other_tenant = UUID("00000000-0000-0000-0000-000000000099")
+        with pytest.raises(ValueError, match="citation_map_not_found"):
+            get_citation_map(db_engine, tenant_id=other_tenant, citation_map_id=built.citation_map_id)
+
+    def test_get_citation_map_nonexistent(self, db_engine):
+        """GET with a random ID should raise not found."""
+        with pytest.raises(ValueError, match="citation_map_not_found"):
+            get_citation_map(
+                db_engine,
+                tenant_id=UUID("00000000-0000-0000-0000-000000000001"),
+                citation_map_id=uuid4(),
+            )
+
+    @patch(REQUESTS_GET)
+    def test_list_citation_maps(self, mock_get, db_engine):
+        """list_citation_maps should include recently built maps."""
+        def route(url, **kwargs):
+            url_str = str(url)
+            if "/works/W999" in url_str:
+                return _make_mock_response(json_data=SEED_WORK_RESPONSE)
+            return _make_mock_response(json_data=CITING_PAPERS_RESPONSE)
+
+        mock_get.side_effect = route
+
+        tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+        request = CitationMapRequest(
+            seed_work_id="W999",
+            citing_limit=3,
+            references_limit=3,
+            create_graph_draft=False,
+        )
+        built = build_citation_map(db_engine, tenant_id=tenant_id, request=request)
+
+        maps = list_citation_maps(db_engine, tenant_id=tenant_id)
+        assert len(maps) > 0
+        ids = [m["citation_map_id"] for m in maps]
+        assert built.citation_map_id in ids
+
+        # Check fields present
+        first = maps[0]
+        assert "seed_work_id" in first
+        assert "created_at" in first
+
+    @patch(REQUESTS_GET)
+    def test_list_citation_maps_tenant_isolation(self, mock_get, db_engine):
+        """list_citation_maps should only return maps for the given tenant."""
+        def route(url, **kwargs):
+            url_str = str(url)
+            if "/works/W999" in url_str:
+                return _make_mock_response(json_data=SEED_WORK_RESPONSE)
+            return _make_mock_response(json_data=CITING_PAPERS_RESPONSE)
+
+        mock_get.side_effect = route
+
+        tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+        request = CitationMapRequest(
+            seed_work_id="W999",
+            citing_limit=3,
+            references_limit=3,
+            create_graph_draft=False,
+        )
+        built = build_citation_map(db_engine, tenant_id=tenant_id, request=request)
+
+        other_tenant = UUID("00000000-0000-0000-0000-000000000099")
+        other_maps = list_citation_maps(db_engine, tenant_id=other_tenant)
+        other_ids = [m["citation_map_id"] for m in other_maps]
+        assert built.citation_map_id not in other_ids

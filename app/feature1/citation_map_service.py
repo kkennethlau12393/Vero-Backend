@@ -3473,6 +3473,102 @@ def _create_graph_draft(
 
 
 # ============================================================================
+# Citation Map Persistence & Retrieval
+# ============================================================================
+
+def _persist_citation_map(
+    conn: Connection,
+    tenant_id: UUID,
+    request: "CitationMapRequest",
+    response: "CitationMapResponse",
+) -> UUID:
+    """Persist the full citation map response as JSONB.
+
+    Returns the citation_map_id.
+    """
+    citation_map_id = uuid4()
+    response_json = response.model_dump(mode="json")
+
+    conn.execute(
+        text("""
+            INSERT INTO citation_maps
+                (citation_map_id, tenant_id, graph_draft_id, seed_work_id,
+                 query_text, seed_doi, seed_title, response_json)
+            VALUES
+                (:citation_map_id, :tenant_id, :graph_draft_id, :seed_work_id,
+                 :query_text, :seed_doi, :seed_title, CAST(:response_json AS jsonb))
+        """),
+        {
+            "citation_map_id": citation_map_id,
+            "tenant_id": tenant_id,
+            "graph_draft_id": response.graph_draft_id,
+            "seed_work_id": response.seed_info.seed_work_id,
+            "query_text": request.query_text,
+            "seed_doi": request.seed_doi,
+            "seed_title": request.seed_title or response.seed_info.seed_title,
+            "response_json": json.dumps(response_json),
+        },
+    )
+    conn.commit()
+    logger.info(f"Persisted citation map {citation_map_id} ({len(response.nodes)} nodes)")
+    return citation_map_id
+
+
+def get_citation_map(
+    engine: Engine,
+    *,
+    tenant_id: UUID,
+    citation_map_id: UUID,
+) -> "CitationMapResponse":
+    """Retrieve a previously built citation map by ID.
+
+    Raises ValueError("citation_map_not_found") if not found or wrong tenant.
+    """
+    from app.feature1.schemas import CitationMapResponse
+
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT response_json
+                FROM citation_maps
+                WHERE citation_map_id = :cid AND tenant_id = :tid
+            """),
+            {"cid": citation_map_id, "tid": tenant_id},
+        ).mappings().first()
+
+    if not row:
+        raise ValueError("citation_map_not_found")
+
+    response = CitationMapResponse.model_validate(row["response_json"])
+    response.citation_map_id = citation_map_id
+    return response
+
+
+def list_citation_maps(
+    engine: Engine,
+    *,
+    tenant_id: UUID,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """List saved citation maps for a tenant, most recent first."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT citation_map_id, seed_work_id, seed_title, query_text,
+                       (response_json->'stats'->>'total_nodes')::int AS node_count,
+                       created_at
+                FROM citation_maps
+                WHERE tenant_id = :tid
+                ORDER BY created_at DESC
+                LIMIT :lim
+            """),
+            {"tid": tenant_id, "lim": limit},
+        ).mappings().all()
+
+    return [dict(r) for r in rows]
+
+
+# ============================================================================
 # Main Service Function
 # ============================================================================
 
@@ -3774,10 +3870,19 @@ def build_citation_map(
             },
         )
         # #endregion
-        return CitationMapResponse(
+        response = CitationMapResponse(
             seed_info=seed_info,
             nodes=nodes,
             edges=edges,
             graph_draft_id=graph_draft_id,
             stats=stats,
         )
+
+        # Step 6: Persist the full citation map response
+        try:
+            citation_map_id = _persist_citation_map(conn, tenant_id, request, response)
+            response.citation_map_id = citation_map_id
+        except Exception as e:
+            logger.warning(f"Failed to persist citation map: {e}")
+
+        return response

@@ -786,4 +786,24 @@ CREATE INDEX IF NOT EXISTS idx_activity_log_map
 CREATE INDEX IF NOT EXISTS idx_activity_log_rank
     ON public.research_activity_log (rank_job_id, activity_type);
 
+-- =========================================================================
+-- Feature 1: Citation Map Persistence
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS public.citation_maps (
+    citation_map_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL,
+    graph_draft_id uuid REFERENCES public.graph_drafts(graph_draft_id) ON DELETE SET NULL,
+    seed_work_id text NOT NULL,
+    query_text text,
+    seed_doi text,
+    seed_title text,
+    response_json jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS citation_maps_tenant_idx
+    ON public.citation_maps (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS citation_maps_seed_idx
+    ON public.citation_maps (seed_work_id);
+
 COMMIT;
