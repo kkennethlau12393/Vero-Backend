@@ -468,8 +468,38 @@ def _extract_keywords_from_abstract(abstract: Optional[str]) -> List[str]:
     return list(keywords)[:10]
 
 
+def _fetch_external_work_data(work_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch work metadata from S2/ArXiv APIs for non-OpenAlex IDs."""
+    from app.feature1.citation_map_service import fetch_seed_paper_details
+
+    data = fetch_seed_paper_details(work_id)
+    if not data:
+        return None
+
+    return {
+        "work_id": data.get("work_id", work_id),
+        "title": data.get("title"),
+        "year": data.get("year"),
+        "cited_by_count": int(data.get("cited_by_count") or 0),
+        "authors": data.get("authors") or [],
+        "venue": data.get("venue"),
+        "abstract": data.get("abstract"),
+        "primary_topic_id": None,
+        "category": None,
+        "category_confidence": None,
+        "doi": data.get("doi"),
+        "arxiv_id": None,
+        "is_open_access": data.get("is_open_access"),
+        "oa_status": None,
+        "oa_pdf_url": None,
+    }
+
+
 def load_work_data(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
-    """Load work metadata from the works table."""
+    """Load work metadata from the works table.
+
+    Falls back to S2/ArXiv APIs for non-OpenAlex IDs (S2:, AX: prefixes).
+    """
     row = conn.execute(
         text("""
             SELECT work_id, title, year, cited_by_count, authors_json, venue,
@@ -482,6 +512,9 @@ def load_work_data(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
     ).mappings().first()
 
     if not row:
+        # Fallback: fetch from external API for non-OpenAlex IDs
+        if work_id.startswith("S2:") or work_id.startswith("AX:"):
+            return _fetch_external_work_data(work_id)
         return None
 
     return {
