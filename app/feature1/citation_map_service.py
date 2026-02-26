@@ -95,44 +95,70 @@ GROQ_TIMEOUT = int(os.environ.get("GROQ_TIMEOUT", "20"))
 # S2 retry configuration
 S2_MAX_RETRIES = 3
 S2_RETRY_BASE_DELAY = 1.0  # seconds — S2 rate limit is 1 RPS for batch/search, 10 RPS for others
-S2_RATE_LIMIT_COOLDOWN_SECONDS = int(os.environ.get("S2_RATE_LIMIT_COOLDOWN_SECONDS", "60"))
-S2_MIN_REQUEST_INTERVAL = 1.05  # seconds between S2 requests (their limit is 1 RPS)
+S2_RATE_LIMIT_COOLDOWN_SECONDS = int(os.environ.get("S2_RATE_LIMIT_COOLDOWN_SECONDS", "5"))
+S2_MIN_REQUEST_INTERVAL = 1.2  # seconds between S2 requests (their limit is 1 RPS, with margin)
 OA_MIN_REQUEST_INTERVAL = 0.11  # seconds between OpenAlex requests (their limit is 10 RPS)
 ARXIV_MIN_REQUEST_INTERVAL = 3.1  # seconds between ArXiv requests (their limit is 1 req/3s)
 _s2_rate_limited_until_ts: float = 0.0
-_s2_last_request_ts: float = 0.0
-_oa_last_request_ts: float = 0.0
-_arxiv_last_request_ts: float = 0.0
+_THROTTLE_DIR = Path(__file__).resolve().parent.parent.parent / ".cache"
+_THROTTLE_FILE = _THROTTLE_DIR / "api_throttle_timestamps.json"
+
+
+def _read_throttle_ts(key: str) -> float:
+    """Read last request timestamp from persistent file. Returns 0.0 if missing."""
+    try:
+        if _THROTTLE_FILE.exists():
+            data = json.loads(_THROTTLE_FILE.read_text())
+            return float(data.get(key, 0.0))
+    except Exception:
+        pass
+    return 0.0
+
+
+def _write_throttle_ts(key: str, ts: float) -> None:
+    """Write last request timestamp to persistent file."""
+    try:
+        _THROTTLE_DIR.mkdir(parents=True, exist_ok=True)
+        data = {}
+        if _THROTTLE_FILE.exists():
+            try:
+                data = json.loads(_THROTTLE_FILE.read_text())
+            except Exception:
+                pass
+        data[key] = ts
+        _THROTTLE_FILE.write_text(json.dumps(data))
+    except Exception:
+        pass
 
 
 def _s2_throttle():
-    """Proactively rate-limit S2 requests to avoid 429s."""
-    global _s2_last_request_ts
+    """Proactively rate-limit S2 requests to avoid 429s. Persists across runs."""
+    last_ts = _read_throttle_ts("s2")
     now = time.time()
-    elapsed = now - _s2_last_request_ts
+    elapsed = now - last_ts
     if elapsed < S2_MIN_REQUEST_INTERVAL:
         time.sleep(S2_MIN_REQUEST_INTERVAL - elapsed)
-    _s2_last_request_ts = time.time()
+    _write_throttle_ts("s2", time.time())
 
 
 def _oa_throttle():
-    """Proactively rate-limit OpenAlex requests to avoid 429s."""
-    global _oa_last_request_ts
+    """Proactively rate-limit OpenAlex requests to avoid 429s. Persists across runs."""
+    last_ts = _read_throttle_ts("oa")
     now = time.time()
-    elapsed = now - _oa_last_request_ts
+    elapsed = now - last_ts
     if elapsed < OA_MIN_REQUEST_INTERVAL:
         time.sleep(OA_MIN_REQUEST_INTERVAL - elapsed)
-    _oa_last_request_ts = time.time()
+    _write_throttle_ts("oa", time.time())
 
 
 def _arxiv_throttle():
-    """Proactively rate-limit ArXiv requests to avoid 429s."""
-    global _arxiv_last_request_ts
+    """Proactively rate-limit ArXiv requests to avoid 429s. Persists across runs."""
+    last_ts = _read_throttle_ts("arxiv")
     now = time.time()
-    elapsed = now - _arxiv_last_request_ts
+    elapsed = now - last_ts
     if elapsed < ARXIV_MIN_REQUEST_INTERVAL:
         time.sleep(ARXIV_MIN_REQUEST_INTERVAL - elapsed)
-    _arxiv_last_request_ts = time.time()
+    _write_throttle_ts("arxiv", time.time())
 
 
 def _s2_get_with_retry(
@@ -172,18 +198,19 @@ def _s2_get_with_retry(
     for attempt in range(max_retries + 1):
         resp = requests.get(url, params=params, headers=headers, timeout=timeout)
         if resp.status_code != 429:
+            # Success or non-429 error — clear any active cooldown
+            _s2_rate_limited_until_ts = 0.0
             return resp
         last_resp = resp
-        _s2_rate_limited_until_ts = time.time() + S2_RATE_LIMIT_COOLDOWN_SECONDS
         # #region agent log
         _debug_log(
             "H16",
             "app/feature1/citation_map_service.py:_s2_get_with_retry.rate_limited",
-            "S2 returned 429; cooldown started",
+            "S2 returned 429; retrying",
             {
                 "urlPrefix": url[:120],
                 "attempt": attempt + 1,
-                "cooldownSeconds": S2_RATE_LIMIT_COOLDOWN_SECONDS,
+                "maxRetries": max_retries,
             },
         )
         # #endregion
@@ -191,6 +218,10 @@ def _s2_get_with_retry(
             delay = S2_RETRY_BASE_DELAY * (2 ** attempt)  # 1s, 2s, 4s
             logger.info(f"S2 rate limited (429), retry {attempt + 1}/{max_retries} after {delay}s: {url[:80]}")
             time.sleep(delay)
+
+    # All retries exhausted — activate cooldown to avoid hammering S2
+    _s2_rate_limited_until_ts = time.time() + S2_RATE_LIMIT_COOLDOWN_SECONDS
+    logger.warning(f"S2 rate limited after {max_retries} retries, cooldown {S2_RATE_LIMIT_COOLDOWN_SECONDS}s: {url[:80]}")
     return last_resp  # Return last 429 response if all retries exhausted
 
 
@@ -3071,6 +3102,271 @@ def _assemble_multihop_graph(
 
 
 # ============================================================================
+# Subtopic Clustering
+# ============================================================================
+
+def _cluster_papers_for_citation_map(
+    papers: List[Dict[str, Any]],
+    query_text: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """LLM-based paper clustering for citation maps.
+
+    Unlike F2's subtopic service (which limits to 4-5), this creates as many
+    subtopics as naturally emerge, with a minimum of 2 papers per subtopic.
+    Every paper MUST be assigned to exactly one subtopic — no leftovers.
+
+    Returns list of subtopic dicts with label, description, and work_ids.
+    """
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        logger.warning("GROQ_API_KEY not found, cannot cluster papers")
+        return []
+
+    sorted_papers = sorted(papers, key=lambda p: p.get("rank_index", 999))[:60]
+
+    paper_list = []
+    for i, p in enumerate(sorted_papers):
+        paper_list.append({
+            "id": i,
+            "title": (p.get("title") or "Untitled")[:200],
+            "work_id": p.get("work_id"),
+        })
+
+    query_context = f'Research area: "{query_text}"' if query_text else ""
+
+    papers_json = json.dumps(
+        [{"id": p["id"], "title": p["title"]} for p in paper_list], indent=2
+    )
+
+    prompt = f"""Cluster ALL of these papers into natural research subtopics.
+{query_context}
+
+Papers:
+{papers_json}
+
+RULES:
+1. EVERY paper must be assigned to exactly ONE subtopic — no paper left out
+2. Create as many subtopics as naturally emerge (typically 4-8 for ~30 papers)
+3. Each subtopic needs at least 2 papers
+4. Labels should be specific named methods, algorithms, or phenomena from the papers
+5. Papers that don't fit neatly into a technical cluster should go into a subtopic like "Foundational Methods" or a domain-specific general category — NOT left unassigned
+
+Return JSON only:
+{{"subtopics": [{{"label": "Specific Name", "description": "One sentence", "paper_ids": [0,1,2]}}]}}
+
+CRITICAL: Every paper ID (0 through {len(paper_list) - 1}) must appear in exactly one subtopic."""
+
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+
+    for attempt in range(3):
+        try:
+            resp = client.chat.completions.create(
+                model="meta-llama/llama-4-maverick-17b-128e-instruct",
+                messages=[
+                    {"role": "system", "content": "You are a research librarian. Return only valid JSON."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.3,
+                timeout=60.0,
+            )
+            content = (resp.choices[0].message.content or "").strip()
+
+            # Strip markdown code blocks
+            if content.startswith("```"):
+                lines = content.split("\n")
+                start_idx = 1
+                end_idx = len(lines)
+                if lines[-1].strip().startswith("```"):
+                    end_idx = -1
+                content = "\n".join(lines[start_idx:end_idx])
+
+            # Extract JSON object
+            start = content.find("{")
+            if start >= 0:
+                depth = 0
+                end = start
+                for i, c in enumerate(content[start:], start):
+                    if c == "{":
+                        depth += 1
+                    elif c == "}":
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
+                content = content[start:end]
+
+            result = json.loads(content)
+            subtopics_raw = result.get("subtopics", [])
+
+            if not subtopics_raw:
+                logger.warning("LLM returned no subtopics for citation map")
+                if attempt < 2:
+                    time.sleep(0.5 * (2 ** attempt))
+                    continue
+                return []
+
+            # Convert paper IDs to work_ids
+            subtopics = []
+            seen_work_ids: set = set()
+            for st in subtopics_raw:
+                paper_ids = st.get("paper_ids", [])
+                work_ids = []
+                for pid in paper_ids:
+                    if isinstance(pid, int) and 0 <= pid < len(paper_list):
+                        wid = paper_list[pid]["work_id"]
+                        if wid not in seen_work_ids:
+                            work_ids.append(wid)
+                            seen_work_ids.add(wid)
+
+                if len(work_ids) >= 2:
+                    subtopics.append({
+                        "label": st.get("label", "Subtopic"),
+                        "description": st.get("description", ""),
+                        "work_ids": work_ids,
+                    })
+
+            if len(subtopics) >= 2:
+                subtopics.sort(key=lambda s: -len(s["work_ids"]))
+                return subtopics
+
+            logger.warning(f"Only {len(subtopics)} valid subtopics, retrying...")
+            if attempt < 2:
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse subtopic JSON: {e}")
+            if attempt < 2:
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+        except Exception as e:
+            logger.warning(f"Citation map clustering failed: {e}")
+            break
+
+    return []
+
+
+def _subtopic_title_keywords(title: str, stopwords: set) -> set:
+    """Extract meaningful keywords from a paper title for subtopic matching."""
+    words = set(title.lower().replace("-", " ").split())
+    return words - stopwords
+
+
+def _match_to_closest_subtopic(
+    node_title: str,
+    subtopic_keywords: Dict[str, set],
+    stopwords: set,
+    min_overlap: int = 2,
+) -> Optional[str]:
+    """Match an unassigned paper to the closest subtopic by title keyword overlap.
+
+    Returns the best matching subtopic label, or None if no good match.
+    """
+    node_kw = _subtopic_title_keywords(node_title, stopwords)
+    if not node_kw:
+        return None
+
+    best_label = None
+    best_score = 0
+    for label, kw_set in subtopic_keywords.items():
+        overlap = len(node_kw & kw_set)
+        if overlap >= min_overlap and overlap > best_score:
+            best_score = overlap
+            best_label = label
+    return best_label
+
+
+def _assign_subtopics(nodes: List[CitationNode], query_text: Optional[str] = None) -> None:
+    """Assign LLM-generated subtopic labels to citation map nodes.
+
+    Uses F1-specific clustering (no subtopic count limit, all papers must be assigned).
+    Falls back to keyword matching for any papers the LLM missed.
+    Gracefully degrades: if LLM fails or GROQ_API_KEY is missing, nodes keep subtopic=None.
+    """
+    if not nodes:
+        return
+
+    # Build paper list sorted by citation count (most influential first)
+    papers = []
+    for i, node in enumerate(sorted(nodes, key=lambda n: n.cited_by_count, reverse=True)):
+        papers.append({
+            "title": node.title or "Untitled",
+            "work_id": node.work_id,
+            "rank_index": i,
+        })
+
+    try:
+        subtopics = _cluster_papers_for_citation_map(papers, query_text)
+    except Exception as e:
+        logger.warning(f"Subtopic clustering failed: {e}")
+        return
+
+    if not subtopics:
+        return
+
+    # Build work_id -> label mapping from LLM results
+    wid_to_label: Dict[str, str] = {}
+    for st in subtopics:
+        label = st.get("label", "")
+        for wid in st.get("work_ids", []):
+            wid_to_label[wid] = label
+
+    # Build keyword profiles for each subtopic from assigned papers' titles
+    stopwords = {"a", "an", "the", "of", "and", "for", "in", "on", "to", "with",
+                 "is", "are", "by", "from", "at", "as", "or", "that", "this",
+                 "its", "it", "be", "was", "were", "been", "being", "do", "does",
+                 "did", "has", "have", "had", "not", "but", "if", "we", "our",
+                 "via", "using", "based", "towards", "toward"}
+    if query_text:
+        stopwords |= set(query_text.lower().replace("-", " ").split())
+
+    node_by_wid = {n.work_id: n for n in nodes}
+    subtopic_keywords: Dict[str, set] = {}
+    for label in set(wid_to_label.values()):
+        kw_set: set = set()
+        for wid, lbl in wid_to_label.items():
+            if lbl == label:
+                title = (node_by_wid.get(wid) or nodes[0]).title or ""
+                kw_set |= _subtopic_title_keywords(title, stopwords)
+        kw_set |= _subtopic_title_keywords(label, stopwords)
+        subtopic_keywords[label] = kw_set
+
+    # First pass: assign LLM-assigned labels
+    assigned = 0
+    unassigned_nodes: List[CitationNode] = []
+    for node in nodes:
+        label = wid_to_label.get(node.work_id)
+        if label:
+            node.subtopic = label
+            assigned += 1
+        else:
+            unassigned_nodes.append(node)
+
+    # Second pass: match unassigned papers to closest subtopic by title overlap
+    matched = 0
+    for node in unassigned_nodes:
+        if not node.title:
+            node.subtopic = "Other"
+            continue
+        best_label = _match_to_closest_subtopic(
+            node.title, subtopic_keywords, stopwords, min_overlap=2
+        )
+        if best_label:
+            node.subtopic = best_label
+            matched += 1
+        else:
+            node.subtopic = "Other"
+
+    total_assigned = assigned + matched
+    other_count = len(nodes) - total_assigned
+    logger.info(
+        f"Subtopic assignment: {assigned} LLM-assigned + {matched} keyword-matched = "
+        f"{total_assigned}/{len(nodes)} nodes in {len(subtopics)} subtopics, {other_count} as Other"
+    )
+
+
+# ============================================================================
 # Graph Draft Creation
 # ============================================================================
 
@@ -3433,7 +3729,11 @@ def build_citation_map(
             min_citations=request.min_citations,
         )
 
-        # Step 4: Persist metadata and optionally create graph_draft
+        # Step 4a: Assign subtopics via LLM clustering
+        cluster_context = request.query_text or (seed_data.get("title") if seed_data else "") or ""
+        _assign_subtopics(nodes, query_text=cluster_context)
+
+        # Step 4b: Persist metadata and optionally create graph_draft
         graph_draft_id = None
         if nodes:
             _persist_paper_metadata(conn, nodes)

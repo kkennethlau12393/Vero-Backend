@@ -601,10 +601,11 @@ class TestS2RateLimiting:
     @pytest.mark.unit
     def test_throttle_sleeps_when_called_rapidly(self):
         """Back-to-back _s2_throttle calls should sleep to enforce interval."""
-        import app.feature1.citation_map_service as svc
-        svc._s2_last_request_ts = time.time()
-        with patch("app.feature1.citation_map_service.time") as mock_time:
-            mock_time.time.return_value = svc._s2_last_request_ts + 0.1
+        recent_ts = time.time()
+        with patch("app.feature1.citation_map_service._read_throttle_ts", return_value=recent_ts), \
+             patch("app.feature1.citation_map_service._write_throttle_ts"), \
+             patch("app.feature1.citation_map_service.time") as mock_time:
+            mock_time.time.return_value = recent_ts + 0.1
             _s2_throttle()
             mock_time.sleep.assert_called_once()
             sleep_arg = mock_time.sleep.call_args[0][0]
@@ -613,21 +614,23 @@ class TestS2RateLimiting:
     @pytest.mark.unit
     def test_throttle_no_sleep_when_interval_elapsed(self):
         """No sleep needed if enough time has passed since last request."""
-        import app.feature1.citation_map_service as svc
-        svc._s2_last_request_ts = time.time() - 10.0
-        with patch("app.feature1.citation_map_service.time") as mock_time:
+        old_ts = time.time() - 10.0
+        with patch("app.feature1.citation_map_service._read_throttle_ts", return_value=old_ts), \
+             patch("app.feature1.citation_map_service._write_throttle_ts"), \
+             patch("app.feature1.citation_map_service.time") as mock_time:
             mock_time.time.return_value = time.time()
             _s2_throttle()
             mock_time.sleep.assert_not_called()
 
     @pytest.mark.unit
     def test_throttle_updates_timestamp(self):
-        """_s2_throttle must update _s2_last_request_ts after running."""
-        import app.feature1.citation_map_service as svc
-        svc._s2_last_request_ts = 0.0
-        before = time.time()
-        _s2_throttle()
-        assert svc._s2_last_request_ts >= before
+        """_s2_throttle must persist timestamp after running."""
+        with patch("app.feature1.citation_map_service._read_throttle_ts", return_value=0.0), \
+             patch("app.feature1.citation_map_service._write_throttle_ts") as mock_write:
+            _s2_throttle()
+            mock_write.assert_called_once()
+            written_ts = mock_write.call_args[0][1]
+            assert written_ts >= time.time() - 1.0
 
     @pytest.mark.unit
     def test_get_with_retry_calls_throttle(self):
@@ -644,13 +647,13 @@ class TestS2RateLimiting:
     @pytest.mark.unit
     def test_consecutive_requests_are_spaced(self):
         """Two real _s2_throttle calls back-to-back take >= interval seconds."""
-        import app.feature1.citation_map_service as svc
-        svc._s2_last_request_ts = 0.0
-        _s2_throttle()
-        t1 = svc._s2_last_request_ts
-        _s2_throttle()
-        t2 = svc._s2_last_request_ts
-        assert t2 - t1 >= S2_MIN_REQUEST_INTERVAL - 0.05
+        timestamps = []
+        with patch("app.feature1.citation_map_service._read_throttle_ts", side_effect=lambda k: timestamps[-1] if timestamps else 0.0), \
+             patch("app.feature1.citation_map_service._write_throttle_ts", side_effect=lambda k, ts: timestamps.append(ts)):
+            _s2_throttle()
+            _s2_throttle()
+            assert len(timestamps) == 2
+            assert timestamps[1] - timestamps[0] >= S2_MIN_REQUEST_INTERVAL - 0.05
 
 
 class TestOARateLimiting:
@@ -658,10 +661,11 @@ class TestOARateLimiting:
 
     @pytest.mark.unit
     def test_throttle_sleeps_when_called_rapidly(self):
-        import app.feature1.citation_map_service as svc
-        svc._oa_last_request_ts = time.time()
-        with patch("app.feature1.citation_map_service.time") as mock_time:
-            mock_time.time.return_value = svc._oa_last_request_ts + 0.02
+        recent_ts = time.time()
+        with patch("app.feature1.citation_map_service._read_throttle_ts", return_value=recent_ts), \
+             patch("app.feature1.citation_map_service._write_throttle_ts"), \
+             patch("app.feature1.citation_map_service.time") as mock_time:
+            mock_time.time.return_value = recent_ts + 0.02
             _oa_throttle()
             mock_time.sleep.assert_called_once()
             sleep_arg = mock_time.sleep.call_args[0][0]
@@ -669,30 +673,32 @@ class TestOARateLimiting:
 
     @pytest.mark.unit
     def test_throttle_no_sleep_when_interval_elapsed(self):
-        import app.feature1.citation_map_service as svc
-        svc._oa_last_request_ts = time.time() - 5.0
-        with patch("app.feature1.citation_map_service.time") as mock_time:
+        old_ts = time.time() - 5.0
+        with patch("app.feature1.citation_map_service._read_throttle_ts", return_value=old_ts), \
+             patch("app.feature1.citation_map_service._write_throttle_ts"), \
+             patch("app.feature1.citation_map_service.time") as mock_time:
             mock_time.time.return_value = time.time()
             _oa_throttle()
             mock_time.sleep.assert_not_called()
 
     @pytest.mark.unit
     def test_throttle_updates_timestamp(self):
-        import app.feature1.citation_map_service as svc
-        svc._oa_last_request_ts = 0.0
-        before = time.time()
-        _oa_throttle()
-        assert svc._oa_last_request_ts >= before
+        with patch("app.feature1.citation_map_service._read_throttle_ts", return_value=0.0), \
+             patch("app.feature1.citation_map_service._write_throttle_ts") as mock_write:
+            _oa_throttle()
+            mock_write.assert_called_once()
+            written_ts = mock_write.call_args[0][1]
+            assert written_ts >= time.time() - 1.0
 
     @pytest.mark.unit
     def test_consecutive_requests_are_spaced(self):
-        import app.feature1.citation_map_service as svc
-        svc._oa_last_request_ts = 0.0
-        _oa_throttle()
-        t1 = svc._oa_last_request_ts
-        _oa_throttle()
-        t2 = svc._oa_last_request_ts
-        assert t2 - t1 >= OA_MIN_REQUEST_INTERVAL - 0.02
+        timestamps = []
+        with patch("app.feature1.citation_map_service._read_throttle_ts", side_effect=lambda k: timestamps[-1] if timestamps else 0.0), \
+             patch("app.feature1.citation_map_service._write_throttle_ts", side_effect=lambda k, ts: timestamps.append(ts)):
+            _oa_throttle()
+            _oa_throttle()
+            assert len(timestamps) == 2
+            assert timestamps[1] - timestamps[0] >= OA_MIN_REQUEST_INTERVAL - 0.02
 
 
 class TestArXivRateLimiting:
@@ -700,10 +706,11 @@ class TestArXivRateLimiting:
 
     @pytest.mark.unit
     def test_throttle_sleeps_when_called_rapidly(self):
-        import app.feature1.citation_map_service as svc
-        svc._arxiv_last_request_ts = time.time()
-        with patch("app.feature1.citation_map_service.time") as mock_time:
-            mock_time.time.return_value = svc._arxiv_last_request_ts + 0.5
+        recent_ts = time.time()
+        with patch("app.feature1.citation_map_service._read_throttle_ts", return_value=recent_ts), \
+             patch("app.feature1.citation_map_service._write_throttle_ts"), \
+             patch("app.feature1.citation_map_service.time") as mock_time:
+            mock_time.time.return_value = recent_ts + 0.5
             _arxiv_throttle()
             mock_time.sleep.assert_called_once()
             sleep_arg = mock_time.sleep.call_args[0][0]
@@ -711,27 +718,29 @@ class TestArXivRateLimiting:
 
     @pytest.mark.unit
     def test_throttle_no_sleep_when_interval_elapsed(self):
-        import app.feature1.citation_map_service as svc
-        svc._arxiv_last_request_ts = time.time() - 10.0
-        with patch("app.feature1.citation_map_service.time") as mock_time:
+        old_ts = time.time() - 10.0
+        with patch("app.feature1.citation_map_service._read_throttle_ts", return_value=old_ts), \
+             patch("app.feature1.citation_map_service._write_throttle_ts"), \
+             patch("app.feature1.citation_map_service.time") as mock_time:
             mock_time.time.return_value = time.time()
             _arxiv_throttle()
             mock_time.sleep.assert_not_called()
 
     @pytest.mark.unit
     def test_throttle_updates_timestamp(self):
-        import app.feature1.citation_map_service as svc
-        svc._arxiv_last_request_ts = 0.0
-        before = time.time()
-        _arxiv_throttle()
-        assert svc._arxiv_last_request_ts >= before
+        with patch("app.feature1.citation_map_service._read_throttle_ts", return_value=0.0), \
+             patch("app.feature1.citation_map_service._write_throttle_ts") as mock_write:
+            _arxiv_throttle()
+            mock_write.assert_called_once()
+            written_ts = mock_write.call_args[0][1]
+            assert written_ts >= time.time() - 1.0
 
     @pytest.mark.unit
     def test_consecutive_requests_are_spaced(self):
-        import app.feature1.citation_map_service as svc
-        svc._arxiv_last_request_ts = 0.0
-        _arxiv_throttle()
-        t1 = svc._arxiv_last_request_ts
-        _arxiv_throttle()
-        t2 = svc._arxiv_last_request_ts
-        assert t2 - t1 >= ARXIV_MIN_REQUEST_INTERVAL - 0.1
+        timestamps = []
+        with patch("app.feature1.citation_map_service._read_throttle_ts", side_effect=lambda k: timestamps[-1] if timestamps else 0.0), \
+             patch("app.feature1.citation_map_service._write_throttle_ts", side_effect=lambda k, ts: timestamps.append(ts)):
+            _arxiv_throttle()
+            _arxiv_throttle()
+            assert len(timestamps) == 2
+            assert timestamps[1] - timestamps[0] >= ARXIV_MIN_REQUEST_INTERVAL - 0.1
