@@ -504,10 +504,10 @@ def ensure_valid_abstract(
     # Check if current abstract is valid
     is_valid, reason = is_abstract_valid(title, abstract)
     if is_valid:
-        logger.info(f"[DIAG] ensure_valid_abstract: VALID for {work_id}: {reason}")
+        logger.warning(f"[DIAG] ensure_valid_abstract: VALID for {work_id}: {reason}")
         return abstract, "cached"
 
-    logger.info(f"[DIAG] ensure_valid_abstract: INVALID for {work_id}: {reason}. abstract_len={len(abstract) if abstract else 0}. Attempting enrichment...")
+    logger.warning(f"[DIAG] ensure_valid_abstract: INVALID for {work_id}: {reason}. abstract_len={len(abstract) if abstract else 0}. Attempting enrichment...")
 
     # Build identity for verification
     identity = PaperIdentity(
@@ -520,7 +520,7 @@ def ensure_valid_abstract(
 
     # Try OpenAlex first - most reliable since we have the work_id
     if work_id and work_id.startswith("W"):
-        logger.info(f"[DIAG] ensure_valid_abstract: trying OpenAlex for {work_id}")
+        logger.warning(f"[DIAG] ensure_valid_abstract: trying OpenAlex for {work_id}")
         result = fetch_openalex_abstract(work_id, title)
         if result and result.get("abstract"):
             logger.info(f"Found valid abstract from OpenAlex for {work_id}")
