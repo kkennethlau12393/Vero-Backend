@@ -171,12 +171,18 @@ def is_abstract_valid(
         return False, "Language mismatch: expected English, detected non-English"
 
     # Keyword overlap check - title words should appear in abstract
+    # Use recall (fraction of title content words found in abstract) not Jaccard,
+    # because abstracts are much longer than titles making Jaccard artificially low.
+    # E.g. a 12-word title vs 250-word abstract: even if all title words appear,
+    # Jaccard = 12/250 = 0.05 (fails). Recall = 12/12 = 1.0 (correct).
     if title:
-        overlap = title_word_overlap(title, abstract)
-        # Very low overlap suggests wrong abstract
-        # But allow some tolerance for creative titles
-        if overlap < 0.10 and len(title.split()) >= 4:
-            return False, f"Very low title-abstract overlap ({overlap:.2f})"
+        from app.feature3.paper_identity import _TITLE_STOP_WORDS, normalize_title
+        title_words = set(normalize_title(title).split()) - _TITLE_STOP_WORDS
+        abstract_words = set(normalize_title(abstract).split())
+        if title_words and len(title_words) >= 3:
+            recall = len(title_words & abstract_words) / len(title_words)
+            if recall < 0.15:
+                return False, f"Very low title-abstract overlap (recall={recall:.2f})"
 
     return True, "Valid"
 

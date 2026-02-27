@@ -470,11 +470,14 @@ def _extract_keywords_from_abstract(abstract: Optional[str]) -> List[str]:
 
 def _fetch_external_work_data(work_id: str) -> Optional[Dict[str, Any]]:
     """Fetch work metadata from S2/ArXiv APIs for non-OpenAlex IDs."""
+    logger.info(f"[DIAG] _fetch_external_work_data: fetching metadata for {work_id}")
     from app.feature1.citation_map_service import fetch_seed_paper_details
 
     data = fetch_seed_paper_details(work_id)
     if not data:
+        logger.warning(f"[DIAG] _fetch_external_work_data: fetch_seed_paper_details returned None for {work_id}")
         return None
+    logger.info(f"[DIAG] _fetch_external_work_data: got data for {work_id}: title={data.get('title', 'N/A')[:60]}")
 
     return {
         "work_id": data.get("work_id", work_id),
@@ -512,10 +515,15 @@ def load_work_data(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
     ).mappings().first()
 
     if not row:
+        logger.info(f"[DIAG] load_work_data: {work_id} NOT in works table. Prefix check: S2={work_id.startswith('S2:')}, AX={work_id.startswith('AX:')}")
         # Fallback: fetch from external API for non-OpenAlex IDs
         if work_id.startswith("S2:") or work_id.startswith("AX:"):
-            return _fetch_external_work_data(work_id)
+            ext_data = _fetch_external_work_data(work_id)
+            logger.info(f"[DIAG] load_work_data: external fallback for {work_id} returned: {ext_data is not None} (title={ext_data.get('title') if ext_data else 'N/A'})")
+            return ext_data
         return None
+    else:
+        logger.info(f"[DIAG] load_work_data: {work_id} FOUND in works table (title={row['title'][:60] if row['title'] else 'N/A'})")
 
     return {
         "work_id": row["work_id"],
@@ -1700,6 +1708,8 @@ def get_node_details(
     """
     if not map_id and not rank_job_id:
         raise ValueError("Either map_id or rank_job_id is required")
+
+    logger.info(f"[DIAG] get_node_details: work_id={work_id}, map_id={map_id}, rank_job_id={rank_job_id}, include_novelty={include_novelty}")
 
     with engine.connect() as conn:
         if map_id:
