@@ -101,11 +101,12 @@ def get_node_details_endpoint(
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         msg = str(e)
+        logger.warning(f"[DIAG] node_details_endpoint: ValueError for work_id={work_id}: {msg}")
         if msg in ("map_not_found", "node_not_found", "work_not_found"):
             raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
-        logger.exception("Unexpected error in get_node_details endpoint")
+        logger.exception(f"[DIAG] node_details_endpoint: Unexpected error for work_id={work_id}: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

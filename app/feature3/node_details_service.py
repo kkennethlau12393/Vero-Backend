@@ -1764,7 +1764,9 @@ def get_node_details(
         # Load work metadata
         work_data = load_work_data(conn, work_id)
         if not work_data:
+            logger.warning(f"[DIAG] get_node_details: load_work_data returned None for {work_id} — raising work_not_found")
             raise ValueError("work_not_found")
+        logger.info(f"[DIAG] get_node_details: work_data loaded for {work_id} — title={work_data.get('title', 'N/A')[:60]}, abstract={'YES' if work_data.get('abstract') else 'NO'}, doi={work_data.get('doi')}")
 
         # Resolve access links
         from app.settings.access_links import resolve_access_link
@@ -1781,6 +1783,7 @@ def get_node_details(
 
         # Enrich abstract if invalid (fetch from ArXiv/Semantic Scholar)
         enrichment_happened = False
+        logger.info(f"[DIAG] get_node_details: calling ensure_valid_abstract for {work_id} (has abstract={work_data['abstract'] is not None}, len={len(work_data['abstract']) if work_data.get('abstract') else 0})")
         enriched_abstract, abstract_source = ensure_valid_abstract(
             conn,
             work_id=work_id,
@@ -1790,6 +1793,7 @@ def get_node_details(
             doi=work_data.get("doi"),
             arxiv_id=work_data.get("arxiv_id"),
         )
+        logger.info(f"[DIAG] get_node_details: ensure_valid_abstract returned source={abstract_source} for {work_id}")
         if abstract_source not in ("cached", "unavailable") and enriched_abstract:
             # Only flag enrichment if the abstract actually changed
             if enriched_abstract != work_data["abstract"]:
@@ -1799,7 +1803,7 @@ def get_node_details(
         elif abstract_source == "unavailable":
             # Abstract was invalid and no replacement found - clear it so LLM knows
             if work_data["abstract"] is not None:
-                logger.info(f"Abstract for {work_id} is invalid and unfetchable, clearing")
+                logger.info(f"[DIAG] get_node_details: abstract cleared to None for {work_id} (was invalid, no fallback)")
                 work_data["abstract"] = None
                 enrichment_happened = True
 
@@ -1832,7 +1836,7 @@ def get_node_details(
 
         # Abstract is REQUIRED for novelty assessment — LLM produces garbage without it
         if include_novelty and not work_data.get("abstract"):
-            logger.warning(f"No abstract available for {work_id} - novelty assessment unavailable")
+            logger.warning(f"[DIAG] get_node_details: NO ABSTRACT for {work_id} — returning novelty unavailable (this is a likely failure point for S2/AX papers)")
             basic_summary = _generate_summary_from_abstract(None, work_data["title"])
             basic_keywords = _extract_keywords_from_abstract(None)
             unavailable_reason = (
@@ -1910,7 +1914,7 @@ def get_node_details(
         if not enrichment_happened and not force_regenerate:
             persisted = get_persisted_assessment(conn, work_id)
             if persisted:
-                logger.info(f"Permanent assessment hit for {work_id}")
+                logger.info(f"[DIAG] get_node_details: PERSISTED assessment hit for {work_id} — has_novelty={persisted.get('novelty_assessment') is not None}, unavailable_reason={persisted.get('assessment_unavailable_reason')}")
 
                 novelty_assessment_obj = None
                 if persisted["novelty_assessment"]:
@@ -1968,7 +1972,7 @@ def get_node_details(
             cached = get_cached_details(conn, work_id)
 
         if cached:
-            logger.info(f"Cache hit for node details: {work_id}")
+            logger.info(f"[DIAG] get_node_details: CACHE hit for {work_id} — has_novelty={cached.get('novelty_assessment') is not None}, unavailable_reason={cached.get('assessment_unavailable_reason')}")
 
             # Handle case where novelty_assessment was not available
             novelty_assessment_obj = None
