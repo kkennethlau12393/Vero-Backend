@@ -968,13 +968,7 @@ def _clean_gap_title(title: str) -> str:
     """
     # Strip inline citations like (Author, Year) or (Author et al., Year)
     cleaned = re.sub(r'\s*\([^)]*\d{4}[^)]*\)', '', title)
-    # If still too long, take text before first comma or semicolon
-    if len(cleaned) > 80:
-        for sep in [',', ';', ' — ', ' - ']:
-            if sep in cleaned[:80]:
-                cleaned = cleaned[:cleaned.index(sep)]
-                break
-    return cleaned.strip()[:80]
+    return cleaned.strip()
 
 
 def create_gap_cards(
@@ -1018,7 +1012,7 @@ def create_gap_cards(
         if not gap_title or gap_title == "Untitled Gap":
             # Generate title from first sentence of description
             desc = gap.get("description", "")
-            gap_title = desc.split(".")[0][:80] if desc else f"Research gap in {gap_type}"
+            gap_title = desc.split(".")[0] if desc else f"Research gap in {gap_type}"
 
         # Clean up titles that look like description text
         # (LLM sometimes puts a full sentence with citations as the title)
