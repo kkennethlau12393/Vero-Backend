@@ -177,11 +177,20 @@ Status definitions:
             )
 
     except Exception as e:
+        error_msg = str(e)
+        # OpenAI safety refusal — not an actionable error, just skip validation
+        if "invalid_prompt" in error_msg or "limited access" in error_msg:
+            logger.warning(f"Validation not available for gap: {gap_title} (content policy)")
+            return ExternalValidationResult(
+                status="partial",
+                reasoning="External validation not available for this gap.",
+                sources=[],
+            )
         logger.exception(f"Error validating gap: {gap_title}")
         # On error, return partial (conservative)
         return ExternalValidationResult(
             status="partial",
-            reasoning=f"Validation error: {str(e)}",
+            reasoning=f"Validation error: {error_msg}",
             sources=[],
         )
 
