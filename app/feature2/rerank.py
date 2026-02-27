@@ -389,6 +389,9 @@ def assemble_ranked_results(
                 "authors": p.authors,
                 "venue": p.venue,
                 "abstract": p.abstract,
+                "doi": p.doi,
+                "is_open_access": p.is_open_access,
+                "oa_pdf_url": p.oa_pdf_url,
             }
         results.append(item)
     return results

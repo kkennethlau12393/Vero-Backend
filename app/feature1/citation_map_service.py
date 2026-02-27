@@ -630,6 +630,7 @@ def _search_arxiv(query: str, k: int = ARXIV_LIMIT) -> List[Dict[str, Any]]:
                     "title": title,
                     "year": year,
                     "cited_by_count": 0,  # ArXiv doesn't provide citation counts
+                    "doi": f"10.48550/arXiv.{arxiv_id}",
                     "source": "arxiv",
                 })
 
@@ -1224,6 +1225,8 @@ def _fetch_s2_paper_details(s2_id: str, work_id: str) -> Optional[Dict[str, Any]
         resp.raise_for_status()
         data = resp.json()
         authors = [a.get("name") for a in data.get("authors") or [] if a.get("name")]
+        external_ids = data.get("externalIds") or {}
+        doi = external_ids.get("DOI")
         return {
             "work_id": work_id,
             "title": data.get("title"),
@@ -1232,6 +1235,7 @@ def _fetch_s2_paper_details(s2_id: str, work_id: str) -> Optional[Dict[str, Any]
             "abstract": data.get("abstract"),
             "authors": authors,
             "venue": data.get("venue") or None,
+            "doi": doi,
         }
     except Exception as e:
         logger.warning(f"Failed to fetch S2 paper details for {s2_id}: {e}")
@@ -1263,6 +1267,7 @@ def _fetch_arxiv_paper_details(arxiv_id: str, work_id: str) -> Optional[Dict[str
                 "abstract": data.get("abstract"),
                 "authors": authors,
                 "venue": data.get("venue") or None,
+                "doi": f"10.48550/arXiv.{arxiv_id}",
             }
     except Exception as e:
         logger.debug(f"S2 ArXiv bridge failed for {arxiv_id}: {e}")
@@ -1292,6 +1297,7 @@ def _fetch_arxiv_paper_details(arxiv_id: str, work_id: str) -> Optional[Dict[str
                 "year": year,
                 "cited_by_count": 0,
                 "abstract": None,
+                "doi": f"10.48550/arXiv.{arxiv_id}",
             }
     except Exception as e:
         logger.warning(f"ArXiv API fallback failed for {arxiv_id}: {e}")
@@ -1521,6 +1527,7 @@ def _merge_s2_citations(
                 "abstract": p.get("abstract"),
                 "authors": p.get("authors") or [],
                 "venue": p.get("venue"),
+                "doi": clean_doi,
                 "source": "semantic_scholar",
             })
 
