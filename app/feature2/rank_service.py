@@ -467,7 +467,7 @@ def direct_rank_prod(
                 # This maintains quality while being more efficient for focused queries
                 # Note: Don't use stricter threshold - causes sparse results for intersection topics
                 if llm_scoring_cap is None:
-                    llm_scoring_cap = 150  # Smaller than BROAD but enough for categories
+                    llm_scoring_cap = 200  # was 150: larger pool to fill categories
                 # NOTE: Removed skip_categorization for specific queries since we always want
                 # categorized output (foundational/methodology/reviews/applications)
                 # Use single S2 bulk search (2000 papers) instead of multiple searches
@@ -502,9 +502,9 @@ def direct_rank_prod(
             # Tier sizes - adjust for SPECIFIC vs BROAD
             # Larger tiers ensure we get enough papers of each type (target: 6+ per category)
             if is_specific_query:
-                tier1_size = 60   # Citations (foundational)
-                tier2_size = 40   # Recent
-                tier3_size = 50   # Lexical (query-matched)
+                tier1_size = 80   # Citations (foundational) — was 60
+                tier2_size = 50   # Recent — was 40
+                tier3_size = 70   # Lexical (query-matched) — was 50
             else:
                 tier1_size = 120  # Citations (foundational)
                 tier2_size = 60   # Recent (captures newer reviews/applications)
