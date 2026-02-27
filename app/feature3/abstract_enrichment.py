@@ -504,10 +504,10 @@ def ensure_valid_abstract(
     # Check if current abstract is valid
     is_valid, reason = is_abstract_valid(title, abstract)
     if is_valid:
-        logger.debug(f"Abstract valid for {work_id}: {reason}")
+        logger.info(f"[DIAG] ensure_valid_abstract: VALID for {work_id}: {reason}")
         return abstract, "cached"
 
-    logger.info(f"Abstract invalid for {work_id}: {reason}. Attempting enrichment...")
+    logger.info(f"[DIAG] ensure_valid_abstract: INVALID for {work_id}: {reason}. abstract_len={len(abstract) if abstract else 0}. Attempting enrichment...")
 
     # Build identity for verification
     identity = PaperIdentity(
@@ -520,7 +520,7 @@ def ensure_valid_abstract(
 
     # Try OpenAlex first - most reliable since we have the work_id
     if work_id and work_id.startswith("W"):
-        logger.debug(f"Trying OpenAlex by work_id: {work_id}")
+        logger.info(f"[DIAG] ensure_valid_abstract: trying OpenAlex for {work_id}")
         result = fetch_openalex_abstract(work_id, title)
         if result and result.get("abstract"):
             logger.info(f"Found valid abstract from OpenAlex for {work_id}")
@@ -553,7 +553,7 @@ def ensure_valid_abstract(
 
     # All fallbacks failed - return None to signal no usable abstract
     # Don't return the invalid original - it would pollute LLM generation
-    logger.warning(f"Could not find valid abstract for {work_id} from any source")
+    logger.warning(f"[DIAG] ensure_valid_abstract: ALL FALLBACKS FAILED for {work_id} (prefix={work_id[:3]}) — returning unavailable")
     return None, "unavailable"
 
 
