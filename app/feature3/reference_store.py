@@ -53,13 +53,13 @@ def get_referenced_works(
 
     Returns list of dicts with: work_id, title, year, cited_by_count, abstract
     """
-    logger.info(f"[DIAG] get_referenced_works called for work_id={work_id}")
+    logger.warning(f"[DIAG] get_referenced_works called for work_id={work_id}")
     # Step 1: Check cache
     cached = _get_cached_references(conn, work_id)
     if cached is not None:
         logger.info(f"Reference cache hit for {work_id}: {len(cached)} refs")
     else:
-        logger.info(f"[DIAG] No cache for {work_id}, fetching from OpenAlex (work_id prefix: {work_id[:3]})")
+        logger.warning(f"[DIAG] No cache for {work_id}, fetching from OpenAlex (work_id prefix: {work_id[:3]})")
         # Step 2a: Fetch from OpenAlex (also get DOI for S2 cross-referencing)
         oa_ref_ids, target_doi = _fetch_references_from_openalex(work_id)
 
@@ -115,7 +115,7 @@ def _get_cached_references(conn: Connection, work_id: str) -> Optional[List[str]
     ).mappings().first()
 
     if not row:
-        logger.info(f"[DIAG] _get_cached_references: {work_id} NOT in works table — cannot cache/read refs")
+        logger.warning(f"[DIAG] _get_cached_references: {work_id} NOT in works table — cannot cache/read refs")
         return None
 
     refs = row["referenced_works_json"]
@@ -129,7 +129,7 @@ def _get_cached_references(conn: Connection, work_id: str) -> Optional[List[str]
 
 def _cache_references(conn: Connection, work_id: str, ref_ids: List[str]) -> None:
     """Store referenced work IDs in the works table."""
-    logger.info(f"[DIAG] _cache_references: attempting to cache {len(ref_ids)} refs for {work_id}")
+    logger.warning(f"[DIAG] _cache_references: attempting to cache {len(ref_ids)} refs for {work_id}")
     try:
         conn.execute(
             text("""
@@ -153,12 +153,12 @@ def _fetch_references_from_openalex(work_id: str) -> Tuple[List[str], Optional[s
     for attempt in range(MAX_RETRIES):
         try:
             url = f"https://api.openalex.org/works/{work_id}"
-            logger.info(f"[DIAG] _fetch_references_from_openalex: calling {url} (work_id={work_id})")
+            logger.warning(f"[DIAG] _fetch_references_from_openalex: calling {url} (work_id={work_id})")
             params = {}
             if OPENALEX_API_KEY:
                 params["api_key"] = OPENALEX_API_KEY
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
-            logger.info(f"[DIAG] _fetch_references_from_openalex: response status={resp.status_code}")
+            logger.warning(f"[DIAG] _fetch_references_from_openalex: response status={resp.status_code}")
 
             if resp.status_code == 429:
                 backoff = RETRY_BACKOFF_BASE * (2 ** attempt)
