@@ -269,24 +269,9 @@ def _calculate_map_coverage(conn: Connection, map_id: UUID) -> CoverageBreakdown
             _calculate_node_specific_contribution(node_activities)
         )
     else:
-        # Legacy fallback: count explored nodes, each = 4%
-        explored = conn.execute(
-            text("""
-                SELECT COUNT(DISTINCT mn.work_id)
-                FROM map_nodes mn
-                WHERE mn.map_id = :map_id
-                AND (
-                    EXISTS (
-                        SELECT 1 FROM node_details_cache ndc
-                        WHERE ndc.work_id = mn.work_id
-                        AND ndc.novelty_assessment IS NOT NULL
-                    )
-                )
-            """),
-            {"map_id": map_id},
-        ).scalar() or 0
-        node_specific_count = explored
-        node_specific_pct = min(explored * WEIGHT_NODE_SPECIFIC_ACTION, NODE_SPECIFIC_CAP)
+        # No activity log entries = no user actions taken = 0%
+        node_specific_count = 0
+        node_specific_pct = 0.0
 
     # Novelty count
     try:
