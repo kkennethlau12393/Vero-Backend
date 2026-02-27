@@ -225,12 +225,12 @@ MIN_LLM_RELEVANCE_THRESHOLD = 0.40
 
 # Category limits - 6 categories (5 typed + 1 overflow)
 DEFAULT_CATEGORY_LIMITS = {
-    "foundational": 10,         # +2: at-cap 48% of runs
-    "methodology": 16,          # +4: at-cap 96% — biggest gain
-    "reviews": 10,              # +2: modest bump
-    "applications": 14,         # +4: at-cap 48%, broad queries fill it
-    "textbooks": 2,             # -3: never fills (avg 0.1/5)
-    "additional_relevant": 10,  # overflow for quality papers that fail citation thresholds
+    "foundational": 12,         # was 10: at-cap 48% of runs
+    "methodology": 20,          # was 16: at-cap 96% — biggest gain
+    "reviews": 12,              # was 10: modest bump
+    "applications": 16,         # was 14: at-cap 48%, broad queries fill it
+    "textbooks": 2,             # unchanged: never fills
+    "additional_relevant": 15,  # was 10: overflow for quality papers that fail citation thresholds
 }
 
 @dataclass
@@ -274,11 +274,13 @@ def compute_dynamic_thresholds(
         return sorted_cites[idx]
 
     # All thresholds are purely percentile-based
+    # Relaxed from 60/70/85 to 75/80/90 to allow more quality papers into categories
+    # (papers already passed LLM relevance ≥0.40 + RRF ≥0.05 to reach this point)
     legendary = get_percentile(0.15)           # Top 15%
     foundational_min = get_percentile(0.25)    # Top 25%
-    methodology_min = get_percentile(0.60)     # Top 60%
-    review_min = get_percentile(0.70)          # Top 70%
-    application_min = get_percentile(0.85)     # Top 85%
+    methodology_min = get_percentile(0.75)     # Top 75% (was 60%)
+    review_min = get_percentile(0.80)          # Top 80% (was 70%)
+    application_min = get_percentile(0.90)     # Top 90% (was 85%)
 
     # Compute age threshold: 25th percentile (older than 75% of papers)
     # Using 25th instead of median prevents mature fields from having too-high thresholds
@@ -385,6 +387,9 @@ def determine_output_category(
         is_current_year = (year == current_year)
         if citations >= thresholds.application_min or (is_current_year and citations >= 0):
             return "applications"
+        # Recency exception: recent papers with good LLM relevance bypass citation floors
+        elif age_years <= 3 and llm_relevance >= 0.60:
+            return "applications"
         else:
             return None
 
@@ -396,6 +401,9 @@ def determine_output_category(
         elif age_years <= 2 and citations >= 3:
             return "methodology"
         elif age_years <= 4 and citations >= 8:
+            return "methodology"
+        # Recency exception: recent papers with good LLM relevance bypass citation floors
+        elif age_years <= 3 and llm_relevance >= 0.60:
             return "methodology"
         else:
             return None
