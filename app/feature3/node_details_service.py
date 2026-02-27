@@ -470,14 +470,11 @@ def _extract_keywords_from_abstract(abstract: Optional[str]) -> List[str]:
 
 def _fetch_external_work_data(work_id: str) -> Optional[Dict[str, Any]]:
     """Fetch work metadata from S2/ArXiv APIs for non-OpenAlex IDs."""
-    logger.warning(f"[DIAG] _fetch_external_work_data: fetching metadata for {work_id}")
     from app.feature1.citation_map_service import fetch_seed_paper_details
 
     data = fetch_seed_paper_details(work_id)
     if not data:
-        logger.warning(f"[DIAG] _fetch_external_work_data: fetch_seed_paper_details returned None for {work_id}")
         return None
-    logger.warning(f"[DIAG] _fetch_external_work_data: got data for {work_id}: title={data.get('title', 'N/A')[:60]}")
 
     return {
         "work_id": data.get("work_id", work_id),
@@ -515,15 +512,10 @@ def load_work_data(conn: Connection, work_id: str) -> Optional[Dict[str, Any]]:
     ).mappings().first()
 
     if not row:
-        logger.warning(f"[DIAG] load_work_data: {work_id} NOT in works table. Prefix check: S2={work_id.startswith('S2:')}, AX={work_id.startswith('AX:')}")
         # Fallback: fetch from external API for non-OpenAlex IDs
         if work_id.startswith("S2:") or work_id.startswith("AX:"):
-            ext_data = _fetch_external_work_data(work_id)
-            logger.warning(f"[DIAG] load_work_data: external fallback for {work_id} returned: {ext_data is not None} (title={ext_data.get('title') if ext_data else 'N/A'})")
-            return ext_data
+            return _fetch_external_work_data(work_id)
         return None
-    else:
-        logger.warning(f"[DIAG] load_work_data: {work_id} FOUND in works table (title={row['title'][:60] if row['title'] else 'N/A'})")
 
     return {
         "work_id": row["work_id"],
@@ -1709,8 +1701,6 @@ def get_node_details(
     if not map_id and not rank_job_id:
         raise ValueError("Either map_id or rank_job_id is required")
 
-    logger.warning(f"[DIAG] get_node_details: work_id={work_id}, map_id={map_id}, rank_job_id={rank_job_id}, include_novelty={include_novelty}")
-
     with engine.connect() as conn:
         if map_id:
             # Verify map exists and belongs to tenant
@@ -1764,9 +1754,7 @@ def get_node_details(
         # Load work metadata
         work_data = load_work_data(conn, work_id)
         if not work_data:
-            logger.warning(f"[DIAG] get_node_details: load_work_data returned None for {work_id} — raising work_not_found")
             raise ValueError("work_not_found")
-        logger.warning(f"[DIAG] get_node_details: work_data loaded for {work_id} — title={work_data.get('title', 'N/A')[:60]}, abstract={'YES' if work_data.get('abstract') else 'NO'}, doi={work_data.get('doi')}")
 
         # Resolve access links
         from app.settings.access_links import resolve_access_link
@@ -1783,7 +1771,6 @@ def get_node_details(
 
         # Enrich abstract if invalid (fetch from ArXiv/Semantic Scholar)
         enrichment_happened = False
-        logger.warning(f"[DIAG] get_node_details: calling ensure_valid_abstract for {work_id} (has abstract={work_data['abstract'] is not None}, len={len(work_data['abstract']) if work_data.get('abstract') else 0})")
         enriched_abstract, abstract_source = ensure_valid_abstract(
             conn,
             work_id=work_id,
@@ -1793,7 +1780,6 @@ def get_node_details(
             doi=work_data.get("doi"),
             arxiv_id=work_data.get("arxiv_id"),
         )
-        logger.warning(f"[DIAG] get_node_details: ensure_valid_abstract returned source={abstract_source} for {work_id}")
         if abstract_source not in ("cached", "unavailable") and enriched_abstract:
             # Only flag enrichment if the abstract actually changed
             if enriched_abstract != work_data["abstract"]:
@@ -1803,7 +1789,6 @@ def get_node_details(
         elif abstract_source == "unavailable":
             # Abstract was invalid and no replacement found - clear it so LLM knows
             if work_data["abstract"] is not None:
-                logger.warning(f"[DIAG] get_node_details: abstract cleared to None for {work_id} (was invalid, no fallback)")
                 work_data["abstract"] = None
                 enrichment_happened = True
 
@@ -1836,7 +1821,6 @@ def get_node_details(
 
         # Abstract is REQUIRED for novelty assessment — LLM produces garbage without it
         if include_novelty and not work_data.get("abstract"):
-            logger.warning(f"[DIAG] get_node_details: NO ABSTRACT for {work_id} — returning novelty unavailable (this is a likely failure point for S2/AX papers)")
             basic_summary = _generate_summary_from_abstract(None, work_data["title"])
             basic_keywords = _extract_keywords_from_abstract(None)
             unavailable_reason = (
@@ -1914,8 +1898,6 @@ def get_node_details(
         if not enrichment_happened and not force_regenerate:
             persisted = get_persisted_assessment(conn, work_id)
             if persisted:
-                logger.warning(f"[DIAG] get_node_details: PERSISTED assessment hit for {work_id} — has_novelty={persisted.get('novelty_assessment') is not None}, unavailable_reason={persisted.get('assessment_unavailable_reason')}")
-
                 novelty_assessment_obj = None
                 if persisted["novelty_assessment"]:
                     novelty_dict = dict(persisted["novelty_assessment"])
@@ -1972,8 +1954,6 @@ def get_node_details(
             cached = get_cached_details(conn, work_id)
 
         if cached:
-            logger.warning(f"[DIAG] get_node_details: CACHE hit for {work_id} — has_novelty={cached.get('novelty_assessment') is not None}, unavailable_reason={cached.get('assessment_unavailable_reason')}")
-
             # Handle case where novelty_assessment was not available
             novelty_assessment_obj = None
             if cached["novelty_assessment"]:
@@ -2101,9 +2081,9 @@ def get_node_details(
                 )
 
                 unavailable_reason = (
-                    "Insufficient reference data - no citations or field landmark papers "
-                    "available for comparison. Novelty assessment requires at least one "
-                    "reference or landmark paper to ground the analysis."
+                    "This paper's reference list is not available in any public academic "
+                    "database (often due to publisher restrictions), so we cannot compare "
+                    "it against prior work to assess novelty."
                 )
 
                 # Cache the unavailable result to avoid repeated expensive lookups
@@ -2515,9 +2495,9 @@ def get_novelty_for_work(
                 landmarks = fallback_landmarks
             else:
                 unavailable_reason = (
-                    "Insufficient reference data - no citations or field landmark papers "
-                    "available for comparison. Novelty assessment requires at least one "
-                    "reference or landmark paper to ground the analysis."
+                    "This paper's reference list is not available in any public academic "
+                    "database (often due to publisher restrictions), so we cannot compare "
+                    "it against prior work to assess novelty."
                 )
                 cache_details(conn, work_id, "", [], None, assessment_unavailable_reason=unavailable_reason)
                 persist_assessment(conn, work_id, None, assessment_unavailable_reason=unavailable_reason)
