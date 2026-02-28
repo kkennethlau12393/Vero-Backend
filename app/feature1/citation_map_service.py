@@ -37,6 +37,7 @@ from app.feature1.schemas import (
     CitationNode,
     SeedSelectionInfo,
 )
+from app.shared.s2_keys import get_s2_headers
 
 # Ensure .env is loaded
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
@@ -79,7 +80,6 @@ RETRY_BACKOFF_BASE = 0.5
 
 # API keys
 OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
-SEMANTIC_SCHOLAR_API_KEY = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
 
 # Search limits
 OPENALEX_LIMIT = 100
@@ -441,9 +441,7 @@ def _search_semantic_scholar(query: str, k: int = S2_LIMIT) -> List[Dict[str, An
     if not query:
         return []
 
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    headers = get_s2_headers()
 
     # Try bulk endpoint
     url = "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
@@ -686,9 +684,7 @@ def _lookup_s2_paper_by_doi(doi: str) -> Optional[Dict[str, Any]]:
     if not doi:
         return None
 
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    headers = get_s2_headers()
 
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}"
@@ -821,9 +817,7 @@ def _fetch_citing_papers_s2(identifier: str, limit: int = 50, id_type: str = "DO
     if not identifier:
         return []
 
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    headers = get_s2_headers()
 
     try:
         if id_type == "S2":
@@ -890,9 +884,7 @@ def _fetch_references_s2(identifier: str, limit: int = 50, id_type: str = "DOI")
     if not identifier:
         return []
 
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    headers = get_s2_headers()
 
     try:
         if id_type == "S2":
@@ -959,9 +951,7 @@ def _backfill_title_from_s2(doi: Optional[str]) -> Optional[str]:
     if not doi:
         return None
 
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    headers = get_s2_headers()
 
     try:
         clean_doi = doi.replace("https://doi.org/", "")
@@ -1213,9 +1203,7 @@ def fetch_references(work_id: str, limit: int = 25, fetch_limit: int = 100) -> L
 
 def _fetch_s2_paper_details(s2_id: str, work_id: str) -> Optional[Dict[str, Any]]:
     """Fetch paper details from Semantic Scholar by S2 paper ID."""
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    headers = get_s2_headers()
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
         params = {"fields": "paperId,title,year,citationCount,abstract,externalIds,authors,venue"}
@@ -1249,9 +1237,7 @@ def _fetch_arxiv_paper_details(arxiv_id: str, work_id: str) -> Optional[Dict[str
     Falls back to ArXiv Atom API only if S2 fails (strict 1 req/3s rate limit).
     """
     # Primary: S2 ArXiv bridge (fast, has citation counts and abstracts)
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    headers = get_s2_headers()
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}"
         params = {"fields": "paperId,title,year,citationCount,abstract,externalIds,authors,venue"}
@@ -1547,9 +1533,7 @@ def _batch_resolve_s2_ids(papers_to_resolve: List[Dict[str, Any]]) -> Dict[str, 
     if not papers_to_resolve:
         return {}
 
-    headers = {"Content-Type": "application/json"}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    headers = {"Content-Type": "application/json", **get_s2_headers()}
 
     result: Dict[str, str] = {}
 
@@ -1644,9 +1628,7 @@ def _backfill_metadata_cross_source(papers: Dict[str, Dict[str, Any]]) -> int:
 
     # Batch fetch from S2 (up to 500 per call, like F2)
     if needs_backfill:
-        headers = {"Content-Type": "application/json"}
-        if SEMANTIC_SCHOLAR_API_KEY:
-            headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+        headers = {"Content-Type": "application/json", **get_s2_headers()}
 
         BATCH_SIZE = 500
         for i in range(0, len(needs_backfill), BATCH_SIZE):
@@ -1698,8 +1680,7 @@ def _backfill_metadata_cross_source(papers: Dict[str, Dict[str, Any]]) -> int:
         s2_id = wid[3:]
         try:
             url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
-            resp = _s2_get_with_retry(url, params={"fields": "abstract,authors,venue"}, headers={
-                "x-api-key": SEMANTIC_SCHOLAR_API_KEY} if SEMANTIC_SCHOLAR_API_KEY else {}, timeout=10)
+            resp = _s2_get_with_retry(url, params={"fields": "abstract,authors,venue"}, headers=get_s2_headers(), timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
                 paper = papers[wid]
@@ -1782,9 +1763,7 @@ def _expand_citation_network(
         # ArXiv seed: resolve via S2 ArXiv bridge to get S2 paper ID
         arxiv_id = seed_work_id[3:]
         seed_s2_id = None
-        _s2_hdrs = {}
-        if SEMANTIC_SCHOLAR_API_KEY:
-            _s2_hdrs["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+        _s2_hdrs = get_s2_headers()
         try:
             _ax_resp = _s2_get_with_retry(
                 f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}",
@@ -2302,9 +2281,7 @@ def _search_s2_by_title(title: str, limit: int = 5) -> List[Dict[str, Any]]:
     if not title:
         return []
 
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    headers = get_s2_headers()
 
     try:
         url = "https://api.semanticscholar.org/graph/v1/paper/search"
@@ -2353,9 +2330,7 @@ def _lookup_openalex_by_arxiv(arxiv_id: str) -> Optional[Dict[str, Any]]:
         return result
 
     # Strategy 2: S2 bridge — look up ArXiv paper in S2, get DOI, then OpenAlex
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    headers = get_s2_headers()
 
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}"
@@ -2811,9 +2786,7 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
         elif wid.startswith("S2:"):
             # Semantic Scholar
             s2_id = wid[3:]
-            s2_headers = {}
-            if SEMANTIC_SCHOLAR_API_KEY:
-                s2_headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+            s2_headers = get_s2_headers()
             try:
                 url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
                 resp = _s2_get_with_retry(url, params={"fields": "abstract"}, headers=s2_headers, timeout=10)
@@ -2827,9 +2800,7 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
         elif wid.startswith("AX:"):
             # ArXiv via S2 bridge (avoids ArXiv's 1 req/3s rate limit)
             arxiv_id = wid[3:]
-            s2_headers = {}
-            if SEMANTIC_SCHOLAR_API_KEY:
-                s2_headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+            s2_headers = get_s2_headers()
             try:
                 url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}"
                 resp = _s2_get_with_retry(url, params={"fields": "abstract"}, headers=s2_headers, timeout=10)

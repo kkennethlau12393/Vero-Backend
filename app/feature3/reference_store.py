@@ -23,11 +23,11 @@ from sqlalchemy.engine import Connection
 
 from app.feature3.abstract_enrichment import S2_RATE_LIMITER
 from app.feature3.paper_identity import decode_openalex_abstract
+from app.shared.s2_keys import get_s2_headers
 
 logger = logging.getLogger(__name__)
 
 OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
-SEMANTIC_SCHOLAR_API_KEY = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
 OPENALEX_BATCH_SIZE = 50
 OPENALEX_TIMEOUT = 15
 S2_TIMEOUT = 15
@@ -327,10 +327,6 @@ def _fetch_references_from_s2_by_id(paper_id: str) -> List[Dict[str, Any]]:
     if not paper_id:
         return []
 
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
-
     for attempt in range(MAX_RETRIES):
         try:
             S2_RATE_LIMITER.wait()
@@ -339,7 +335,7 @@ def _fetch_references_from_s2_by_id(paper_id: str) -> List[Dict[str, Any]]:
                 "fields": "paperId,title,year,citationCount,externalIds,authors",
                 "limit": 1000,
             }
-            resp = requests.get(url, params=params, headers=headers, timeout=S2_TIMEOUT)
+            resp = requests.get(url, params=params, headers=get_s2_headers(), timeout=S2_TIMEOUT)
 
             if resp.status_code == 404:
                 logger.info(f"S2 references not found for paper {paper_id}")
@@ -409,10 +405,6 @@ def _fetch_references_from_s2(doi: str) -> List[Dict[str, Any]]:
     if not doi:
         return []
 
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
-
     for attempt in range(MAX_RETRIES):
         try:
             S2_RATE_LIMITER.wait()
@@ -421,7 +413,7 @@ def _fetch_references_from_s2(doi: str) -> List[Dict[str, Any]]:
                 "fields": "paperId,title,year,citationCount,externalIds,authors",
                 "limit": 1000,
             }
-            resp = requests.get(url, params=params, headers=headers, timeout=S2_TIMEOUT)
+            resp = requests.get(url, params=params, headers=get_s2_headers(), timeout=S2_TIMEOUT)
 
             if resp.status_code == 404:
                 logger.debug(f"S2 references not found for DOI:{doi}")

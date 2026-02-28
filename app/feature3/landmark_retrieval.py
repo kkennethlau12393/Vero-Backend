@@ -24,12 +24,12 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app.feature3.paper_identity import decode_openalex_abstract
+from app.shared.s2_keys import get_s2_headers
 
 logger = logging.getLogger(__name__)
 
 # API settings
 OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
-SEMANTIC_SCHOLAR_API_KEY = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
 OPENALEX_TIMEOUT = 15
 S2_TIMEOUT = 15
 MAX_RETRIES = 3
@@ -190,11 +190,7 @@ def _search_s2_landmarks(
                 "limit": min(100, limit * 5),  # Fetch more to filter
                 "year": f"-{before_year - 1}",
             }
-            headers = {}
-            if SEMANTIC_SCHOLAR_API_KEY:
-                headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
-
-            resp = requests.get(url, params=params, headers=headers, timeout=S2_TIMEOUT)
+            resp = requests.get(url, params=params, headers=get_s2_headers(), timeout=S2_TIMEOUT)
 
             if resp.status_code == 429:
                 backoff = 2.0 * (2 ** attempt)

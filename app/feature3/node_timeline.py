@@ -25,12 +25,12 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app.feature3.paper_cache import get_citing_papers
+from app.shared.s2_keys import get_s2_headers
 
 logger = logging.getLogger(__name__)
 
 MAX_CITING_PAPERS = 20  # Limit for timeline (more than grounding supplement)
 
-SEMANTIC_SCHOLAR_API_KEY = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
 OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY", "")
 
 
@@ -203,10 +203,6 @@ def _fetch_citing_papers_s2(doi: Optional[str], limit: int = 50) -> List[Dict[st
     if not doi:
         return []
 
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
-
     clean_doi = doi.replace("https://doi.org/", "")
     try:
         url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{clean_doi}/citations"
@@ -214,7 +210,7 @@ def _fetch_citing_papers_s2(doi: Optional[str], limit: int = 50) -> List[Dict[st
             "fields": "paperId,title,year,citationCount,externalIds,abstract,authors",
             "limit": min(limit, 1000),
         }
-        resp = requests.get(url, params=params, headers=headers, timeout=30)
+        resp = requests.get(url, params=params, headers=get_s2_headers(), timeout=30)
         if resp.status_code != 200:
             return []
 
@@ -407,21 +403,19 @@ def _fetch_s2_abstracts_batch(
     if not dois:
         return {}
 
-    headers = {"Content-Type": "application/json"}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
-
     result: Dict[str, str] = {}
 
     # S2 batch API accepts up to 500 IDs per call
     for i in range(0, len(dois), 500):
         batch = dois[i:i + 500]
         try:
+            batch_headers = {"Content-Type": "application/json"}
+            batch_headers.update(get_s2_headers())
             resp = requests.post(
                 "https://api.semanticscholar.org/graph/v1/paper/batch",
                 params={"fields": "title,abstract,externalIds"},
                 json={"ids": [f"DOI:{d}" for d in batch]},
-                headers=headers,
+                headers=batch_headers,
                 timeout=30,
             )
             if resp.status_code != 200:
@@ -450,15 +444,11 @@ def _fetch_s2_abstract_by_title(title: str) -> Optional[str]:
     if not title or len(title) < 10:
         return None
 
-    headers = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
-
     try:
         resp = requests.get(
             "https://api.semanticscholar.org/graph/v1/paper/search",
             params={"query": title, "limit": 3, "fields": "title,abstract"},
-            headers=headers,
+            headers=get_s2_headers(),
             timeout=15,
         )
         if resp.status_code != 200:

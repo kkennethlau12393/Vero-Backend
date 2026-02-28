@@ -38,6 +38,7 @@ from app.feature3.abstract_enrichment import (
     ARXIV_RATE_LIMITER,
     API_TIMEOUT as EXTERNAL_API_TIMEOUT,
 )
+from app.shared.s2_keys import get_s2_headers
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
@@ -907,11 +908,6 @@ def search_semantic_scholar_by_keywords(
     if not search_terms or len(search_terms) < 5:
         return []
 
-    headers = {}
-    s2_api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
-    if s2_api_key:
-        headers["x-api-key"] = s2_api_key
-
     # Use bulk endpoint (same as F1/F2) — better pagination and results
     url = "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
     params = {
@@ -925,13 +921,13 @@ def search_semantic_scholar_by_keywords(
     for attempt in range(MAX_RETRIES + 1):
         try:
             S2_RATE_LIMITER.wait()
-            resp = requests.get(url, params=params, headers=headers, timeout=EXTERNAL_API_TIMEOUT)
+            resp = requests.get(url, params=params, headers=get_s2_headers(), timeout=EXTERNAL_API_TIMEOUT)
 
             # 400 = query too broad for bulk, fall back to regular endpoint
             if resp.status_code == 400:
                 logger.info("S2 bulk returned 400, falling back to regular search")
                 return _search_s2_regular(
-                    search_terms, before_year, existing_titles, limit, fields_of_study, headers
+                    search_terms, before_year, existing_titles, limit, fields_of_study
                 )
 
             # 429 = rate limited, retry with exponential backoff (like F1/F2)
@@ -972,7 +968,6 @@ def _search_s2_regular(
     existing_titles: set,
     limit: int = 5,
     fields_of_study: Optional[List[str]] = None,
-    headers: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     """Fallback to regular S2 search endpoint when bulk returns 400."""
     try:
@@ -987,7 +982,7 @@ def _search_s2_regular(
         if fields_of_study:
             params["fieldsOfStudy"] = ",".join(fields_of_study)
 
-        resp = requests.get(url, params=params, headers=headers or {}, timeout=EXTERNAL_API_TIMEOUT)
+        resp = requests.get(url, params=params, headers=get_s2_headers(), timeout=EXTERNAL_API_TIMEOUT)
         if resp.status_code == 429:
             logger.warning("S2 regular search rate limited (429)")
             return []
