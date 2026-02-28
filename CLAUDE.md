@@ -1,5 +1,9 @@
 # CLAUDE.md — Alexandria Backend
 
+## Git Workflow
+
+**Always push to `dev` branch. Never push directly to `main`.** The user will merge to main manually when ready.
+
 ## Testing
 
 **Always use the existing test infrastructure.** Do not create ad-hoc test files or one-off scripts.
