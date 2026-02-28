@@ -44,6 +44,8 @@ from dotenv import load_dotenv
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app.shared.s2_keys import get_s2_headers
+
 # Ensure .env is loaded (in case this module is imported before main.py's load_dotenv)
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
@@ -207,13 +209,8 @@ def _search_semantic_scholar(query: str, k: int = SEMANTIC_SCHOLAR_LIMIT) -> Lis
     if not query or not SEMANTIC_SCHOLAR_ENABLED:
         return []
 
-    import os
-
     # Use API key if available (reduces rate limiting)
-    headers = {}
-    s2_api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
-    if s2_api_key:
-        headers["x-api-key"] = s2_api_key
+    headers = get_s2_headers()
 
     # Try bulk endpoint first
     result = _search_s2_bulk(query, k, headers)
@@ -399,12 +396,7 @@ def _search_s2_highly_cited(query: str, k: int = 50) -> List[Tuple[str, Dict[str
     if not query or not SEMANTIC_SCHOLAR_ENABLED:
         return []
 
-    import os
-
-    headers = {}
-    s2_api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
-    if s2_api_key:
-        headers["x-api-key"] = s2_api_key
+    headers = get_s2_headers()
 
     url = "https://api.semanticscholar.org/graph/v1/paper/search"
     out: List[Tuple[str, Dict[str, Any]]] = []
@@ -817,8 +809,7 @@ def _validate_and_correct_metadata(
     # S2 correction disabled due to aggressive rate limiting
     # Skip remaining suspicious papers - rely on DB corrections only
     if False:  # Disabled
-        s2_api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
-        headers = {"x-api-key": s2_api_key} if s2_api_key else {}
+        headers = get_s2_headers()
 
     for wid, title, bad_year, bad_citations in suspicious:
         # Skip if already corrected from DB
@@ -1474,8 +1465,7 @@ def _enrich_arxiv_with_citations(
     # Using internal reference counting instead for foundational paper detection
     return papers
 
-    api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
-    headers = {"x-api-key": api_key} if api_key else {}
+    headers = get_s2_headers()
 
     # Store enrichment data: arxiv_id -> {citations, openalex_id, doi, s2_id}
     enrichment_map: Dict[str, Dict[str, Any]] = {}
@@ -2059,10 +2049,8 @@ def _backfill_abstracts_from_s2(conn: Connection, work_ids: List[str]) -> int:
     if not lookup_ids:
         return 0
 
-    s2_api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
     headers = {"Content-Type": "application/json"}
-    if s2_api_key:
-        headers["x-api-key"] = s2_api_key
+    headers.update(get_s2_headers())
 
     filled = 0
     BATCH_SIZE = 500  # S2 batch endpoint max

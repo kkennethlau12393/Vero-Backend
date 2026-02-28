@@ -24,6 +24,7 @@ from sqlalchemy import text as sa_text
 from sqlalchemy.engine import Connection
 
 from app.shared.pdf_utils import download_and_extract_pdf as _download_and_extract_pdf
+from app.shared.s2_keys import get_s2_headers
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,6 @@ logger = logging.getLogger(__name__)
 
 S2_API_BASE = "https://api.semanticscholar.org/graph/v1"
 S2_FIELDS = "title,abstract,tldr,openAccessPdf,isOpenAccess,externalIds"
-S2_API_KEY_ENV = "SEMANTIC_SCHOLAR_API_KEY"
 
 API_TIMEOUT = 15
 MAX_METHODS_CHARS = 12_000  # Cap methods text at ~3000 words
@@ -215,12 +215,8 @@ def extract_methods_section(full_text: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def _s2_headers() -> Dict[str, str]:
-    """Build S2 API headers with API key if available."""
-    headers = {}
-    api_key = os.environ.get(S2_API_KEY_ENV)
-    if api_key:
-        headers["x-api-key"] = api_key
-    return headers
+    """Build S2 API headers with round-robin API key."""
+    return get_s2_headers()
 
 
 def _fetch_from_s2_by_id(

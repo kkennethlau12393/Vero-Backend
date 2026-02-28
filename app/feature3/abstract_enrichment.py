@@ -27,6 +27,7 @@ from app.feature3.paper_identity import (
     title_word_overlap,
     verify_paper_match,
 )
+from app.shared.s2_keys import get_s2_headers
 
 logger = logging.getLogger(__name__)
 
@@ -365,7 +366,7 @@ def fetch_s2_by_doi(doi: str) -> Optional[Dict[str, Any]]:
         url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}"
         params = {"fields": "title,abstract,year,externalIds"}
 
-        resp = requests.get(url, params=params, timeout=API_TIMEOUT)
+        resp = requests.get(url, params=params, headers=get_s2_headers(), timeout=API_TIMEOUT)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -404,7 +405,7 @@ def fetch_s2_by_arxiv(arxiv_id: str) -> Optional[Dict[str, Any]]:
         url = f"https://api.semanticscholar.org/graph/v1/paper/ARXIV:{arxiv_id}"
         params = {"fields": "title,abstract,year,externalIds"}
 
-        resp = requests.get(url, params=params, timeout=API_TIMEOUT)
+        resp = requests.get(url, params=params, headers=get_s2_headers(), timeout=API_TIMEOUT)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -446,7 +447,7 @@ def search_s2_by_title(title: str, max_results: int = 5) -> List[Dict[str, Any]]
             "fields": "title,abstract,year,externalIds",
         }
 
-        resp = requests.get(url, params=params, timeout=API_TIMEOUT)
+        resp = requests.get(url, params=params, headers=get_s2_headers(), timeout=API_TIMEOUT)
         resp.raise_for_status()
 
         data = resp.json()
