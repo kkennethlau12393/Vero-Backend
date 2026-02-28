@@ -7,9 +7,12 @@ to SEMANTIC_SCHOLAR_API_KEY (single key, backward compatible).
 from __future__ import annotations
 
 import itertools
+import logging
 import os
 import threading
 from typing import Dict
+
+logger = logging.getLogger(__name__)
 
 
 def _load_keys() -> list[str]:
@@ -35,6 +38,8 @@ def get_s2_headers() -> Dict[str, str]:
         return {}
     with _lock:
         key = next(_cycle)
+        idx = _keys.index(key) + 1
+    logger.warning(f"[S2-KEY] Using key {idx}/{len(_keys)} (...{key[-6:]})")
     return {"x-api-key": key}
 
 
