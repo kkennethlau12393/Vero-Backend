@@ -244,12 +244,12 @@ def invite_member(
             {"uid": uid},
         ).mappings().first()
         ws_row = conn.execute(
-            text("SELECT name FROM workspaces WHERE workspace_id = :ws"),
+            text("SELECT workspace_name FROM workspaces WHERE workspace_id = :ws"),
             {"ws": workspace_id},
         ).mappings().first()
 
         inviter_email = inviter_row["email"] if inviter_row else "A teammate"
-        workspace_name = ws_row["name"] if ws_row else "Untitled Workspace"
+        workspace_name = ws_row["workspace_name"] if ws_row else "Untitled Workspace"
 
         _send_invite_email(req.email, inviter_email, workspace_name, req.role)
 
