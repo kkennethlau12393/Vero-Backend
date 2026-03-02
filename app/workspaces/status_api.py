@@ -45,6 +45,7 @@ class WorkspaceStatusResponse(BaseModel):
     rank_job: Optional[JobStatus] = None
     citation_map_id: Optional[str] = None
     last_updated_at: Optional[str] = None
+    entry_type: str = "ranked"  # 'ranked' or 'citation'
 
 
 class BatchStatusRequest(BaseModel):
@@ -116,6 +117,13 @@ def _get_workspace_status(conn, tenant_id: UUID) -> WorkspaceStatusResponse:
         if last_updated is None or map_ts > last_updated:
             last_updated = map_ts
 
+    # Read entry_type from workspaces table
+    ws_row = conn.execute(
+        text("SELECT entry_type FROM workspaces WHERE workspace_id = :t"),
+        {"t": tenant_id},
+    ).mappings().first()
+    entry_type = ws_row["entry_type"] if ws_row else "ranked"
+
     return WorkspaceStatusResponse(
         workspace_id=str(tenant_id),
         has_ranked_list=has_ranked_list,
@@ -123,6 +131,7 @@ def _get_workspace_status(conn, tenant_id: UUID) -> WorkspaceStatusResponse:
         rank_job=rank_job,
         citation_map_id=citation_map_id,
         last_updated_at=last_updated.isoformat() if last_updated else None,
+        entry_type=entry_type,
     )
 
 
