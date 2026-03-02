@@ -114,60 +114,46 @@ def _send_invite_email(
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f7;padding:40px 0;">
-    <tr>
-      <td align="center">
-        <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-          <!-- Header -->
-          <tr>
-            <td style="background-color:#1a1a2e;padding:28px 32px;text-align:center;">
-              <span style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:0.5px;">Alexandria</span>
-            </td>
-          </tr>
-          <!-- Body -->
-          <tr>
-            <td style="background-color:#ffffff;padding:36px 32px 28px;">
-              <p style="margin:0 0 20px;font-size:16px;line-height:1.6;color:#333333;">
-                <strong>{inviter_email}</strong> invited you to collaborate on a workspace:
-              </p>
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;background-color:#f8f8fc;border-radius:6px;border-left:4px solid #1a1a2e;">
-                <tr>
-                  <td style="padding:16px 20px;">
-                    <span style="font-size:18px;font-weight:600;color:#1a1a2e;">{workspace_name}</span>
-                    <br>
-                    <span style="font-size:13px;color:#888888;text-transform:uppercase;letter-spacing:0.5px;">Role: {role}</span>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#555555;">
-                Open Alexandria to view the shared workspace and start collaborating.
-              </p>
-              <!-- CTA Button -->
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td align="center">
-                    <a href="https://www.alexandrialabs.uk/dashboard"
-                       style="display:inline-block;background-color:#1a1a2e;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;padding:14px 36px;border-radius:6px;">
-                      Open Workspace
-                    </a>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <!-- Footer -->
-          <tr>
-            <td style="background-color:#fafafa;padding:20px 32px;text-align:center;border-top:1px solid #eeeef2;">
-              <p style="margin:0;font-size:12px;color:#999999;">
-                Alexandria Labs &middot; Academic research, mapped.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
+<body style="margin:0;padding:0;background-color:#f9fafb;font-family:'Playfair Display',Georgia,Cambria,'Times New Roman',serif;-webkit-font-smoothing:antialiased;">
+  <div style="max-width:480px;margin:0 auto;padding:40px 24px;">
+
+    <div style="background-color:#ffffff !important;border-radius:16px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);padding:32px;text-align:center;">
+
+      <img src="https://www.alexandrialabs.uk/Alexandria_logo_black_no_background.png" alt="Alexandria" height="36" style="margin:0 auto 28px;" />
+
+      <h1 style="font-family:'Playfair Display',Georgia,Cambria,'Times New Roman',serif;font-size:1.875rem;font-weight:700;color:#111827 !important;margin:0 0 8px;letter-spacing:-0.025em;">
+        You're invited
+      </h1>
+
+      <p style="font-family:'Playfair Display',Georgia,Cambria,'Times New Roman',serif;font-size:1rem;color:#4b5563 !important;line-height:1.6;margin:0 0 24px;">
+        <strong style="color:#111827 !important;">{inviter_email}</strong> invited you to collaborate on a workspace.
+      </p>
+
+      <div style="background-color:#f9fafb !important;border-radius:12px;padding:20px;margin:0 0 24px;text-align:center;">
+        <p style="font-family:'Playfair Display',Georgia,Cambria,'Times New Roman',serif;font-size:1.25rem;font-weight:700;color:#111827 !important;margin:0 0 4px;">
+          {workspace_name}
+        </p>
+        <p style="font-family:'Playfair Display',Georgia,Cambria,'Times New Roman',serif;font-size:0.75rem;color:#9ca3af !important;margin:0;text-transform:uppercase;letter-spacing:0.05em;">
+          Role: {role}
+        </p>
+      </div>
+
+      <a href="https://www.alexandrialabs.uk/dashboard"
+         style="display:inline-block;background-color:#000000 !important;color:#ffffff !important;font-family:'Playfair Display',Georgia,Cambria,'Times New Roman',serif;font-size:0.875rem;font-weight:700;text-decoration:none;padding:12px 40px;border-radius:8px;">
+        Open Workspace
+      </a>
+
+      <p style="font-family:'Playfair Display',Georgia,Cambria,'Times New Roman',serif;font-size:0.75rem;color:#9ca3af !important;margin:28px 0 0;line-height:1.5;">
+        Didn't expect this invite? You can safely ignore this email.
+      </p>
+
+    </div>
+
+    <p style="font-family:'Playfair Display',Georgia,Cambria,'Times New Roman',serif;font-size:0.75rem;color:#9ca3af !important;text-align:center;margin:20px 0 0;">
+      &copy; 2026 Alexandria Limited
+    </p>
+
+  </div>
 </body>
 </html>"""
 
