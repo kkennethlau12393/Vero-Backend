@@ -6,10 +6,12 @@ Owner-only operations check workspaces.owner_user_id.
 from __future__ import annotations
 
 import logging
+import os
 from functools import lru_cache
 from typing import Optional
 from uuid import UUID
 
+import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -97,6 +99,96 @@ def _validate_role(role: str) -> None:
         raise HTTPException(status_code=400, detail="Role must be 'viewer' or 'editor'")
 
 
+def _send_invite_email(
+    to_email: str,
+    inviter_email: str,
+    workspace_name: str,
+    role: str,
+) -> None:
+    """Send workspace invite email via Resend. Best-effort — never raises."""
+    api_key = os.environ.get("RESEND_API_KEY", "")
+    if not api_key:
+        return
+
+    html = f"""\
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f7;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#1a1a2e;padding:28px 32px;text-align:center;">
+              <span style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:0.5px;">Alexandria</span>
+            </td>
+          </tr>
+          <!-- Body -->
+          <tr>
+            <td style="background-color:#ffffff;padding:36px 32px 28px;">
+              <p style="margin:0 0 20px;font-size:16px;line-height:1.6;color:#333333;">
+                <strong>{inviter_email}</strong> invited you to collaborate on a workspace:
+              </p>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;background-color:#f8f8fc;border-radius:6px;border-left:4px solid #1a1a2e;">
+                <tr>
+                  <td style="padding:16px 20px;">
+                    <span style="font-size:18px;font-weight:600;color:#1a1a2e;">{workspace_name}</span>
+                    <br>
+                    <span style="font-size:13px;color:#888888;text-transform:uppercase;letter-spacing:0.5px;">Role: {role}</span>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#555555;">
+                Open Alexandria to view the shared workspace and start collaborating.
+              </p>
+              <!-- CTA Button -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="https://www.alexandrialabs.uk/dashboard"
+                       style="display:inline-block;background-color:#1a1a2e;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;padding:14px 36px;border-radius:6px;">
+                      Open Workspace
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#fafafa;padding:20px 32px;text-align:center;border-top:1px solid #eeeef2;">
+              <p style="margin:0;font-size:12px;color:#999999;">
+                Alexandria Labs &middot; Academic research, mapped.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+    try:
+        resp = http_requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "from": "Alexandria <noreply@alexandrialabs.uk>",
+                "to": to_email,
+                "subject": f"{inviter_email} invited you to a workspace on Alexandria",
+                "html": html,
+            },
+            timeout=10,
+        )
+        if resp.status_code >= 400:
+            logger.warning("Resend API error %s: %s", resp.status_code, resp.text)
+    except Exception:
+        logger.exception("Failed to send invite email to %s", to_email)
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -145,6 +237,21 @@ def invite_member(
             {"ws": workspace_id, "uid": target_user_id, "role": req.role},
         )
         conn.commit()
+
+        # Fetch inviter email and workspace name for the invite email
+        inviter_row = conn.execute(
+            text("SELECT email FROM auth.users WHERE id = :uid"),
+            {"uid": uid},
+        ).mappings().first()
+        ws_row = conn.execute(
+            text("SELECT name FROM workspaces WHERE workspace_id = :ws"),
+            {"ws": workspace_id},
+        ).mappings().first()
+
+        inviter_email = inviter_row["email"] if inviter_row else "A teammate"
+        workspace_name = ws_row["name"] if ws_row else "Untitled Workspace"
+
+        _send_invite_email(req.email, inviter_email, workspace_name, req.role)
 
         return MemberResponse(
             user_id=str(target_user_id),
