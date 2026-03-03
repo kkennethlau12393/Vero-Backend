@@ -224,7 +224,6 @@ def build_temporal_map(
     subtopic_id: Optional[str] = None,
     topic_id: Optional[str] = None,
     scope_label: Optional[str] = None,
-    include_analytics: bool = False,
 ) -> Dict[str, Any]:
     """
     Build a temporal map from ranked query results.
@@ -235,7 +234,6 @@ def build_temporal_map(
         subtopic_id: Optional subtopic filter
         topic_id: Optional direct topic ID filter
         scope_label: Label for the scope (e.g., "Machine Learning")
-        include_analytics: Whether to include breakthrough/evolution analytics
 
     Returns:
         TemporalMapResponse dict
@@ -283,17 +281,7 @@ def build_temporal_map(
         for era in sorted(era_data.keys(), key=lambda e: get_era_bounds(e)[0]):
             sorted_eras.append(era_data[era])
 
-        # Build analytics if requested
         analytics = None
-        if include_analytics:
-            from app.feature2.temporal_analytics import analyze_temporal_map
-
-            analytics = analyze_temporal_map(
-                conn,
-                papers=papers,
-                era_data=era_data,
-                topic_id=topic_id,
-            )
 
         return {
             "rank_job_id": str(rank_job_id),

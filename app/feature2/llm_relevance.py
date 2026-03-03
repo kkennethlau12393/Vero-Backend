@@ -201,7 +201,7 @@ def score_batch(
         papers_for_prompt.append({
             "id": p["paper_id"],
             "title": p.get("title", ""),
-            "abstract": p.get("abstract", "")[:800],
+            "abstract": p.get("abstract", "")[:1000],
         })
     papers_json = json.dumps(papers_for_prompt, indent=2)
 

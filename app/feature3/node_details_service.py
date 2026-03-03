@@ -36,7 +36,6 @@ from app.feature3.schemas import (
     NodeDetailsResponse,
     NodeTimeline,
     NoveltyAssessment,
-    PaperImpactAnalysis,
     ResearchLineageNarrative,
     TimelinePaper,
     TimelineSection,
@@ -1537,18 +1536,6 @@ def _validate_llm_response(
 # _enforce_novelty_level DELETED — replaced by novelty_validation.validate_novelty_level()
 # which uses external prior art search instead of citation thresholds.
 
-
-def _build_impact_analysis_obj(impact_data: Optional[Dict[str, Any]]) -> Optional[PaperImpactAnalysis]:
-    """Convert impact_analysis dict to PaperImpactAnalysis Pydantic model. Legacy."""
-    if not impact_data:
-        return None
-    return PaperImpactAnalysis(
-        is_paradigm_shift=impact_data.get("is_paradigm_shift", False),
-        impact_score=impact_data.get("impact_score", 0.0),
-        before_approach=impact_data.get("before_approach"),
-        after_approach=impact_data.get("after_approach"),
-        shift_description=impact_data.get("shift_description"),
-    )
 
 
 def _build_narrative_obj(narrative_data: Optional[Dict[str, Any]]) -> Optional[ResearchLineageNarrative]:

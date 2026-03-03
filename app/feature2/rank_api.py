@@ -459,7 +459,6 @@ def generate_subtopics_endpoint(
 def get_temporal_map_endpoint(
     rank_job_id: UUID,
     subtopic_id: Optional[str] = None,
-    include_analytics: bool = False,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
 ):
@@ -467,21 +466,17 @@ def get_temporal_map_endpoint(
     Get a temporal map of ranked results grouped by era (decade).
 
     This endpoint builds a temporal visualization showing how papers
-    are distributed across time periods, identifying milestone papers
-    and optionally including breakthrough/evolution analytics.
+    are distributed across time periods, identifying milestone papers.
 
     Args:
         rank_job_id: ID of the rank job to visualize
         subtopic_id: Optional subtopic to filter results
-        include_analytics: If true, includes breakthrough detection and
-            evolution trend analysis (requires additional LLM calls)
     """
     try:
         result = build_temporal_map(
             engine,
             rank_job_id=rank_job_id,
             subtopic_id=subtopic_id,
-            include_analytics=include_analytics,
         )
 
         # Convert nested dicts to Pydantic models

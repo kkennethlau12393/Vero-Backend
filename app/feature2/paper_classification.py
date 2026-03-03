@@ -311,7 +311,6 @@ class HeuristicResult:
     category: Optional[PaperCategory]
     confidence: float
     needs_llm_review: bool = False
-    reason: str = ""
 
 
 def classify_paper_heuristic(work: WorkForMap) -> Tuple[Optional[PaperClassification], bool]:
@@ -484,10 +483,9 @@ or does it APPLY existing theory to a specific domain?"
 For each paper, return:
 - category: "foundational", "applied", "methodological", or "specific_topics"
 - confidence: 0.0-1.0
-- reason: brief explanation of why (1 sentence)
 
 Return ONLY a JSON object.
-Example: {{"W123": {{"category": "applied", "confidence": 0.85, "reason": "Domain-specific textbook for geotechnical engineering"}}}}
+Example: {{"W123": {{"category": "applied", "confidence": 0.85}}}}
 
 Papers to classify:
 {papers_json}"""
@@ -517,14 +515,12 @@ Papers to classify:
                     if isinstance(data, dict):
                         cat = data.get("category", "").lower()
                         conf = data.get("confidence", 0.7)
-                        reason = data.get("reason", "")
                         if cat in valid_categories:
                             validated[pid] = {
                                 "category": cat,
                                 "confidence": max(0.0, min(1.0, float(conf))),
-                                "reason": reason,
                             }
-                            logger.debug(f"Borderline LLM: {pid} -> {cat} ({reason})")
+                            logger.debug(f"Borderline LLM: {pid} -> {cat}")
                 return validated
 
             return {}
