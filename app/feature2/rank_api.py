@@ -611,6 +611,7 @@ def rank_novelty_endpoint(
     force_regenerate: bool = False,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """
     Run novelty assessment for a paper in a ranked result list.
@@ -624,6 +625,10 @@ def rank_novelty_endpoint(
     """
     try:
         from sqlalchemy import text as sql_text
+
+        if user_id:
+            with engine.connect() as conn:
+                require_credits(conn, user_id, 0.25, "feature_3_novelty", {"rank_job_id": str(rank_job_id), "work_id": work_id})
 
         with engine.connect() as conn:
             # Verify rank job exists and belongs to tenant
@@ -705,6 +710,7 @@ def rank_timeline_endpoint(
     work_id: str,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """
     Generate timeline narrative for a paper in a ranked result list.
@@ -718,6 +724,10 @@ def rank_timeline_endpoint(
     try:
         import json as _json
         from sqlalchemy import text as sql_text
+
+        if user_id:
+            with engine.connect() as conn:
+                require_credits(conn, user_id, 0.25, "feature_3_timeline", {"rank_job_id": str(rank_job_id), "work_id": work_id})
 
         with engine.connect() as conn:
             # Verify rank job exists and belongs to tenant
@@ -821,6 +831,7 @@ def rank_compare_methodologies_endpoint(
     req: MethodologyCompareRequest,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """
     Compare methodologies of 2-4 papers from a rank job's results.
@@ -831,6 +842,10 @@ def rank_compare_methodologies_endpoint(
     try:
         from sqlalchemy import text as sql_text
         from app.feature4.compare_service import compare_methodologies_for_rank_job
+
+        if user_id:
+            with engine.connect() as conn:
+                require_credits(conn, user_id, 0.25, "feature_4", {"rank_job_id": str(rank_job_id)})
 
         with engine.connect() as conn:
             # Verify rank job exists and belongs to tenant
