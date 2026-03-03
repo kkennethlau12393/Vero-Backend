@@ -129,7 +129,7 @@ def _build_narrative_prompt(
 ) -> str:
     """Build the LLM prompt for main timeline narrative (pass 1, no era commentaries)."""
     year_str = f" ({year})" if year else ""
-    abstract_text = _truncate_text(abstract or "No abstract available.", 500)
+    abstract_text = abstract or "No abstract available."
 
     # Landmarks sorted chronologically
     sorted_landmarks = sorted(landmarks[:6], key=lambda p: p.get("year") or 9999)

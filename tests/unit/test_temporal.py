@@ -1,8 +1,8 @@
 """
-Unit tests for temporal_map_service.py and temporal_analytics.py — pure logic only.
+Unit tests for temporal_map_service.py — pure logic only.
 
-Tests era labelling, milestone identification, era grouping, and
-breakthrough detection from pre-computed era data (no DB, no LLM).
+Tests era labelling, milestone identification, and era grouping
+from pre-computed era data (no DB, no LLM).
 """
 from __future__ import annotations
 
@@ -14,10 +14,6 @@ from app.feature2.temporal_map_service import (
     identify_milestones,
     group_papers_by_era,
 )
-from app.feature2.temporal_analytics import (
-    detect_breakthrough_era,
-)
-
 
 # ── get_era_label ────────────────────────────────────────────────────────────
 
@@ -165,106 +161,3 @@ class TestGroupPapersByEra:
         assert era["is_breakthrough_era"] is False
 
 
-# ── detect_breakthrough_era ──────────────────────────────────────────────────
-
-@pytest.mark.unit
-class TestDetectBreakthroughEra:
-    def test_clear_breakthrough(self):
-        era_data = {
-            "1990s": {
-                "papers": [
-                    {"work_id": "W1", "cited_by_count": 50},
-                    {"work_id": "W2", "cited_by_count": 60},
-                    {"work_id": "W3", "cited_by_count": 40},
-                    {"work_id": "W4", "cited_by_count": 30},
-                    {"work_id": "W5", "cited_by_count": 20},
-                ],
-                "milestone_count": 0,
-                "start_year": 1990,
-            },
-            "2000s": {
-                "papers": [
-                    {"work_id": "W6", "cited_by_count": 5000},
-                    {"work_id": "W7", "cited_by_count": 8000},
-                    {"work_id": "W8", "cited_by_count": 3000},
-                ],
-                "milestone_count": 3,
-                "start_year": 2000,
-            },
-        }
-        result = detect_breakthrough_era(era_data)
-        assert result is not None
-        assert result["breakthrough_era"] == "2000s"
-        assert result["citation_ratio"] > 2.0
-        assert result["milestone_count"] >= 2
-
-    def test_no_breakthrough_when_similar_eras(self):
-        era_data = {
-            "1990s": {
-                "papers": [
-                    {"work_id": "W1", "cited_by_count": 100},
-                    {"work_id": "W2", "cited_by_count": 120},
-                ],
-                "milestone_count": 1,
-                "start_year": 1990,
-            },
-            "2000s": {
-                "papers": [
-                    {"work_id": "W3", "cited_by_count": 110},
-                    {"work_id": "W4", "cited_by_count": 130},
-                ],
-                "milestone_count": 1,
-                "start_year": 2000,
-            },
-        }
-        result = detect_breakthrough_era(era_data)
-        assert result is None
-
-    def test_single_era_returns_none(self):
-        era_data = {
-            "2010s": {
-                "papers": [{"work_id": "W1", "cited_by_count": 5000}],
-                "milestone_count": 1,
-                "start_year": 2010,
-            },
-        }
-        result = detect_breakthrough_era(era_data)
-        assert result is None
-
-    def test_empty_era_data(self):
-        result = detect_breakthrough_era({})
-        assert result is None
-
-    def test_unknown_era_skipped(self):
-        era_data = {
-            "Unknown": {
-                "papers": [{"work_id": "W1", "cited_by_count": 99999}],
-                "milestone_count": 1,
-                "start_year": 0,
-            },
-            "2000s": {
-                "papers": [{"work_id": "W2", "cited_by_count": 100}],
-                "milestone_count": 0,
-                "start_year": 2000,
-            },
-        }
-        result = detect_breakthrough_era(era_data)
-        # With only one non-Unknown era, not enough data
-        assert result is None
-
-    def test_breakthrough_requires_milestones(self):
-        """High citation ratio alone isn't enough — need milestone papers."""
-        era_data = {
-            "1990s": {
-                "papers": [{"work_id": "W1", "cited_by_count": 10}],
-                "milestone_count": 0,
-                "start_year": 1990,
-            },
-            "2000s": {
-                "papers": [{"work_id": "W2", "cited_by_count": 500}],
-                "milestone_count": 1,  # Only 1, need >= 2
-                "start_year": 2000,
-            },
-        }
-        result = detect_breakthrough_era(era_data)
-        assert result is None

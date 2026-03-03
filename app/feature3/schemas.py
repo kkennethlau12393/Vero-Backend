@@ -90,16 +90,6 @@ class ResearchLineageNarrative(BaseModel):
     impact_score: float = 0.0  # 0-1 citation velocity vs predecessors
 
 
-class PaperImpactAnalysis(BaseModel):
-    """Legacy: thin paradigm-shift analysis. Kept for backward compat."""
-
-    is_paradigm_shift: bool
-    impact_score: float
-    before_approach: Optional[str] = None
-    after_approach: Optional[str] = None
-    shift_description: Optional[str] = None
-
-
 class NodeTimeline(BaseModel):
     """Complete timeline for a node."""
 
@@ -112,7 +102,6 @@ class NodeTimeline(BaseModel):
     before_approach: Optional[str] = None
     after_approach: Optional[str] = None
     shift_description: Optional[str] = None
-    impact_analysis: Optional[PaperImpactAnalysis] = None  # Legacy, deprecated
 
 
 class NodeDetailsResponse(BaseModel):

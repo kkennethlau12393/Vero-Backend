@@ -1,24 +1,13 @@
 """
 Paper-level impact analytics for Feature 3.
 
-This module analyzes whether a specific paper represents a paradigm shift
-in its field by comparing methodology in papers it cites vs papers that cite it.
+Provides paper type detection (software/review) and quantitative impact scoring.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-from dotenv import load_dotenv
-from openai import OpenAI
-
-from app.feature3.json_utils import extract_json_from_llm_response
-
-load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
@@ -138,13 +127,6 @@ def _is_review_guideline_paper(title: Optional[str], abstract: Optional[str]) ->
 
     return False
 
-MAX_RETRIES = 3
-RETRY_BACKOFF_BASE = 0.5
-
-# Groq Llama 4 Maverick - fast and high quality
-MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-
 
 def _truncate_text(text_val: str, max_chars: int = 300) -> str:
     """Truncate text to max characters, preserving word boundaries."""
@@ -187,205 +169,3 @@ def calculate_impact_score(
     normalized = impact_score / (impact_score + 3.0)
 
     return round(normalized, 3)
-
-
-def _build_impact_prompt(
-    title: str,
-    abstract: Optional[str],
-    year: Optional[int],
-    references: List[Dict[str, Any]],
-    citing_papers: List[Dict[str, Any]],
-) -> str:
-    """Build the LLM prompt for impact analysis."""
-    year_str = f" ({year})" if year else ""
-    abstract_text = abstract or "No abstract available."
-
-    # Build references section (papers it cites)
-    refs_lines = []
-    for i, ref in enumerate(references[:8], 1):
-        ref_title = ref.get("title") or "Untitled"
-        ref_year = ref.get("year") or "?"
-        ref_abstract = _truncate_text(ref.get("abstract") or "", 150)
-        refs_lines.append(f"{i}. {ref_title} ({ref_year})")
-        if ref_abstract:
-            refs_lines.append(f"   {ref_abstract}")
-    refs_section = "\n".join(refs_lines) if refs_lines else "(No references available)"
-
-    # Build citing papers section (papers that cite it)
-    citing_lines = []
-    for i, citer in enumerate(citing_papers[:8], 1):
-        citer_title = citer.get("title") or "Untitled"
-        citer_year = citer.get("year") or "?"
-        citer_abstract = _truncate_text(citer.get("abstract") or "", 150)
-        citing_lines.append(f"{i}. {citer_title} ({citer_year})")
-        if citer_abstract:
-            citing_lines.append(f"   {citer_abstract}")
-    citing_section = "\n".join(citing_lines) if citing_lines else "(No citing papers available)"
-
-    prompt = f"""Analyze this paper's impact on its field.
-
-## TARGET PAPER
-Title: {title}{year_str}
-Abstract: {abstract_text}
-
-## PAPERS IT CITES (before)
-{refs_section}
-
-## PAPERS THAT CITE IT (after)
-{citing_section}
-
----
-
-First, classify the paper type. Then analyze if it caused a paradigm shift.
-
-Return JSON:
-{{
-    "paper_type": "software" | "review" | "foundational" | "empirical" | "measurement",
-    "before_approach": "Dominant methodology in papers it cites (1 sentence)",
-    "after_approach": "Dominant methodology in papers that cite it (1 sentence)",
-    "is_paradigm_shift": true | false,
-    "shift_description": "If paradigm shift, describe what changed (1 sentence). null if not a paradigm shift."
-}}
-
-Paper type definitions:
-- "software": Primarily describes a software tool, library, package, or web service (e.g., TensorFlow, BLAST, NAMD)
-- "review": Review article, meta-analysis, guideline, consensus statement, or synthesis of existing work
-- "foundational": Introduces new theory, method, algorithm, or conceptual framework
-- "empirical": Reports original experimental results, clinical trials, or observational studies
-- "measurement": Introduces or validates a measurement scale, questionnaire, or assessment instrument
-
-Paradigm shift rules:
-- ONLY "foundational" papers can be paradigm shifts
-- Software papers implement existing methods - they are NOT paradigm shifts
-- Review papers synthesize existing knowledge - they are NOT paradigm shifts
-- A paradigm shift means the field fundamentally changed HOW it approaches problems
-- NOT just "highly cited" or "important" - must change methodology
-
-Answer ONLY with the JSON object, no additional text."""
-
-    return prompt
-
-
-def analyze_paper_impact(
-    title: str,
-    abstract: Optional[str],
-    year: Optional[int],
-    cited_by_count: int,
-    references: List[Dict[str, Any]],
-    citing_papers: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    """
-    Analyze if a paper represents a paradigm shift.
-
-    Args:
-        title: Paper title
-        abstract: Paper abstract
-        year: Publication year
-        cited_by_count: Number of citations
-        references: Papers this work cites
-        citing_papers: Papers that cite this work
-
-    Returns:
-        PaperImpactAnalysis dict with:
-        - is_paradigm_shift: bool
-        - impact_score: float (0-1)
-        - before_approach: Optional[str]
-        - after_approach: Optional[str]
-        - shift_description: Optional[str]
-    """
-    # Calculate quantitative impact score
-    impact_score = calculate_impact_score(cited_by_count, references)
-
-    # Skip LLM analysis if we don't have citing papers
-    if not citing_papers:
-        return {
-            "is_paradigm_shift": False,
-            "impact_score": impact_score,
-            "paper_type": None,
-            "before_approach": None,
-            "after_approach": None,
-            "shift_description": None,
-        }
-
-    # Use LLM for paper type classification AND methodology comparison
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        logger.warning("GROQ_API_KEY not found, returning quantitative-only analysis")
-        return {
-            "is_paradigm_shift": False,
-            "impact_score": impact_score,
-            "paper_type": None,
-            "before_approach": None,
-            "after_approach": None,
-            "shift_description": None,
-        }
-
-    client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
-    prompt = _build_impact_prompt(title, abstract, year, references, citing_papers)
-
-    for attempt in range(MAX_RETRIES):
-        try:
-            resp = client.chat.completions.create(
-                model=MODEL_VERSION,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert research analyst. Return only valid JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                timeout=60.0,
-                temperature=0,
-            )
-            content = (resp.choices[0].message.content or "").strip()
-
-            result, error = extract_json_from_llm_response(content, expected_type="object")
-
-            if result is None:
-                logger.warning(f"Failed to parse impact analysis JSON: {error}")
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
-                    continue
-                break
-
-            # Get LLM's paper type classification
-            paper_type = result.get("paper_type", "foundational")
-            llm_paradigm_shift = bool(result.get("is_paradigm_shift", False))
-
-            # Only foundational papers can be paradigm shifts
-            # Software, review, measurement, and empirical papers cannot
-            is_constrained = paper_type in ("software", "review", "measurement")
-            final_paradigm_shift = llm_paradigm_shift and not is_constrained
-
-            if is_constrained and llm_paradigm_shift:
-                logger.info(f"LLM classified as {paper_type} - overriding paradigm_shift to false")
-
-            logger.info(f"Impact analysis complete: type={paper_type}, paradigm_shift={final_paradigm_shift}, score={impact_score}")
-
-            return {
-                "is_paradigm_shift": final_paradigm_shift,
-                "impact_score": impact_score,
-                "paper_type": paper_type,
-                "before_approach": result.get("before_approach"),
-                "after_approach": result.get("after_approach"),
-                "shift_description": result.get("shift_description") if final_paradigm_shift else None,
-            }
-
-        except Exception as e:
-            logger.warning(f"Impact analysis LLM call exception: {e}")
-            error_str = str(e).lower()
-            is_transient = "rate" in error_str or "timeout" in error_str or "connection" in error_str
-            if is_transient and attempt < MAX_RETRIES - 1:
-                time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
-                continue
-            break
-
-    # Fallback: quantitative-only analysis (no paper type classification available)
-    return {
-        "is_paradigm_shift": False,
-        "impact_score": impact_score,
-        "paper_type": None,
-        "before_approach": None,
-        "after_approach": None,
-        "shift_description": None,
-    }
