@@ -216,7 +216,7 @@ def infer_topic_via_llm(
 
     prompt = TOPIC_INFERENCE_PROMPT.format(
         title=title,
-        abstract=abstract_text[:1500],  # Truncate long abstracts
+        abstract=abstract_text,
     )
 
     client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)

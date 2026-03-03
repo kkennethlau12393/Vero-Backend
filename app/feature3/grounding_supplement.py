@@ -251,7 +251,7 @@ def suggest_papers_llm(
         # Use special prompt for pioneering works
         prompt = SUGGEST_PIONEERING_CONTEXT_PROMPT.format(
             title=title,
-            abstract=(abstract or "No abstract available.")[:1500],
+            abstract=abstract or "No abstract available.",
             year=year or 2024,
             field=field or "this research area",
             existing_papers=existing_str,
@@ -260,7 +260,7 @@ def suggest_papers_llm(
     elif paper_type == "landmark":
         prompt = SUGGEST_LANDMARKS_PROMPT.format(
             title=title,
-            abstract=(abstract or "No abstract available.")[:1500],
+            abstract=abstract or "No abstract available.",
             year=year or 2024,
             field=field or "this research area",
             existing_papers=existing_str,
@@ -269,7 +269,7 @@ def suggest_papers_llm(
     else:  # reference
         prompt = SUGGEST_REFS_PROMPT.format(
             title=title,
-            abstract=(abstract or "No abstract available.")[:1500],
+            abstract=abstract or "No abstract available.",
             year=year or 2024,
             existing_papers=existing_str,
             num_needed=request_count,
@@ -742,7 +742,7 @@ def _map_field_to_s2_fields(
     if title:
         text_to_analyze += title.lower() + " "
     if abstract:
-        text_to_analyze += abstract.lower()[:500]  # First 500 chars
+        text_to_analyze += abstract.lower()
 
     if text_to_analyze:
         # Check environmental/climate FIRST (important for IPCC-type reports)
@@ -857,7 +857,7 @@ def _extract_search_terms(title: str, abstract: Optional[str], field: Optional[s
     text = title
     if abstract:
         # Get first sentence of abstract (usually contains key concepts)
-        first_sentence = abstract.split('.')[0] if '.' in abstract else abstract[:200]
+        first_sentence = abstract.split('.')[0] if '.' in abstract else abstract
         text += " " + first_sentence
     elif field:
         # If no abstract, add field context for better search

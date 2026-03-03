@@ -198,7 +198,7 @@ def _build_impact_prompt(
 ) -> str:
     """Build the LLM prompt for impact analysis."""
     year_str = f" ({year})" if year else ""
-    abstract_text = _truncate_text(abstract or "No abstract available.", 500)
+    abstract_text = abstract or "No abstract available."
 
     # Build references section (papers it cites)
     refs_lines = []
