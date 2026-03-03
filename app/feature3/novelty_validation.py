@@ -285,7 +285,7 @@ def evaluate_prior_art_overlap(
 that invalidates a novelty claim. Be critical and skeptical.
 
 TARGET PAPER: "{target_title}"
-{f'Abstract: {target_abstract[:400]}' if target_abstract else ''}
+{f'Abstract: {target_abstract}' if target_abstract else ''}
 
 CLAIMED NOVELTY: {target_whats_new}
 
