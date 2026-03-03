@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS public.credit_transactions (
 );
 CREATE INDEX IF NOT EXISTS idx_credit_tx_user ON credit_transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_billing_stripe_customer ON user_billing(stripe_customer_id);
+ALTER TABLE IF EXISTS public.user_billing
+  ADD COLUMN IF NOT EXISTS workspaces_created_count INT NOT NULL DEFAULT 0;
 """
 
 _tables_ensured = False

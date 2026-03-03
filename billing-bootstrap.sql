@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS public.user_billing (
     stripe_subscription_id text,
     subscription_status  text NOT NULL DEFAULT 'none',
     current_period_end   timestamptz,
+    workspaces_created_count INT NOT NULL DEFAULT 0,
     created_at           timestamptz NOT NULL DEFAULT now(),
     updated_at           timestamptz NOT NULL DEFAULT now()
 );
