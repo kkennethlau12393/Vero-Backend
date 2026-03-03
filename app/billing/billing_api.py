@@ -27,6 +27,7 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_PRICE_PRO = os.environ.get("STRIPE_PRICE_PRO", "")
 STRIPE_PRICE_PRO_ANNUAL = os.environ.get("STRIPE_PRICE_PRO_ANNUAL", "")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://www.alexandrialabs.uk")
 
 PRO_CREDITS = 200
 FREE_CREDITS = 10
@@ -147,8 +148,8 @@ def create_checkout(
         line_items=[{"price": price_id, "quantity": 1}],
         mode="subscription",
         allow_promotion_codes=(req.interval != "annual"),
-        success_url="https://www.alexandrialabs.uk/dashboard?checkout=success",
-        cancel_url=f"https://www.alexandrialabs.uk{cancel_path}?checkout=canceled",
+        success_url=f"{FRONTEND_URL}/dashboard?checkout=success",
+        cancel_url=f"{FRONTEND_URL}{cancel_path}?checkout=canceled",
         metadata={"user_id": str(uid)},
         subscription_data={"metadata": {"user_id": str(uid)}},
     )
@@ -417,7 +418,7 @@ def create_portal_session(
 
     session = stripe.billing_portal.Session.create(
         customer=customer_id,
-        return_url="https://www.alexandrialabs.uk/dashboard",
+        return_url=f"{FRONTEND_URL}/dashboard",
     )
 
     return PortalResponse(portal_url=session.url)
