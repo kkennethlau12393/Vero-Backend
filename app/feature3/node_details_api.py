@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.engine import Engine
 
+from app.auth.jwt_user import get_current_user_id
 from app.auth.tenant import get_tenant_id
+from app.billing.credits import require_credits
 from app.db import make_engine
 from app.feature3.node_details_service import get_node_details
 from app.feature3.schemas import NodeDetailsResponse
@@ -48,6 +51,7 @@ def get_node_details_endpoint(
     force_regenerate: bool = False,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """
     Get detailed pop-up information for a node in the citation map.
@@ -63,6 +67,17 @@ def get_node_details_endpoint(
         force_regenerate: If True, clears persisted assessment and regenerates
             via LLM. Use when the assessment version or prompts have changed.
     """
+    # Credit check: 0.25 for novelty, 0.25 for timeline (can stack)
+    if user_id:
+        cost = 0.0
+        if include_novelty:
+            cost += 0.25
+        if include_timeline:
+            cost += 0.25
+        if cost > 0:
+            with engine.connect() as conn:
+                require_credits(conn, user_id, cost, "feature_3", {"workspace_id": str(tenant_id), "work_id": work_id})
+
     try:
         result = get_node_details(
             engine,
@@ -121,6 +136,7 @@ def get_work_details_from_rank_job(
     force_regenerate: bool = False,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """
     Get detailed information for a work in a rank job's results.
@@ -128,6 +144,17 @@ def get_work_details_from_rank_job(
     Same as the map-based endpoint but accessed via rank_job_id instead of
     map_id. No connected_works (edges) since rank jobs don't have a graph.
     """
+    # Credit check: 0.25 for novelty, 0.25 for timeline (can stack)
+    if user_id:
+        cost = 0.0
+        if include_novelty:
+            cost += 0.25
+        if include_timeline:
+            cost += 0.25
+        if cost > 0:
+            with engine.connect() as conn:
+                require_credits(conn, user_id, cost, "feature_3", {"workspace_id": str(tenant_id), "work_id": work_id})
+
     try:
         result = get_node_details(
             engine,

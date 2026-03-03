@@ -23,6 +23,7 @@ dependencies = [
   "groq>=0.4",
   "PyJWT>=2.8",
   "cryptography>=42.0",
+  "stripe>=8.0",
 ]
 
 [project.optional-dependencies]

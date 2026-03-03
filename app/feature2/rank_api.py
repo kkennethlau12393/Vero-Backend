@@ -24,8 +24,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.engine import Engine
 
-from app.db import make_engine
+from app.auth.jwt_user import get_current_user_id
 from app.auth.tenant import get_tenant_id
+from app.billing.credits import require_credits
+from app.db import make_engine
 from app.feature2.schemas import (
     BreakthroughAnalysis,
     BreakthroughPaper,
@@ -103,6 +105,7 @@ def direct_rank_endpoint(
     req: DirectQueryRankRequest,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """Handle a direct ranking request using the production pipeline.
 
@@ -116,6 +119,11 @@ def direct_rank_endpoint(
     - Use /v1/rank/pdf endpoint for PDF upload
     - seed_title is deprecated but still supported for backward compatibility
     """
+    # Credit check
+    if user_id:
+        with engine.connect() as conn:
+            require_credits(conn, user_id, 2.0, "feature_2", {"workspace_id": str(tenant_id)})
+
     try:
         # Validation: exactly ONE of query_text, seed_doi, seed_work_id, seed_title
         provided_modes = sum([
@@ -229,6 +237,7 @@ async def rank_from_pdf_endpoint(
     params: Optional[str] = None,    # JSON string
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """
     Rank papers for a topic from an uploaded PDF.
@@ -240,6 +249,11 @@ async def rank_from_pdf_endpoint(
 
     Accepts same filters/params as /rank endpoint (as JSON strings).
     """
+    # Credit check
+    if user_id:
+        with engine.connect() as conn:
+            require_credits(conn, user_id, 2.0, "feature_2", {"workspace_id": str(tenant_id)})
+
     if not pdf_file.filename.lower().endswith('.pdf'):
         raise HTTPException(400, "File must be a PDF")
 
