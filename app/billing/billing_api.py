@@ -146,7 +146,7 @@ def create_checkout(
         customer=customer_id,
         line_items=[{"price": price_id, "quantity": 1}],
         mode="subscription",
-        allow_promotion_codes=True,
+        allow_promotion_codes=(req.interval != "annual"),
         success_url="https://www.alexandrialabs.uk/dashboard?checkout=success",
         cancel_url=f"https://www.alexandrialabs.uk{cancel_path}?checkout=canceled",
         metadata={"user_id": str(uid)},
