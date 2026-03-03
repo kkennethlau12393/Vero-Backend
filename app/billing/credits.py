@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -37,6 +38,8 @@ CREATE INDEX IF NOT EXISTS idx_credit_tx_user ON credit_transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_billing_stripe_customer ON user_billing(stripe_customer_id);
 ALTER TABLE IF EXISTS public.user_billing
   ADD COLUMN IF NOT EXISTS workspaces_created_count INT NOT NULL DEFAULT 0;
+ALTER TABLE IF EXISTS public.user_billing
+  ADD COLUMN IF NOT EXISTS credits_period_start TIMESTAMPTZ DEFAULT now();
 """
 
 _tables_ensured = False
@@ -79,7 +82,8 @@ def require_credits(
     # Lock the row and read current balance
     row = conn.execute(
         text("""
-            SELECT credits_remaining
+            SELECT credits_remaining, credits_monthly,
+                   credits_period_start, subscription_status, plan
             FROM user_billing
             WHERE user_id = :uid
             FOR UPDATE
@@ -87,7 +91,35 @@ def require_credits(
         {"uid": user_id},
     ).mappings().first()
 
-    balance = float(row["credits_remaining"])
+    # Lazy 30-day credit reset for active subscribers
+    period_start = row["credits_period_start"]
+    if (
+        period_start is not None
+        and row["subscription_status"] == "active"
+        and datetime.now(timezone.utc) > period_start + timedelta(days=30)
+    ):
+        monthly = float(row["credits_monthly"])
+        conn.execute(
+            text("""
+                UPDATE user_billing
+                SET credits_remaining = credits_monthly,
+                    credits_period_start = now(),
+                    updated_at = now()
+                WHERE user_id = :uid
+            """),
+            {"uid": user_id},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO credit_transactions
+                (user_id, amount, balance_after, reason, metadata)
+                VALUES (:uid, :monthly, :monthly, 'monthly_credit_reset', '{}')
+            """),
+            {"uid": user_id, "monthly": monthly},
+        )
+        balance = monthly
+    else:
+        balance = float(row["credits_remaining"])
 
     if balance < cost:
         conn.rollback()
