@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.engine import Engine
 
+from app.auth.jwt_user import get_current_user_id
 from app.auth.tenant import get_tenant_id
+from app.billing.credits import require_credits
 from app.db import make_engine
 from app.feature4.compare_service import compare_methodologies
 from app.feature4.schemas import MethodologyCompareRequest, MethodologyComparisonResponse
@@ -39,8 +42,14 @@ def compare_methodologies_endpoint(
     req: MethodologyCompareRequest,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """Compare methodologies of 2-4 papers from a citation map."""
+    # Credit check
+    if user_id:
+        with engine.connect() as conn:
+            require_credits(conn, user_id, 0.25, "feature_4", {"workspace_id": str(tenant_id)})
+
     try:
         result = compare_methodologies(
             engine=engine,

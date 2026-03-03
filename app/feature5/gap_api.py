@@ -12,7 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from app.auth.jwt_user import get_current_user_id
 from app.auth.tenant import get_tenant_id
+from app.billing.credits import require_credits
 from app.db import make_engine
 from app.feature5.activity_logger import get_activity_summary
 from app.feature5.coverage_tracker import get_gap_analysis_status, track_feature_usage
@@ -89,6 +91,7 @@ def run_gap_analysis_endpoint(
     force_refresh: bool = False,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ) -> GapAnalysisResponse:
     """
     Run gap analysis on a map.
@@ -100,6 +103,11 @@ def run_gap_analysis_endpoint(
 
     The analysis requires at least 50% coverage (unlocked status) to run.
     """
+    # Credit check
+    if user_id:
+        with engine.connect() as conn:
+            require_credits(conn, user_id, 5.0, "feature_5", {"workspace_id": str(tenant_id)})
+
     try:
         verify_map_ownership(engine, map_id, tenant_id)
 
@@ -246,6 +254,7 @@ def run_rank_gap_analysis_endpoint(
     force_refresh: bool = False,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ) -> GapAnalysisResponse:
     """
     Run gap analysis on a rank job.
@@ -255,6 +264,11 @@ def run_rank_gap_analysis_endpoint(
 
     Requires at least 50% coverage (unlocked status) to run.
     """
+    # Credit check
+    if user_id:
+        with engine.connect() as conn:
+            require_credits(conn, user_id, 5.0, "feature_5", {"workspace_id": str(tenant_id)})
+
     try:
         verify_rank_job_ownership(engine, rank_job_id, tenant_id)
 

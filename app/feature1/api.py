@@ -6,12 +6,15 @@ from __future__ import annotations
 from functools import lru_cache
 import logging
 import re
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.engine import Engine
 
+from app.auth.jwt_user import get_current_user_id
 from app.auth.tenant import get_tenant_id
+from app.billing.credits import require_credits
 from app.db import make_engine
 from app.feature1.citation_map_service import build_citation_map, get_citation_map, list_citation_maps
 from app.feature1.pdf_parser import extract_metadata_from_pdf
@@ -34,6 +37,7 @@ def build_citation_map_endpoint(
     req: CitationMapRequest,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """
     Build a citation graph around a seed paper.
@@ -47,6 +51,11 @@ def build_citation_map_endpoint(
     Returns nodes and edges of the citation graph, plus optionally
     a graph_draft_id that can be passed to /v1/maps/build.
     """
+    # Credit check
+    if user_id:
+        with engine.connect() as conn:
+            require_credits(conn, user_id, 0.5, "feature_1", {"workspace_id": str(tenant_id)})
+
     # Compatibility guard: allow older/newer clients that accidentally send work_id in seed_doi.
     if req.seed_doi and not req.seed_work_id and _WORK_ID_LIKE_PATTERN.match(req.seed_doi.strip()):
         req = req.model_copy(update={"seed_work_id": req.seed_doi.strip(), "seed_doi": None})
@@ -103,6 +112,7 @@ async def build_citation_map_from_pdf(
     create_graph_draft: bool = True,
     engine: Engine = Depends(get_engine),
     tenant_id: UUID = Depends(get_tenant_id),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """
     Build a citation graph from an uploaded PDF file.
@@ -115,6 +125,11 @@ async def build_citation_map_from_pdf(
     Returns nodes and edges of the citation graph, plus optionally
     a graph_draft_id that can be passed to /v1/maps/build.
     """
+    # Credit check
+    if user_id:
+        with engine.connect() as conn:
+            require_credits(conn, user_id, 0.5, "feature_1", {"workspace_id": str(tenant_id)})
+
     # Validate file type
     if not pdf_file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="File must be a PDF")
