@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Optional
 from uuid import UUID
@@ -380,7 +380,37 @@ def get_billing_status(
     with engine.connect() as conn:
         ensure_billing_tables(conn)
         billing = _get_or_create_billing_row(conn, uid)
-        conn.commit()
+
+        # Lazy 30-day credit reset for active subscribers
+        period_start = billing.get("credits_period_start")
+        if (
+            period_start is not None
+            and billing["subscription_status"] == "active"
+            and datetime.now(timezone.utc) > period_start + timedelta(days=30)
+        ):
+            monthly = float(billing["credits_monthly"])
+            conn.execute(
+                text("""
+                    UPDATE user_billing
+                    SET credits_remaining = credits_monthly,
+                        credits_period_start = now(),
+                        updated_at = now()
+                    WHERE user_id = :uid
+                """),
+                {"uid": uid},
+            )
+            conn.execute(
+                text("""
+                    INSERT INTO credit_transactions
+                    (user_id, amount, balance_after, reason, metadata)
+                    VALUES (:uid, :monthly, :monthly, 'monthly_credit_reset', '{}')
+                """),
+                {"uid": uid, "monthly": monthly},
+            )
+            conn.commit()
+            billing["credits_remaining"] = monthly
+        else:
+            conn.commit()
 
     period_end = billing.get("current_period_end")
     days_until = None
