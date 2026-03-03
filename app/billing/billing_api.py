@@ -26,6 +26,7 @@ router = APIRouter(prefix="/v1/billing", tags=["billing"])
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_PRICE_PRO = os.environ.get("STRIPE_PRICE_PRO", "")
+STRIPE_PRICE_PRO_ANNUAL = os.environ.get("STRIPE_PRICE_PRO_ANNUAL", "")
 
 PRO_CREDITS = 200
 FREE_CREDITS = 15
@@ -70,6 +71,7 @@ def _get_or_create_billing_row(conn, user_id: UUID) -> dict:
 class CheckoutRequest(BaseModel):
     plan: str  # 'pro'
     source: str = "dashboard"
+    interval: str = "monthly"  # 'monthly' or 'annual'
 
 
 class CheckoutResponse(BaseModel):
@@ -105,7 +107,8 @@ def create_checkout(
     if req.plan != "pro":
         raise HTTPException(status_code=400, detail="Only 'pro' plan is available")
 
-    if not STRIPE_PRICE_PRO:
+    price_id = STRIPE_PRICE_PRO_ANNUAL if req.interval == "annual" else STRIPE_PRICE_PRO
+    if not price_id:
         raise HTTPException(status_code=500, detail="Stripe price not configured")
 
     with engine.connect() as conn:
@@ -141,7 +144,7 @@ def create_checkout(
     cancel_path = "/settings" if req.source == "settings" else "/dashboard"
     session = stripe.checkout.Session.create(
         customer=customer_id,
-        line_items=[{"price": STRIPE_PRICE_PRO, "quantity": 1}],
+        line_items=[{"price": price_id, "quantity": 1}],
         mode="subscription",
         success_url="https://www.alexandrialabs.uk/dashboard?checkout=success",
         cancel_url=f"https://www.alexandrialabs.uk{cancel_path}?checkout=canceled",
