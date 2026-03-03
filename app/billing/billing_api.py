@@ -29,7 +29,7 @@ STRIPE_PRICE_PRO = os.environ.get("STRIPE_PRICE_PRO", "")
 STRIPE_PRICE_PRO_ANNUAL = os.environ.get("STRIPE_PRICE_PRO_ANNUAL", "")
 
 PRO_CREDITS = 200
-FREE_CREDITS = 15
+FREE_CREDITS = 10
 
 
 @lru_cache(maxsize=1)
