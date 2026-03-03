@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from app.auth.jwt_user import get_current_user_id
+from app.billing.credits import ensure_billing_tables
 from app.db import make_engine
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,15 @@ class MemberResponse(BaseModel):
 
 class UpdateRoleRequest(BaseModel):
     role: str  # 'viewer' or 'editor'
+
+
+class CreateWorkspaceRequest(BaseModel):
+    workspace_name: str
+
+
+class CreateWorkspaceResponse(BaseModel):
+    workspace_id: str
+    workspace_name: str
 
 
 # ---------------------------------------------------------------------------
@@ -375,3 +385,126 @@ def remove_member(
 
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Member not found")
+
+
+# ---------------------------------------------------------------------------
+# Workspace CRUD
+# ---------------------------------------------------------------------------
+
+@router.post("/create", response_model=CreateWorkspaceResponse)
+def create_workspace(
+    req: CreateWorkspaceRequest,
+    engine: Engine = Depends(get_engine),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
+):
+    """Create a new workspace. Free plan limited to 1 workspace ever."""
+    uid = _require_user(user_id)
+
+    with engine.connect() as conn:
+        ensure_billing_tables(conn)
+
+        # Upsert billing row
+        conn.execute(
+            text("""
+                INSERT INTO user_billing (user_id)
+                VALUES (:uid)
+                ON CONFLICT (user_id) DO NOTHING
+            """),
+            {"uid": uid},
+        )
+
+        row = conn.execute(
+            text("SELECT plan, workspaces_created_count FROM user_billing WHERE user_id = :uid"),
+            {"uid": uid},
+        ).mappings().first()
+
+        if row["plan"] == "free" and row["workspaces_created_count"] >= 1:
+            raise HTTPException(
+                status_code=403,
+                detail="Free plan limited to 1 workspace. Upgrade to Alexandria X for unlimited workspaces.",
+            )
+
+        # Create workspace
+        ws_row = conn.execute(
+            text("""
+                INSERT INTO workspaces (owner_user_id, workspace_name)
+                VALUES (:uid, :name)
+                RETURNING workspace_id, workspace_name
+            """),
+            {"uid": uid, "name": req.workspace_name.strip()},
+        ).mappings().first()
+
+        # Increment counter (never decremented)
+        conn.execute(
+            text("""
+                UPDATE user_billing
+                SET workspaces_created_count = workspaces_created_count + 1, updated_at = now()
+                WHERE user_id = :uid
+            """),
+            {"uid": uid},
+        )
+        conn.commit()
+
+        logger.info("Created workspace %s for user %s", ws_row["workspace_id"], uid)
+        return CreateWorkspaceResponse(
+            workspace_id=str(ws_row["workspace_id"]),
+            workspace_name=ws_row["workspace_name"],
+        )
+
+
+@router.delete("/{workspace_id}", status_code=200)
+def delete_workspace(
+    workspace_id: UUID,
+    engine: Engine = Depends(get_engine),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
+):
+    """Delete a workspace and all related data. Owner only. Does NOT decrement creation counter."""
+    uid = _require_user(user_id)
+
+    with engine.connect() as conn:
+        _require_owner(conn, workspace_id, uid)
+
+        ws_id = str(workspace_id)
+
+        # Cascade delete all related data.
+        # Tables with ON DELETE CASCADE from parent FKs are handled automatically
+        # when we delete the parent rows (maps, rank_jobs, candidate_sets).
+        # Tables without FK cascades must be deleted explicitly.
+
+        # 1. Saved papers (keyed by workspace_id)
+        conn.execute(text("DELETE FROM saved_papers WHERE workspace_id = :ws"), {"ws": workspace_id})
+
+        # 2. Methodology caches (tenant_id is text in these tables)
+        conn.execute(text("DELETE FROM methodology_comparison_cache WHERE tenant_id = :tid"), {"tid": ws_id})
+        conn.execute(text("DELETE FROM methodology_comparisons WHERE rank_job_id IN (SELECT rank_job_id::text FROM rank_jobs WHERE tenant_id = :tid)"), {"tid": workspace_id})
+
+        # 3. Research activity log
+        conn.execute(text("DELETE FROM research_activity_log WHERE tenant_id = :tid"), {"tid": workspace_id})
+
+        # 4. Citation maps
+        conn.execute(text("DELETE FROM citation_maps WHERE tenant_id = :tid"), {"tid": workspace_id})
+
+        # 5. Gap analysis (FK cascades from maps/rank_jobs, but also has tenant_id)
+        conn.execute(text("DELETE FROM gap_analysis_results WHERE tenant_id = :tid"), {"tid": workspace_id})
+        conn.execute(text("DELETE FROM gap_analysis_jobs WHERE tenant_id = :tid"), {"tid": workspace_id})
+
+        # 6. Maps (cascades: map_nodes, map_edges, gap_feature_usage)
+        conn.execute(text("DELETE FROM maps WHERE tenant_id = :tid"), {"tid": workspace_id})
+
+        # 7. Rank jobs (cascades: rank_results)
+        conn.execute(text("DELETE FROM rank_jobs WHERE tenant_id = :tid"), {"tid": workspace_id})
+
+        # 8. Graph drafts & candidate sets (cascades: candidate_set_items)
+        conn.execute(text("DELETE FROM graph_drafts WHERE tenant_id = :tid"), {"tid": workspace_id})
+        conn.execute(text("DELETE FROM candidate_sets WHERE tenant_id = :tid"), {"tid": workspace_id})
+
+        # 9. Workspace members
+        conn.execute(text("DELETE FROM workspace_members WHERE workspace_id = :ws"), {"ws": workspace_id})
+
+        # 10. Workspace itself
+        conn.execute(text("DELETE FROM workspaces WHERE workspace_id = :ws"), {"ws": workspace_id})
+
+        conn.commit()
+        logger.info("Deleted workspace %s and all related data for user %s", workspace_id, uid)
+
+    return {"status": "deleted", "workspace_id": ws_id}
