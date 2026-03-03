@@ -206,7 +206,8 @@ def _handle_checkout_completed(conn, session: dict) -> None:
     period_end = None
     if subscription_id:
         sub = stripe.Subscription.retrieve(subscription_id)
-        period_end = datetime.fromtimestamp(sub.current_period_end, tz=timezone.utc)
+        if sub.get("current_period_end"):
+            period_end = datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc)
 
     conn.execute(
         text("""
@@ -257,7 +258,7 @@ def _handle_invoice_paid(conn, invoice: dict) -> None:
 
     # Fetch updated period_end
     sub = stripe.Subscription.retrieve(subscription_id)
-    period_end = datetime.fromtimestamp(sub.current_period_end, tz=timezone.utc)
+    period_end = datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc) if sub.get("current_period_end") else None
 
     conn.execute(
         text("""
