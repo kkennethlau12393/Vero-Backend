@@ -220,8 +220,9 @@ def _handle_checkout_completed(conn, session: dict) -> None:
         text("""
             INSERT INTO user_billing (user_id, plan, credits_remaining, credits_monthly,
                                        stripe_customer_id, stripe_subscription_id,
-                                       subscription_status, current_period_end)
-            VALUES (:uid, 'pro', :credits, :monthly, :cid, :sid, 'active', :period_end)
+                                       subscription_status, current_period_end,
+                                       credits_period_start)
+            VALUES (:uid, 'pro', :credits, :monthly, :cid, :sid, 'active', :period_end, now())
             ON CONFLICT (user_id) DO UPDATE SET
                 plan = 'pro',
                 credits_remaining = :credits,
@@ -230,6 +231,7 @@ def _handle_checkout_completed(conn, session: dict) -> None:
                 stripe_subscription_id = :sid,
                 subscription_status = 'active',
                 current_period_end = :period_end,
+                credits_period_start = now(),
                 updated_at = now()
         """),
         {
@@ -270,7 +272,10 @@ def _handle_invoice_paid(conn, invoice: dict) -> None:
     conn.execute(
         text("""
             UPDATE user_billing
-            SET credits_remaining = :monthly, current_period_end = :period_end, updated_at = now()
+            SET credits_remaining = :monthly,
+                credits_period_start = now(),
+                current_period_end = :period_end,
+                updated_at = now()
             WHERE user_id = :uid
         """),
         {"uid": user_id, "monthly": monthly, "period_end": period_end},
