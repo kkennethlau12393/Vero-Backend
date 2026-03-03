@@ -69,6 +69,7 @@ def _get_or_create_billing_row(conn, user_id: UUID) -> dict:
 
 class CheckoutRequest(BaseModel):
     plan: str  # 'pro'
+    source: str = "dashboard"
 
 
 class CheckoutResponse(BaseModel):
@@ -137,12 +138,13 @@ def create_checkout(
             conn.commit()
 
     # Create checkout session
+    cancel_path = "/settings" if req.source == "settings" else "/dashboard"
     session = stripe.checkout.Session.create(
         customer=customer_id,
         line_items=[{"price": STRIPE_PRICE_PRO, "quantity": 1}],
         mode="subscription",
         success_url="https://www.alexandrialabs.uk/dashboard?checkout=success",
-        cancel_url="https://www.alexandrialabs.uk/pricing?checkout=canceled",
+        cancel_url=f"https://www.alexandrialabs.uk{cancel_path}?checkout=canceled",
         metadata={"user_id": str(uid)},
         subscription_data={"metadata": {"user_id": str(uid)}},
     )
