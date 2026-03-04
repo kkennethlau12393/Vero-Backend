@@ -40,6 +40,8 @@ ALTER TABLE IF EXISTS public.user_billing
   ADD COLUMN IF NOT EXISTS workspaces_created_count INT NOT NULL DEFAULT 0;
 ALTER TABLE IF EXISTS public.user_billing
   ADD COLUMN IF NOT EXISTS credits_period_start TIMESTAMPTZ DEFAULT now();
+ALTER TABLE IF EXISTS public.user_billing
+  ADD COLUMN IF NOT EXISTS billing_interval TEXT DEFAULT 'monthly';
 """
 
 _tables_ensured = False
@@ -83,7 +85,7 @@ def require_credits(
     row = conn.execute(
         text("""
             SELECT credits_remaining, credits_monthly,
-                   credits_period_start, subscription_status, plan
+                   credits_period_start, subscription_status, plan, billing_interval
             FROM user_billing
             WHERE user_id = :uid
             FOR UPDATE
@@ -95,7 +97,7 @@ def require_credits(
     period_start = row["credits_period_start"]
     if (
         period_start is not None
-        and row["subscription_status"] == "active"
+        and row["billing_interval"] == "annual" and row["subscription_status"] == "active"
         and datetime.now(timezone.utc) > period_start + timedelta(days=30)
     ):
         monthly = float(row["credits_monthly"])
