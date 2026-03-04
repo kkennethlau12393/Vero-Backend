@@ -216,8 +216,8 @@ def _handle_checkout_completed(conn, session: dict) -> None:
     billing_interval = "monthly"
     if subscription_id:
         sub = stripe.Subscription.retrieve(subscription_id)
-        if sub.get("current_period_end"):
-            period_end = datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc)
+        if sub["items"]["data"][0].get("current_period_end"):
+            period_end = datetime.fromtimestamp(sub["items"]["data"][0]["current_period_end"], tz=timezone.utc)
         interval = sub["items"]["data"][0]["price"]["recurring"]["interval"]
         billing_interval = "annual" if interval == "year" else "monthly"
 
@@ -274,7 +274,7 @@ def _handle_invoice_paid(conn, invoice: dict) -> None:
 
     # Fetch updated period_end
     sub = stripe.Subscription.retrieve(subscription_id)
-    period_end = datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc) if sub.get("current_period_end") else None
+    period_end = datetime.fromtimestamp(sub["items"]["data"][0]["current_period_end"], tz=timezone.utc) if sub["items"]["data"][0].get("current_period_end") else None
 
     conn.execute(
         text("""
@@ -324,8 +324,8 @@ def _handle_subscription_updated(conn, subscription: dict) -> None:
     status = subscription.get("status", "active")
 
     period_end = None
-    if subscription.get("current_period_end"):
-        period_end = datetime.fromtimestamp(subscription["current_period_end"], tz=timezone.utc)
+    if subscription["items"]["data"][0].get("current_period_end"):
+        period_end = datetime.fromtimestamp(subscription["items"]["data"][0]["current_period_end"], tz=timezone.utc)
 
     interval = subscription["items"]["data"][0]["price"]["recurring"]["interval"]
     billing_interval = "annual" if interval == "year" else "monthly"
