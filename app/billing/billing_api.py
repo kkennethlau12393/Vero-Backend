@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Optional
 from uuid import UUID
@@ -209,19 +209,23 @@ def _handle_checkout_completed(conn, session: dict) -> None:
     subscription_id = session.get("subscription")
     customer_id = session.get("customer")
 
-    # Fetch subscription details for period_end
+    # Fetch subscription details for period_end and interval
     period_end = None
+    billing_interval = "monthly"
     if subscription_id:
         sub = stripe.Subscription.retrieve(subscription_id)
         if sub.get("current_period_end"):
             period_end = datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc)
+        interval = sub["items"]["data"][0]["price"]["recurring"]["interval"]
+        billing_interval = "annual" if interval == "year" else "monthly"
 
     conn.execute(
         text("""
             INSERT INTO user_billing (user_id, plan, credits_remaining, credits_monthly,
                                        stripe_customer_id, stripe_subscription_id,
-                                       subscription_status, current_period_end)
-            VALUES (:uid, 'pro', :credits, :monthly, :cid, :sid, 'active', :period_end)
+                                       subscription_status, current_period_end,
+                                       credits_period_start, billing_interval)
+            VALUES (:uid, 'pro', :credits, :monthly, :cid, :sid, 'active', :period_end, now(), :interval)
             ON CONFLICT (user_id) DO UPDATE SET
                 plan = 'pro',
                 credits_remaining = :credits,
@@ -230,6 +234,8 @@ def _handle_checkout_completed(conn, session: dict) -> None:
                 stripe_subscription_id = :sid,
                 subscription_status = 'active',
                 current_period_end = :period_end,
+                credits_period_start = now(),
+                billing_interval = :interval,
                 updated_at = now()
         """),
         {
@@ -239,6 +245,7 @@ def _handle_checkout_completed(conn, session: dict) -> None:
             "cid": customer_id,
             "sid": subscription_id,
             "period_end": period_end,
+            "interval": billing_interval,
         },
     )
     conn.commit()
@@ -270,7 +277,10 @@ def _handle_invoice_paid(conn, invoice: dict) -> None:
     conn.execute(
         text("""
             UPDATE user_billing
-            SET credits_remaining = :monthly, current_period_end = :period_end, updated_at = now()
+            SET credits_remaining = :monthly,
+                credits_period_start = now(),
+                current_period_end = :period_end,
+                updated_at = now()
             WHERE user_id = :uid
         """),
         {"uid": user_id, "monthly": monthly, "period_end": period_end},
@@ -315,13 +325,17 @@ def _handle_subscription_updated(conn, subscription: dict) -> None:
     if subscription.get("current_period_end"):
         period_end = datetime.fromtimestamp(subscription["current_period_end"], tz=timezone.utc)
 
+    interval = subscription["items"]["data"][0]["price"]["recurring"]["interval"]
+    billing_interval = "annual" if interval == "year" else "monthly"
+
     conn.execute(
         text("""
             UPDATE user_billing
-            SET subscription_status = :status, current_period_end = :period_end, updated_at = now()
+            SET subscription_status = :status, current_period_end = :period_end,
+                billing_interval = :interval, updated_at = now()
             WHERE stripe_subscription_id = :sid
         """),
-        {"sid": subscription_id, "status": status, "period_end": period_end},
+        {"sid": subscription_id, "status": status, "period_end": period_end, "interval": billing_interval},
     )
     conn.commit()
     logger.info("Updated subscription %s status to %s", subscription_id, status)
@@ -375,7 +389,37 @@ def get_billing_status(
     with engine.connect() as conn:
         ensure_billing_tables(conn)
         billing = _get_or_create_billing_row(conn, uid)
-        conn.commit()
+
+        # Lazy 30-day credit reset for active subscribers
+        period_start = billing.get("credits_period_start")
+        if (
+            period_start is not None
+            and billing.get("billing_interval") == "annual" and billing["subscription_status"] == "active"
+            and datetime.now(timezone.utc) > period_start + timedelta(days=30)
+        ):
+            monthly = float(billing["credits_monthly"])
+            conn.execute(
+                text("""
+                    UPDATE user_billing
+                    SET credits_remaining = credits_monthly,
+                        credits_period_start = now(),
+                        updated_at = now()
+                    WHERE user_id = :uid
+                """),
+                {"uid": uid},
+            )
+            conn.execute(
+                text("""
+                    INSERT INTO credit_transactions
+                    (user_id, amount, balance_after, reason, metadata)
+                    VALUES (:uid, :monthly, :monthly, 'monthly_credit_reset', '{}')
+                """),
+                {"uid": uid, "monthly": monthly},
+            )
+            conn.commit()
+            billing["credits_remaining"] = monthly
+        else:
+            conn.commit()
 
     period_end = billing.get("current_period_end")
     days_until = None
