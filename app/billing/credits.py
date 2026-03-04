@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+
+from dateutil.relativedelta import relativedelta
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -98,7 +100,7 @@ def require_credits(
     if (
         period_start is not None
         and row["billing_interval"] == "annual" and row["subscription_status"] == "active"
-        and datetime.now(timezone.utc) > period_start + timedelta(days=30)
+        and datetime.now(timezone.utc) > period_start + relativedelta(months=1)
     ):
         monthly = float(row["credits_monthly"])
         conn.execute(
