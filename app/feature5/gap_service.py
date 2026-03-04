@@ -958,10 +958,8 @@ def create_gap_cards(
                 role=roles.get(work_id, "Supporting evidence"),
             ))
 
-        # Use LLM-generated why_it_matters for type_explanation if available,
-        # otherwise fall back to static dict
         why_it_matters = _ensure_str(gap.get("why_it_matters", ""))
-        type_explanation = "" if why_it_matters else GAP_TYPE_EXPLANATIONS.get(gap_type, "")
+        type_explanation = GAP_TYPE_EXPLANATIONS.get(gap_type, "")
 
         # Always assign sequential IDs to avoid collisions between
         # heuristic and LLM-direct gaps that both start at gap_1
