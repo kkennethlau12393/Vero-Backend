@@ -53,6 +53,9 @@ class UpdateRoleRequest(BaseModel):
 
 class CreateWorkspaceRequest(BaseModel):
     workspace_name: str
+    input_mode: str | None = None
+    input_query: str | None = None
+    entry_type: str = "ranked"
 
 
 class CreateWorkspaceResponse(BaseModel):
@@ -427,11 +430,17 @@ def create_workspace(
         # Create workspace
         ws_row = conn.execute(
             text("""
-                INSERT INTO workspaces (owner_user_id, workspace_name)
-                VALUES (:uid, :name)
+                INSERT INTO workspaces (owner_user_id, workspace_name, input_mode, input_query, entry_type)
+                VALUES (:uid, :name, :mode, :query, :entry)
                 RETURNING workspace_id, workspace_name
             """),
-            {"uid": uid, "name": req.workspace_name.strip()},
+            {
+                "uid": uid,
+                "name": req.workspace_name.strip(),
+                "mode": req.input_mode,
+                "query": req.input_query,
+                "entry": req.entry_type,
+            },
         ).mappings().first()
 
         # Increment counter (never decremented)
