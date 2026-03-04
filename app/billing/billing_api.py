@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+
+from dateutil.relativedelta import relativedelta
 from functools import lru_cache
 from typing import Optional
 from uuid import UUID
@@ -395,7 +397,7 @@ def get_billing_status(
         if (
             period_start is not None
             and billing.get("billing_interval") == "annual" and billing["subscription_status"] == "active"
-            and datetime.now(timezone.utc) > period_start + timedelta(days=30)
+            and datetime.now(timezone.utc) > period_start + relativedelta(months=1)
         ):
             monthly = float(billing["credits_monthly"])
             conn.execute(
