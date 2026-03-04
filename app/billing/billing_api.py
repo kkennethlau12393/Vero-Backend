@@ -209,20 +209,23 @@ def _handle_checkout_completed(conn, session: dict) -> None:
     subscription_id = session.get("subscription")
     customer_id = session.get("customer")
 
-    # Fetch subscription details for period_end
+    # Fetch subscription details for period_end and interval
     period_end = None
+    billing_interval = "monthly"
     if subscription_id:
         sub = stripe.Subscription.retrieve(subscription_id)
         if sub.get("current_period_end"):
             period_end = datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc)
+        interval = sub["items"]["data"][0]["price"]["recurring"]["interval"]
+        billing_interval = "annual" if interval == "year" else "monthly"
 
     conn.execute(
         text("""
             INSERT INTO user_billing (user_id, plan, credits_remaining, credits_monthly,
                                        stripe_customer_id, stripe_subscription_id,
                                        subscription_status, current_period_end,
-                                       credits_period_start)
-            VALUES (:uid, 'pro', :credits, :monthly, :cid, :sid, 'active', :period_end, now())
+                                       credits_period_start, billing_interval)
+            VALUES (:uid, 'pro', :credits, :monthly, :cid, :sid, 'active', :period_end, now(), :interval)
             ON CONFLICT (user_id) DO UPDATE SET
                 plan = 'pro',
                 credits_remaining = :credits,
@@ -232,6 +235,7 @@ def _handle_checkout_completed(conn, session: dict) -> None:
                 subscription_status = 'active',
                 current_period_end = :period_end,
                 credits_period_start = now(),
+                billing_interval = :interval,
                 updated_at = now()
         """),
         {
@@ -241,6 +245,7 @@ def _handle_checkout_completed(conn, session: dict) -> None:
             "cid": customer_id,
             "sid": subscription_id,
             "period_end": period_end,
+            "interval": billing_interval,
         },
     )
     conn.commit()
@@ -320,13 +325,17 @@ def _handle_subscription_updated(conn, subscription: dict) -> None:
     if subscription.get("current_period_end"):
         period_end = datetime.fromtimestamp(subscription["current_period_end"], tz=timezone.utc)
 
+    interval = subscription["items"]["data"][0]["price"]["recurring"]["interval"]
+    billing_interval = "annual" if interval == "year" else "monthly"
+
     conn.execute(
         text("""
             UPDATE user_billing
-            SET subscription_status = :status, current_period_end = :period_end, updated_at = now()
+            SET subscription_status = :status, current_period_end = :period_end,
+                billing_interval = :interval, updated_at = now()
             WHERE stripe_subscription_id = :sid
         """),
-        {"sid": subscription_id, "status": status, "period_end": period_end},
+        {"sid": subscription_id, "status": status, "period_end": period_end, "interval": billing_interval},
     )
     conn.commit()
     logger.info("Updated subscription %s status to %s", subscription_id, status)
@@ -385,7 +394,7 @@ def get_billing_status(
         period_start = billing.get("credits_period_start")
         if (
             period_start is not None
-            and billing["subscription_status"] == "active"
+            and billing.get("billing_interval") == "annual" and billing["subscription_status"] == "active"
             and datetime.now(timezone.utc) > period_start + timedelta(days=30)
         ):
             monthly = float(billing["credits_monthly"])
