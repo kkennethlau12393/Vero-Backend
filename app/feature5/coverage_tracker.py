@@ -39,7 +39,7 @@ METHODOLOGY_STALE_PENALTY = 0.01  # -1% per already-compared node
 METHODOLOGY_CAP = 0.30  # Max 30%
 
 # Unlock threshold
-UNLOCK_THRESHOLD = 0.45  # 45%
+UNLOCK_THRESHOLD = 0.40  # 40%
 
 
 # ============================================================================
