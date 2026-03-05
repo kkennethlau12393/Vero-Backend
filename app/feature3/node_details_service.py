@@ -25,6 +25,7 @@ from app.feature3.abstract_enrichment import ensure_valid_abstract
 from app.feature3.grounding_supplement import supplement_grounding_papers, get_field_from_topic_id
 from app.feature3.json_utils import extract_json_from_llm_response
 from app.feature3.paper_identity import title_word_overlap, content_word_overlap
+from app.common.id_mapping import IdMapper
 from app.feature3.landmark_retrieval import get_topic_landmarks
 from app.feature3.node_timeline import build_node_timeline
 from app.feature3.novelty_validation import validate_novelty_level
@@ -592,8 +593,8 @@ def _build_grounded_prompt(
     landmarks: List[Dict[str, Any]],
     cited_by_count: int = 0,
     full_text_sections: Optional[str] = None,
-) -> str:
-    """Build the LLM prompt with grounded paper context."""
+) -> tuple[str, IdMapper]:
+    """Build the LLM prompt with grounded paper context. Returns (prompt, mapper)."""
     year_str = f" ({year})" if year else ""
     # Use full abstract — we have room in 128k context
     abstract_text = abstract or "No abstract available."
@@ -628,18 +629,22 @@ Key question: Did the field fundamentally change how it operates AFTER this pape
     if full_text_sections:
         full_text_block = "\n\nFULL TEXT (extracted from PDF — use this for detailed technical analysis):\n" + full_text_sections
 
-    # Build references section
+    # Build references section with short IDs
+    ref_mapper = IdMapper("R")
+    lm_mapper = IdMapper("L")
+
     refs_section = ""
     if referenced_works:
         refs_lines = []
         for i, ref in enumerate(referenced_works[:10], 1):
+            short_id = ref_mapper.add(ref.get("work_id", f"unknown_{i}"))
             ref_title = ref.get("title") or "Untitled"
             ref_year = ref.get("year") or "?"
             ref_category = ref.get("category", "")
             category_label = f" [{ref_category}]" if ref_category else ""
             ref_abstract = _truncate_text(ref.get("abstract") or "", 600)
             refs_lines.append(
-                f"{i}. [{ref.get('work_id')}]{category_label} {ref_title} ({ref_year})"
+                f"{i}. [{short_id}]{category_label} {ref_title} ({ref_year})"
             )
             if ref_abstract:
                 refs_lines.append(f"   Abstract: {ref_abstract}")
@@ -654,6 +659,7 @@ Key question: Did the field fundamentally change how it operates AFTER this pape
     if landmarks:
         landmark_lines = []
         for i, lm in enumerate(landmarks, 1):
+            short_id = lm_mapper.add(lm.get("work_id", f"unknown_lm_{i}"))
             lm_title = lm.get("title") or "Untitled"
             lm_year = lm.get("year") or "?"
             lm_cites = lm.get("cited_by_count") or 0
@@ -661,7 +667,7 @@ Key question: Did the field fundamentally change how it operates AFTER this pape
             category_label = f" [{lm_category}]" if lm_category else ""
             lm_abstract = _truncate_text(lm.get("abstract") or "", 600)
             landmark_lines.append(
-                f"{i}. [{lm.get('work_id')}]{category_label} {lm_title} ({lm_year}, {lm_cites:,} citations)"
+                f"{i}. [{short_id}]{category_label} {lm_title} ({lm_year}, {lm_cites:,} citations)"
             )
             if lm_abstract:
                 landmark_lines.append(f"   Abstract: {lm_abstract}")
@@ -693,15 +699,15 @@ Abstract: {abstract_text}
 {landmark_instruction}
 
 ## GLOBAL CITATION RULE (applies to ALL text fields: whats_new, compared_to_prior_work, novelty_explanation)
-You may ONLY cite papers from the TWO lists above: "Papers This Work Cites (References)" AND "Landmark Papers in This Field". Both lists are equally citable. ALWAYS use their work_id format: [W2163605009].
+You may ONLY cite papers from the TWO lists above. References use short IDs [R1], [R2], etc. Landmarks use [L1], [L2], etc. ALWAYS use these exact short IDs when citing papers.
 Landmark papers are NOT just background context — they are first-class citable papers. You MUST cite landmark papers in your text fields, not just references.
 NEVER use in-paper reference numbers like [3], [28], [22] — the reader cannot look those up.
-NEVER mention papers by name alone (e.g., "ManiReg", "DeepWalk") without a work_id — if a paper is not in the lists above, do NOT cite it at all.
+NEVER mention papers by name alone (e.g., "ManiReg", "DeepWalk") without a short ID — if a paper is not in the lists above, do NOT cite it at all.
 
 ## TECHNICAL DEPTH RULE
 Each reference and landmark above includes an abstract. USE these abstracts to write technically specific comparisons.
 When describing what a grounding paper did, reference the SPECIFIC method, architecture, or finding described in its abstract — not a vague summary.
-BAD: "Prior work used graph-based methods" — GOOD: "GCN [W2163605009] introduced spectral-domain convolutions using a first-order Chebyshev approximation of graph Laplacian filters"
+BAD: "Prior work used graph-based methods" — GOOD: "GCN [R3] introduced spectral-domain convolutions using a first-order Chebyshev approximation of graph Laplacian filters"
 
 ## NOVELTY CLASSIFICATION - ANSWER THESE IN ORDER:
 
@@ -1023,7 +1029,12 @@ If your novelty_explanation says "Classified as X due to title/abstract" → REW
   - Title: "A study of Z" → Summary: "This paper demonstrates the relationship between Z components"
 - Set confidence to "low" when abstract is missing"""
 
-    return prompt
+    # Combine mappers for resolution after LLM response
+    combined_mapper = IdMapper("_")
+    combined_mapper._to_short = {**ref_mapper._to_short, **lm_mapper._to_short}
+    combined_mapper._to_real = {**ref_mapper._to_real, **lm_mapper._to_real}
+
+    return prompt, combined_mapper
 
 
 def generate_node_details_llm(
@@ -1043,7 +1054,7 @@ def generate_node_details_llm(
         return _default_response(title, referenced_works, landmarks)
 
     client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
-    prompt = _build_grounded_prompt(
+    prompt, id_mapper = _build_grounded_prompt(
         title, abstract, year, referenced_works, landmarks, cited_by_count,
         full_text_sections=full_text_sections,
     )
@@ -1056,7 +1067,7 @@ def generate_node_details_llm(
                     {
                         "role": "system",
                         "content": "You are an expert academic paper analyst. Return only valid JSON. "
-                        "ONLY cite papers from the provided reference/landmark lists using their FULL work_id (e.g., [W2163605009]). NEVER truncate or shorten work_ids. "
+                        "ONLY cite papers from the provided reference/landmark lists using their short IDs (e.g., [R1], [L3]). "
                         "NEVER use in-paper reference numbers like [3] or [28]. "
                         "NEVER cite papers not in the provided lists.",
                     },
@@ -1076,6 +1087,21 @@ def generate_node_details_llm(
                     time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
                     continue
                 break
+
+            # Resolve short IDs back to real work_ids
+            for field in ("whats_new", "compared_to_prior_work", "novelty_explanation"):
+                if field in result.get("novelty_assessment", {}):
+                    val = result["novelty_assessment"][field]
+                    if val:
+                        result["novelty_assessment"][field] = id_mapper.resolve_text(val)
+
+            # Resolve grounding_papers work_ids
+            raw_gp = result.get("novelty_assessment", {}).get("grounding_papers", [])
+            for gp in raw_gp:
+                if isinstance(gp, dict) and "work_id" in gp:
+                    resolved = id_mapper._to_real.get(gp["work_id"])
+                    if resolved:
+                        gp["work_id"] = resolved
 
             return _validate_llm_response(result, referenced_works, landmarks, target_work_id, target_title=title)
         except Exception as e:

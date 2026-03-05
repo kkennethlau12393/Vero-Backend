@@ -28,6 +28,7 @@ from openai import OpenAI
 from sqlalchemy import text as sa_text
 from sqlalchemy.engine import Connection, Engine
 
+from app.common.id_mapping import IdMapper
 from app.feature3.json_utils import extract_json_from_llm_response
 from app.feature4.citation_lineage import build_citation_lineage
 from app.feature4.paper_content import PaperContent, fetch_papers_content
@@ -393,20 +394,24 @@ EXTRACTION_SYSTEM = (
 def _build_extraction_prompt(
     papers: list[Dict[str, Any]],
     contents: list[PaperContent],
-) -> str:
-    """Build the extraction prompt for uncached papers."""
+    mapper: Optional[IdMapper] = None,
+) -> tuple[str, IdMapper]:
+    """Build the extraction prompt for uncached papers. Returns (prompt, mapper)."""
+    if mapper is None:
+        mapper = IdMapper("P")
     content_map = {c.work_id: c for c in contents}
     sections = []
 
     for i, paper in enumerate(papers, 1):
         wid = paper["work_id"]
+        short_id = mapper.add(wid)
         content = content_map.get(wid)
         text = content.text if content else (paper.get("abstract") or "")
         source = content.source_quality if content else "abstract_only"
 
         sections.append(
             f"--- PAPER {i} ---\n"
-            f"Work ID: {wid}\n"
+            f"ID: {short_id}\n"
             f"Title: {paper.get('title', 'Unknown')}\n"
             f"Year: {paper.get('year', 'Unknown')}\n"
             f"Venue: {paper.get('venue', 'Unknown')}\n"
@@ -416,7 +421,7 @@ def _build_extraction_prompt(
             f"--- END PAPER {i} ---"
         )
 
-    return (
+    prompt = (
         "Analyze the following paper(s) and extract MAXIMALLY DETAILED methodology profiles.\n"
         "These profiles will be the ONLY information used in a later comparison stage, so every "
         "technical detail matters. If a detail is in the paper, it MUST be in the profile.\n\n"
@@ -533,6 +538,7 @@ def _build_extraction_prompt(
         "  ]\n"
         "}"
     )
+    return prompt, mapper
 
 
 import re as _re
@@ -1423,7 +1429,7 @@ def _extract_fingerprints(
         for p in uncached_papers
         if p["work_id"] in content_map
     ]
-    prompt = _build_extraction_prompt(uncached_papers, uncached_contents)
+    prompt, extraction_mapper = _build_extraction_prompt(uncached_papers, uncached_contents)
 
     # Identify thin-source papers (abstract-only, short text, or review/survey)
     _review_title_re = _re.compile(
@@ -1451,7 +1457,8 @@ def _extract_fingerprints(
 
     if result and "papers" in result:
         for paper_fp in result["papers"]:
-            wid = paper_fp.get("work_id")
+            raw_wid = paper_fp.get("work_id")
+            wid = extraction_mapper._to_real.get(raw_wid, raw_wid)  # resolve short ID
             if not wid or wid not in {p["work_id"] for p in uncached_papers}:
                 continue
             fp = {
@@ -1650,17 +1657,21 @@ def _build_synthesis_prompt(
     complement_candidates: Optional[Dict[str, list[Dict[str, Any]]]] = None,
     has_survey: bool = False,
     low_overlap: bool = False,
-) -> str:
+    mapper: Optional[IdMapper] = None,
+) -> tuple[str, IdMapper]:
+    if mapper is None:
+        mapper = IdMapper("P")
     content_map = {c.work_id: c for c in contents}
 
     # Paper profiles section
     profiles = []
     for paper in papers_meta:
         wid = paper["work_id"]
+        short_id = mapper.add(wid)
         sq = content_map[wid].source_quality if wid in content_map else "abstract_only"
         fp = fingerprints.get(wid, {})
         profiles.append(
-            f"Paper ({wid}):\n"
+            f"Paper ({short_id}):\n"
             f"  Title: {paper.get('title', 'Unknown')} | "
             f"Year: {paper.get('year', 'Unknown')} | "
             f"Source: {sq}\n"
@@ -1680,7 +1691,7 @@ def _build_synthesis_prompt(
         elif paper.get("abstract"):
             text = paper["abstract"]
         if text.strip():
-            source_parts.append(f"Paper ({wid}) — {sq}:\n{text}")
+            source_parts.append(f"Paper ({mapper.short(wid)}) — {sq}:\n{text}")
     source_text_section = ""
     if source_parts:
         source_text_section = (
@@ -1695,10 +1706,13 @@ def _build_synthesis_prompt(
     # Citation relationships section
     citation_lines = []
     for dc in lineage.direct_citations:
-        citation_lines.append(f"- {dc.from_work_id} cites {dc.to_work_id}")
+        citation_lines.append(
+            f"- {mapper.get_short(dc.from_work_id, dc.from_work_id)} cites "
+            f"{mapper.get_short(dc.to_work_id, dc.to_work_id)}"
+        )
 
     for sr in lineage.shared_references:
-        citers = ", ".join(sr.cited_by)
+        citers = ", ".join(mapper.get_short(c, c) for c in sr.cited_by)
         citation_lines.append(
             f"- Shared reference: \"{sr.title}\" — cited by {citers}"
         )
@@ -1717,22 +1731,24 @@ def _build_synthesis_prompt(
             if not candidates:
                 continue
             title = next((p.get("title", "Unknown") for p in papers_meta if p["work_id"] == wid), "Unknown")
-            complement_lines.append(f"\nFor Paper [{wid}] \"{title}\":")
+            short_wid = mapper.get_short(wid, wid)
+            complement_lines.append(f"\nFor Paper [{short_wid}] \"{title}\":")
             complement_lines.append("Candidate complements (papers that address this paper's weaknesses):")
             for cand in candidates:
                 cand_wid = cand.get("work_id", "?")
+                cand_short = mapper.add(cand_wid) if cand_wid != "?" else "?"
                 cand_title = cand.get("title", "Unknown")
                 cand_year = cand.get("year", "?")
                 cand_cited = cand.get("cited_by_count", 0)
                 cand_abstract = (cand.get("abstract") or "")[:200]
                 complement_lines.append(
-                    f"- [{cand_wid}] \"{cand_title}\" ({cand_year}, {cand_cited} citations): "
+                    f"- [{cand_short}] \"{cand_title}\" ({cand_year}, {cand_cited} citations): "
                     f"{cand_abstract}..."
                 )
         complement_text = "\n".join(complement_lines) if complement_lines else ""
 
-    work_id_list = [p["work_id"] for p in papers_meta]
-    titles_map = {p["work_id"]: p.get("title", "Unknown") for p in papers_meta}
+    work_id_list = [mapper.short(p["work_id"]) for p in papers_meta]
+    titles_map = {mapper.short(p["work_id"]): p.get("title", "Unknown") for p in papers_meta}
 
     # Special instructions for edge cases
     special_instructions = ""
@@ -1761,7 +1777,7 @@ def _build_synthesis_prompt(
             "a direct comparison of outcomes\n"
         )
 
-    return (
+    prompt = (
         "=== METHODOLOGY PROFILES ===\n\n"
         + "\n\n".join(profiles)
         + source_text_section
@@ -1808,12 +1824,9 @@ def _build_synthesis_prompt(
         "gradients to flow directly through 152 layers without degradation'\n"
         "   Write about WHAT THE METHOD DOES, not about what the paper/authors do.\n"
         "7. CROSS-REFERENCE RULE: When referencing OTHER papers (in complemented_by.coverage, "
-        "recommendation.why, combination_notes), ALWAYS use the work_id.\n"
+        "recommendation.why, combination_notes), ALWAYS use their short ID (P1, P2, etc.).\n"
         "   WRONG: 'DenseNet provides feature reuse'\n"
-        "   RIGHT: '[W67890] provides direct feature reuse across all layers through dense concatenation'\n"
-        "   WORK_ID FORMAT: OpenAlex IDs start with 'W' (e.g., W2194775991). Semantic Scholar IDs "
-        "start with 'S2:' (e.g., S2:204e3073). ArXiv IDs start with 'AX:' (e.g., AX:1706.03762). "
-        "NEVER use raw arxiv IDs like 'arxiv:1706.03762' or '1706.03762' — always prefix with 'AX:'.\n"
+        "   RIGHT: '[P2] provides direct feature reuse across all layers through dense concatenation'\n"
         "8. TECHNICAL DEPTH: Every mechanism, cause, consequence, and coverage description MUST "
         "include at least ONE of: (a) a named algorithm/technique, (b) a mathematical formulation, "
         "(c) a specific quantity/metric, (d) a concrete architectural detail.\n"
@@ -2014,6 +2027,7 @@ def _build_synthesis_prompt(
         '  }\n'
         "}"
     )
+    return prompt, mapper
 
 
 def _synthesize(
@@ -2026,31 +2040,39 @@ def _synthesize(
     low_overlap: bool = False,
 ) -> Dict[str, Any]:
     """Run the synthesis LLM call."""
-    prompt = _build_synthesis_prompt(
+    prompt, mapper = _build_synthesis_prompt(
         papers_meta, fingerprints, contents, lineage, complement_candidates,
         has_survey=has_survey, low_overlap=low_overlap,
     )
     work_ids = [p["work_id"] for p in papers_meta]
 
-    # Build set of all valid complement work_ids (input + candidates)
-    valid_complement_wids = set(work_ids)
+    # Build short-ID versions for validation (LLM output uses short IDs)
+    short_work_ids = [mapper.short(wid) for wid in work_ids]
+    short_valid_complement = set(short_work_ids)
     if complement_candidates:
         for cands in complement_candidates.values():
             for cand in cands:
                 cand_wid = cand.get("work_id", "")
                 if cand_wid:
-                    valid_complement_wids.add(cand_wid)
+                    short_valid_complement.add(mapper.get_short(cand_wid, cand_wid))
+
+    # Remap fingerprints to short keys for validation grounding checks
+    short_fingerprints = {
+        mapper.get_short(wid, wid): fp for wid, fp in fingerprints.items()
+    }
 
     relaxed = has_survey or low_overlap
     result = _call_llm(
         SYNTHESIS_SYSTEM, prompt,
         validator=_validate_synthesis,
-        validator_args=(work_ids, valid_complement_wids, relaxed, fingerprints),
-        relaxed_validator_args=(work_ids, valid_complement_wids, True, fingerprints),
+        validator_args=(short_work_ids, short_valid_complement, relaxed, short_fingerprints),
+        relaxed_validator_args=(short_work_ids, short_valid_complement, True, short_fingerprints),
     )
 
     if result:
-        return result
+        # Resolve short IDs back to real work_ids
+        resolved_json = mapper.resolve_text(json.dumps(result))
+        return json.loads(resolved_json)
 
     # Default fallback
     return {
