@@ -21,7 +21,6 @@ from openai import OpenAI
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
-from app.common.id_mapping import IdMapper
 from app.feature5.coverage_tracker import (
     get_available_data_sources,
     get_gap_analysis_status,
@@ -340,7 +339,6 @@ def _gather_internal_context(
     conn: Connection,
     map_id: Optional[UUID],
     paper_data: Dict[str, Dict[str, Any]],
-    mapper: Optional[IdMapper] = None,
 ) -> str:
     """
     Gather rich internal data from methodology fingerprints, novelty
@@ -374,8 +372,7 @@ def _gather_internal_context(
                 domain = fp.get("domain", "")
                 assumptions = fp.get("assumptions", [])
                 method_type = fp.get("methodology_type", "")
-                short_id = mapper.get_short(r['work_id'], r['work_id']) if mapper else r['work_id']
-                line = f"- {short_id}: [{method_type}] {approach}"
+                line = f"- {r['work_id']}: [{method_type}] {approach}"
                 if domain:
                     line += f" | Domain: {domain}"
                 if assumptions:
@@ -404,8 +401,7 @@ def _gather_internal_context(
                 whats_new = (r["whats_new"] or "")[:120]
                 compared_to = (r["compared_to_prior_work"] or "")[:120]
                 explanation = (r["novelty_explanation"] or "")[:200]
-                short_id = mapper.get_short(r['work_id'], r['work_id']) if mapper else r['work_id']
-                line = f"- {short_id}: [{level}] {whats_new}"
+                line = f"- {r['work_id']}: [{level}] {whats_new}"
                 if compared_to:
                     line += f" (vs prior: {compared_to})"
                 if explanation:
@@ -451,9 +447,8 @@ def _gather_internal_context(
             cluster_lines = ["### Research Clusters (by primary topic)\n"]
             for tid, wids in sorted(clusters.items(), key=lambda x: -len(x[1])):
                 name = topic_names.get(tid, tid)
-                short_wids = [mapper.get_short(w, w) for w in wids[:5]] if mapper else wids[:5]
                 cluster_lines.append(
-                    f"- {name} ({len(wids)} papers): {', '.join(short_wids)}"
+                    f"- {name} ({len(wids)} papers): {', '.join(wids[:5])}"
                     + (f" + {len(wids) - 5} more" if len(wids) > 5 else "")
                 )
             sections.append("\n".join(cluster_lines))
@@ -487,9 +482,8 @@ def _gather_internal_context(
                 if isinstance(reasons, str):
                     reasons = json.loads(reasons)
                 reason_str = reasons[0][:100] if reasons else ""
-                short_id = mapper.get_short(r['work_id'], r['work_id']) if mapper else r['work_id']
                 rank_lines.append(
-                    f"- {short_id}: score={r['score']:.2f} "
+                    f"- {r['work_id']}: score={r['score']:.2f} "
                     f"(relevance={llm_rel}, impact={impact}) {reason_str}"
                 )
             sections.append("\n".join(rank_lines))
@@ -516,8 +510,7 @@ def _gather_internal_context(
                 if isinstance(keywords, str):
                     keywords = json.loads(keywords)
                 kw_str = ", ".join(keywords[:5]) if keywords else ""
-                short_id = mapper.get_short(r['work_id'], r['work_id']) if mapper else r['work_id']
-                line = f"- {short_id}: {summary}"
+                line = f"- {r['work_id']}: {summary}"
                 if kw_str:
                     line += f" [Keywords: {kw_str}]"
                 detail_lines.append(line)
@@ -548,8 +541,7 @@ def _gather_internal_context(
                 downstream = (narrative.get("downstream_impact") or "")[:150]
                 era_coms = narrative.get("era_commentaries") or []
 
-                short_id = mapper.get_short(r['work_id'], r['work_id']) if mapper else r['work_id']
-                parts = [f"- {short_id}:"]
+                parts = [f"- {r['work_id']}:"]
                 if hist:
                     parts.append(f"  Context: {hist}")
                 if contrib:
@@ -603,10 +595,9 @@ def _gather_internal_context(
                     source = "full text" if r["full_text_available"] else "abstract"
                     content = (r["methods_text"] or "")[:3000]
                     if content:
-                        short_id = mapper.get_short(r["work_id"], r["work_id"]) if mapper else r["work_id"]
                         title = paper_data.get(r["work_id"], {}).get("title", "?")[:80]
                         ft_lines.append(
-                            f"- {short_id} ({title}) [{source}]:\n{content}"
+                            f"- {r['work_id']} ({title}) [{source}]:\n{content}"
                         )
                 sections.append("\n".join(ft_lines))
     except Exception as e:
@@ -640,8 +631,7 @@ def _gather_internal_context(
                 rec = result.get("recommendation") or {}
                 rec_text = (rec.get("summary") or rec.get("recommendation") or "")[:200]
 
-                short_compared = [mapper.get_short(w, w) for w in compared_wids] if mapper else compared_wids
-                parts = [f"- Compared: {', '.join(short_compared)}"]
+                parts = [f"- Compared: {', '.join(compared_wids)}"]
                 if convergences:
                     conv_strs = [c if isinstance(c, str) else (c.get("description") or "")[:80] for c in convergences[:3]]
                     parts.append(f"  Convergences: {'; '.join(conv_strs)}")
@@ -692,10 +682,6 @@ def detect_gaps_with_llm(
     """
     client = get_groq_client()
 
-    # Create mapper for all paper IDs
-    mapper = IdMapper("P")
-    mapper.add_all(list(paper_data.keys()))
-
     node_count = len(paper_data)
 
     # Build citation summary from edges (only for map-based)
@@ -725,11 +711,10 @@ def detect_gaps_with_llm(
         i = in_degree.get(wid, 0)
         o = out_degree.get(wid, 0)
         title = paper_data[wid].get("title", "?")[:60]
-        short_id = mapper.short(wid)
         if i >= 3 and o >= 2:
-            bridge_papers.append(f"{short_id} ({title}) [in:{i}, out:{o}]")
+            bridge_papers.append(f"{wid} ({title}) [in:{i}, out:{o}]")
         elif i == 0 and o == 0 and map_id:
-            isolated_papers.append(f"{short_id} ({title})")
+            isolated_papers.append(f"{wid} ({title})")
 
     citation_lines = [
         f"Total papers: {node_count}, Total citation links: {edge_count}",
@@ -742,11 +727,9 @@ def detect_gaps_with_llm(
     citation_summary = "\n".join(citation_lines)
 
     # Gather rich internal context
-    internal_context = _gather_internal_context(conn, map_id, paper_data, mapper)
+    internal_context = _gather_internal_context(conn, map_id, paper_data)
 
-    prompt, mapper = build_direct_detection_prompt(
-        paper_data, citation_summary, internal_context, mapper
-    )
+    prompt = build_direct_detection_prompt(paper_data, citation_summary, internal_context)
 
     for attempt in range(GROQ_MAX_RETRIES):
         try:
@@ -776,16 +759,6 @@ def detect_gaps_with_llm(
 
             # Filter to accepted gaps
             accepted = [g for g in gaps if g.get("status") != "rejected"]
-
-            # Resolve short IDs back to real work_ids
-            for gap in accepted:
-                gap["evidence_work_ids"] = mapper.resolve_list(
-                    gap.get("evidence_work_ids", [])
-                )
-                for field in ("description", "suggested_direction", "why_it_matters"):
-                    if gap.get(field):
-                        gap[field] = mapper.resolve_text(gap[field])
-
             logger.info(
                 f"LLM direct detection: {len(accepted)} gaps identified "
                 f"from {node_count} papers"
@@ -846,14 +819,12 @@ def _generate_evidence_roles(
     if not work_ids:
         return {}
 
-    mapper = IdMapper("P")
     lines = []
     for wid in work_ids:
         pd = paper_data.get(wid)
         if not pd:
             continue
-        short_id = mapper.add(wid)
-        line = f"- {short_id}: {pd.get('title', 'Unknown')} ({pd.get('year', '?')})"
+        line = f"- {wid}: {pd.get('title', 'Unknown')} ({pd.get('year', '?')})"
         abstract = pd.get("abstract", "")
         if abstract:
             line += f"\n  Abstract: {abstract[:300]}"
@@ -883,7 +854,7 @@ def _generate_evidence_roles(
         content = response.choices[0].message.content or "{}"
         roles = extract_json_from_llm(content, expect_array=False)
         if isinstance(roles, dict):
-            return mapper.resolve_dict(roles)
+            return roles
     except Exception as e:
         logger.warning(f"Failed to generate evidence roles: {e}")
 
