@@ -23,6 +23,8 @@ from groq import Groq
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app.common.id_mapping import IdMapper
+
 from .work_topic_store import WorkForMap
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
@@ -125,10 +127,11 @@ def _generate_evaluation_batch(
 
     client = Groq(api_key=api_key)
 
+    mapper = IdMapper("P")
     papers_for_prompt = []
     for p in batch:
         papers_for_prompt.append({
-            "id": p["paper_id"],
+            "id": mapper.add(p["paper_id"]),
             "title": p["title"],
             "year": p.get("year"),
             "cited_by_count": p.get("cited_by_count", 0),
@@ -215,7 +218,8 @@ OUTPUT (JSON only — paper_id maps to 1 sentence):
             result = {}
             for p in batch:
                 pid = p["paper_id"]
-                eval_text = response_map.get(pid, "")
+                short_key = mapper.get_short(pid, pid)
+                eval_text = response_map.get(short_key, response_map.get(pid, ""))
                 if isinstance(eval_text, str) and eval_text.strip():
                     result[pid] = eval_text.strip()
 

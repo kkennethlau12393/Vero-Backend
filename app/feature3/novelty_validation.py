@@ -27,6 +27,7 @@ import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from app.common.id_mapping import IdMapper
 from app.feature3.grounding_supplement import _extract_search_terms
 from app.feature3.landmark_retrieval import (
     _search_openalex_topic_landmarks,
@@ -272,11 +273,13 @@ def evaluate_prior_art_overlap(
     if not prior_papers:
         return {"has_prior_art": False, "matching_paper_ids": [], "reasoning": "no_candidates"}
 
-    # Build paper list for the prompt
+    # Build paper list for the prompt with short IDs
+    mapper = IdMapper("P")
     paper_descriptions = []
     for i, p in enumerate(prior_papers[:10], 1):
+        short_id = mapper.add(p['work_id'])
         paper_descriptions.append(
-            f"[{i}] {p['work_id']} ({p.get('year', '?')}): \"{p['title']}\"\n"
+            f"[{i}] {short_id} ({p.get('year', '?')}): \"{p['title']}\"\n"
             f"    Abstract: {(p.get('abstract') or 'N/A')[:300]}"
         )
     papers_text = "\n\n".join(paper_descriptions)
@@ -327,7 +330,7 @@ Respond in JSON:
         if parsed and isinstance(parsed, dict):
             result = {
                 "has_prior_art": bool(parsed.get("has_prior_art", False)),
-                "matching_paper_ids": parsed.get("matching_paper_ids", []),
+                "matching_paper_ids": mapper.resolve_list(parsed.get("matching_paper_ids", [])),
                 "reasoning": parsed.get("reasoning", ""),
             }
             logger.info(
