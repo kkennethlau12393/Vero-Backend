@@ -1673,34 +1673,46 @@ def _backfill_metadata_cross_source(papers: Dict[str, Dict[str, Any]]) -> int:
             except Exception as e:
                 logger.warning(f"S2 metadata backfill error: {e}")
 
-    # For S2-only papers missing metadata, try individual S2 fetch
+    # For S2-only papers missing metadata, batch fetch from S2
     s2_missing = [wid for wid, p in papers.items()
                   if wid.startswith("S2:") and (not p.get("abstract") or not p.get("authors") or not p.get("venue"))]
-    for wid in s2_missing[:20]:  # Cap to avoid too many individual calls
-        s2_id = wid[3:]
+    if s2_missing:
+        s2_batch_ids = [wid[3:] for wid in s2_missing]  # raw S2 paper IDs
         try:
-            url = f"https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
-            resp = _s2_get_with_retry(url, params={"fields": "abstract,authors,venue"}, headers=get_s2_headers(), timeout=10)
+            _s2_throttle()
+            resp = requests.post(
+                "https://api.semanticscholar.org/graph/v1/paper/batch",
+                json={"ids": s2_batch_ids},
+                params={"fields": "abstract,authors,venue"},
+                headers={"Content-Type": "application/json", **get_s2_headers()},
+                timeout=30,
+            )
             if resp.status_code == 200:
                 data = resp.json()
-                paper = papers[wid]
-                if not paper.get("abstract"):
-                    abstract = data.get("abstract")
-                    if abstract:
-                        paper["abstract"] = abstract
-                        filled += 1
-                if not paper.get("authors"):
-                    s2_authors = [a.get("name") for a in data.get("authors") or [] if a.get("name")]
-                    if s2_authors:
-                        paper["authors"] = s2_authors
-                        filled += 1
-                if not paper.get("venue"):
-                    s2_venue = data.get("venue") or None
-                    if s2_venue:
-                        paper["venue"] = s2_venue
-                        filled += 1
-        except Exception:
-            pass
+                for j, paper_data in enumerate(data):
+                    if not paper_data or not isinstance(paper_data, dict):
+                        continue
+                    wid = s2_missing[j]
+                    paper = papers[wid]
+                    if not paper.get("abstract"):
+                        abstract = paper_data.get("abstract")
+                        if abstract:
+                            paper["abstract"] = abstract
+                            filled += 1
+                    if not paper.get("authors"):
+                        s2_authors = [a.get("name") for a in paper_data.get("authors") or [] if a.get("name")]
+                        if s2_authors:
+                            paper["authors"] = s2_authors
+                            filled += 1
+                    if not paper.get("venue"):
+                        s2_venue = paper_data.get("venue") or None
+                        if s2_venue:
+                            paper["venue"] = s2_venue
+                            filled += 1
+            else:
+                logger.warning(f"S2 batch backfill for S2-only papers failed: HTTP {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"S2 batch backfill error: {e}")
 
     if filled > 0:
         logger.info(f"Metadata cross-reference backfill: filled {filled} missing fields")
