@@ -20,6 +20,7 @@ from groq import Groq
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app.common.id_mapping import IdMapper
 from .work_topic_store import WorkForMap
 from .query_expansion import normalize_query_for_expansion
 
@@ -195,11 +196,12 @@ def score_batch(
     normalized_query = normalize_query_for_expansion(query_text)
     client = Groq(api_key=api_key)
 
-    # Build papers JSON for the prompt
+    # Build papers JSON for the prompt with short IDs
+    mapper = IdMapper("P")
     papers_for_prompt = []
     for p in papers:
         papers_for_prompt.append({
-            "id": p["paper_id"],
+            "id": mapper.add(p["paper_id"]),
             "title": p.get("title", ""),
             "abstract": p.get("abstract", "")[:1000],
         })
@@ -255,8 +257,8 @@ QUERY: {normalized_query}
 PAPERS:
 {papers_json}
 
-OUTPUT (JSON only):
-{{"paper_id": {{"score": NUMBER, "type": "TYPE"}}, ...}}"""
+OUTPUT (JSON only — use the paper IDs exactly as given above):
+{{"P1": {{"score": NUMBER, "type": "TYPE"}}, ...}}"""
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -299,7 +301,8 @@ OUTPUT (JSON only):
             result = {}
             for p in papers:
                 pid = p["paper_id"]
-                entry = response_map.get(pid, {})
+                short_key = mapper.get_short(pid, pid)
+                entry = response_map.get(short_key, response_map.get(pid, {}))
 
                 if isinstance(entry, (int, float)):
                     # Raw number — treat as 0-10 score

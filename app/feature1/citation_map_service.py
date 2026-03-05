@@ -2222,7 +2222,10 @@ OUTPUT a JSON object mapping each paper_id to its tier. No commentary, no reason
         try:
             response = client.chat.completions.create(
                 model="meta-llama/llama-4-maverick-17b-128e-instruct",
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": "You are a research paper classifier. Output only valid JSON. No markdown, no commentary, no code blocks. Respond in English only."},
+                    {"role": "user", "content": prompt},
+                ],
                 temperature=0.0,
                 max_tokens=4096,
                 timeout=GROQ_TIMEOUT,
@@ -2416,8 +2419,11 @@ Output ONLY a JSON object with a "papers" array. No comments, reasoning, or alte
 
     try:
         response = client.chat.completions.create(
-            model="meta-llama/llama-4-maverick-17b-128e-instruct",
-            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are a research paper classifier. Output only valid JSON. No markdown, no commentary, no code blocks. Respond in English only."},
+                {"role": "user", "content": prompt},
+            ],
             temperature=0.0,
             max_tokens=1024,
             response_format={"type": "json_object"},
@@ -3163,7 +3169,7 @@ CRITICAL: Every paper ID (0 through {len(paper_list) - 1}) must appear in exactl
             resp = client.chat.completions.create(
                 model="meta-llama/llama-4-maverick-17b-128e-instruct",
                 messages=[
-                    {"role": "system", "content": "You are a research librarian. Return only valid JSON."},
+                    {"role": "system", "content": "You are a research librarian. Return only valid JSON. Respond in English only. No markdown code blocks."},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.3,
