@@ -1,5 +1,9 @@
 # CLAUDE.md — Alexandria Backend
 
+## Plan Mode
+
+**In plan mode, NEVER skip straight to implementation — even if the change seems straightforward.** Always complete the full plan workflow (explore, design, write plan, get approval) before making any edits.
+
 ## Git Workflow
 
 **Always push to `dev` branch. Never push directly to `main`.** The user will merge to main manually when ready.
