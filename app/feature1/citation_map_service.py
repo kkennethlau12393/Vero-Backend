@@ -1853,48 +1853,67 @@ def _expand_citation_network(
     # Single batch call to resolve all S2 IDs
     hop1_s2_ids = _batch_resolve_s2_ids(papers_to_resolve)
 
-    for wid, paper_data in top_hop1:
+    def _expand_single_hop2(wid, paper_data):
+        """Expand one hop-1 paper's citations+refs from OA and S2."""
         h2_citing = []
         h2_refs = []
 
-        # Source 1: OpenAlex (if OpenAlex work_id)
+        # OA
         if wid.startswith("W"):
-            h2_citing = fetch_citing_papers(wid, limit=hop2_fetch, fetch_limit=hop2_fetch)
-            h2_refs = fetch_references(wid, limit=hop2_fetch, fetch_limit=hop2_fetch)
+            try:
+                h2_citing.extend(fetch_citing_papers(wid, limit=hop2_fetch, fetch_limit=hop2_fetch))
+            except Exception:
+                pass
+            try:
+                h2_refs.extend(fetch_references(wid, limit=hop2_fetch, fetch_limit=hop2_fetch))
+            except Exception:
+                pass
 
-        # Source 2: S2 — use pre-resolved S2 ID from batch
+        # S2
         hop1_s2_id = hop1_s2_ids.get(wid)
         hop1_doi = hop1_dois.get(wid)
-
         h2_s2_id = hop1_s2_id or hop1_doi
         h2_s2_type = "S2" if hop1_s2_id else "DOI"
         if h2_s2_id:
-            s2_h2_citing = _fetch_citing_papers_s2(h2_s2_id, limit=hop2_fetch, id_type=h2_s2_type)
-            s2_h2_refs = _fetch_references_s2(h2_s2_id, limit=hop2_fetch, id_type=h2_s2_type)
+            try:
+                s2_h2_citing = _fetch_citing_papers_s2(h2_s2_id, limit=hop2_fetch, id_type=h2_s2_type)
+                s2_h2_citing_mapped = _merge_s2_citations(
+                    s2_h2_citing, set(papers.keys()) | {p.get("work_id") for p in h2_citing}
+                )
+                h2_citing.extend(s2_h2_citing_mapped)
+            except Exception:
+                pass
+            try:
+                s2_h2_refs = _fetch_references_s2(h2_s2_id, limit=hop2_fetch, id_type=h2_s2_type)
+                s2_h2_refs_mapped = _merge_s2_citations(
+                    s2_h2_refs, set(papers.keys()) | {p.get("work_id") for p in h2_refs}
+                )
+                h2_refs.extend(s2_h2_refs_mapped)
+            except Exception:
+                pass
 
-            s2_h2_citing_mapped = _merge_s2_citations(
-                s2_h2_citing, set(papers.keys()) | {p.get("work_id") for p in h2_citing}
-            )
-            s2_h2_refs_mapped = _merge_s2_citations(
-                s2_h2_refs, set(papers.keys()) | {p.get("work_id") for p in h2_refs}
-            )
+        return wid, h2_citing, h2_refs
 
-            h2_citing.extend(s2_h2_citing_mapped)
-            h2_refs.extend(s2_h2_refs_mapped)
-
-        for p in h2_citing:
-            pid = p.get("work_id")
-            if pid and pid not in papers:
-                papers[pid] = {**p, "hop": 2, "is_seed": False}
-            if pid:
-                add_edge(pid, wid)
-
-        for p in h2_refs:
-            pid = p.get("work_id")
-            if pid and pid not in papers:
-                papers[pid] = {**p, "hop": 2, "is_seed": False}
-            if pid:
-                add_edge(wid, pid)
+    # Run hop-2 expansion in parallel (3 workers to leave S2 keys for other requests)
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {
+            executor.submit(_expand_single_hop2, wid, pd): wid
+            for wid, pd in top_hop1
+        }
+        for future in as_completed(futures):
+            wid, h2_citing, h2_refs = future.result()
+            for p in h2_citing:
+                pid = p.get("work_id")
+                if pid and pid not in papers:
+                    papers[pid] = {**p, "hop": 2, "is_seed": False}
+                if pid:
+                    add_edge(pid, wid)
+            for p in h2_refs:
+                pid = p.get("work_id")
+                if pid and pid not in papers:
+                    papers[pid] = {**p, "hop": 2, "is_seed": False}
+                if pid:
+                    add_edge(wid, pid)
 
     # Cross-reference metadata backfill: try S2 for papers missing abstracts/authors/venue
     _backfill_metadata_cross_source(papers)
