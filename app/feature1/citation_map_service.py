@@ -2205,8 +2205,8 @@ QUERY: {query}
 PAPERS:
 {papers_json}
 
-OUTPUT (JSON only, no explanation):
-{{"paper_id": "TIER", ...}}"""
+OUTPUT a JSON object mapping each paper_id to its tier. No commentary, no reasoning, no extra fields. Example format:
+{{"W1234": "HIGH", "W5678": "MEDIUM"}}"""
 
     client = Groq(api_key=api_key)
     # #region agent log
@@ -2224,8 +2224,9 @@ OUTPUT (JSON only, no explanation):
                 model="meta-llama/llama-4-maverick-17b-128e-instruct",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
-                max_tokens=2048,
+                max_tokens=4096,
                 timeout=GROQ_TIMEOUT,
+                response_format={"type": "json_object"},
             )
 
             content = response.choices[0].message.content.strip()
@@ -2408,8 +2409,8 @@ def _expand_search_queries(query: str) -> List[Dict[str, Any]]:
 
 For each paper provide: exact title, publication year, approximate citation count.
 
-Output ONLY a JSON array:
-[{{"title":"Paper Title Here","year":2017,"citations":50000}}]"""
+Output ONLY a JSON object with a "papers" array. No comments, reasoning, or alternatives inside values. Use exact paper titles.
+{{"papers":[{{"title":"Paper Title Here","year":2017,"citations":50000}}]}}"""
 
     client = Groq(api_key=api_key)
 
@@ -2418,35 +2419,24 @@ Output ONLY a JSON array:
             model="meta-llama/llama-4-maverick-17b-128e-instruct",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
-            max_tokens=500,
+            max_tokens=1024,
+            response_format={"type": "json_object"},
         )
 
         content = response.choices[0].message.content.strip()
-
-        # Extract JSON array
-        if "```" in content:
-            start = content.find("```")
-            end = content.rfind("```")
-            if start < end:
-                content = content[start:end]
-                content = content.replace("```json", "").replace("```", "").strip()
-
-        start = content.find("[")
-        end = content.rfind("]") + 1
-        if start >= 0 and end > start:
-            json_str = content[start:end]
-            papers = json.loads(json_str)
-            if isinstance(papers, list):
-                result = []
-                for p in papers[:3]:
-                    if isinstance(p, dict) and p.get("title"):
-                        result.append({
-                            "title": p.get("title"),
-                            "year": p.get("year"),
-                            "citations": p.get("citations", 0),
-                        })
-                logger.info(f"LLM expansion: {[r.get('title', '')[:40] for r in result]}")
-                return result
+        parsed = json.loads(content)
+        papers = parsed.get("papers", [])
+        if isinstance(papers, list):
+            result = []
+            for p in papers[:3]:
+                if isinstance(p, dict) and p.get("title"):
+                    result.append({
+                        "title": p.get("title"),
+                        "year": p.get("year"),
+                        "citations": p.get("citations", 0),
+                    })
+            logger.info(f"LLM expansion: {[r.get('title', '')[:40] for r in result]}")
+            return result
 
     except Exception as e:
         logger.warning(f"LLM query expansion failed: {e}")
@@ -3178,6 +3168,7 @@ CRITICAL: Every paper ID (0 through {len(paper_list) - 1}) must appear in exactl
                 ],
                 temperature=0.3,
                 timeout=60.0,
+                response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
 
