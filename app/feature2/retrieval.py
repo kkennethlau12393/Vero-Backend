@@ -1540,9 +1540,10 @@ def _ingest_arxiv_papers(
         - List of work_ids that were successfully ingested
         - Dict mapping lowercase title -> work_id for cross-source deduplication
         - Dict mapping normalized arxiv_id -> work_id for cross-source deduplication
+        - List of 14-column tuples for deferred bulk upsert
     """
     if not papers:
-        return [], {}
+        return [], {}, {}, []
 
     from sqlalchemy import text
     from sqlalchemy.dialects.postgresql import JSONB
@@ -1636,53 +1637,12 @@ def _ingest_arxiv_papers(
             json.dumps([]),  # topics_json
             False,  # is_retracted
             meta.get("abstract"),
+            None,  # doi
             normalized_arxiv,
+            None,  # oa_pdf_url
         ))
 
-    if rows_to_insert:
-        from psycopg2.extras import execute_batch
-        raw_cursor = conn.connection.dbapi_connection.cursor()
-        try:
-            execute_batch(
-                raw_cursor,
-                """
-                INSERT INTO works (
-                    work_id, title, year, cited_by_count,
-                    authors_json, venue, primary_topic_id,
-                    primary_topic_score, topics_json, is_retracted,
-                    abstract, arxiv_id
-                ) VALUES (
-                    %s, %s, %s, %s,
-                    %s::jsonb, %s, %s,
-                    %s, %s::jsonb, %s,
-                    %s, %s
-                )
-                ON CONFLICT (work_id) DO UPDATE
-                SET
-                    cited_by_count = GREATEST(
-                        COALESCE(works.cited_by_count, 0),
-                        COALESCE(EXCLUDED.cited_by_count, 0)
-                    ),
-                    title = COALESCE(works.title, EXCLUDED.title),
-                    venue = COALESCE(works.venue, EXCLUDED.venue),
-                    year = CASE
-                        WHEN works.year IS NULL THEN EXCLUDED.year
-                        WHEN EXCLUDED.year IS NULL THEN works.year
-                        WHEN EXCLUDED.year < works.year THEN EXCLUDED.year
-                        ELSE works.year
-                    END,
-                    abstract = COALESCE(works.abstract, EXCLUDED.abstract),
-                    arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id)
-                """,
-                rows_to_insert,
-                page_size=200,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to batch ingest ArXiv papers: {e}")
-        finally:
-            raw_cursor.close()
-
-    return work_ids, title_to_work_id, arxiv_id_to_work_id
+    return work_ids, title_to_work_id, arxiv_id_to_work_id, rows_to_insert
 
 
 def _ingest_semantic_scholar_papers(
@@ -1712,9 +1672,10 @@ def _ingest_semantic_scholar_papers(
         - List of work_ids that were successfully ingested
         - Dict mapping lowercase title -> work_id for cross-source deduplication
         - Dict mapping normalized arxiv_id -> work_id for cross-source deduplication
+        - List of 14-column tuples for deferred bulk upsert
     """
     if not papers:
-        return []
+        return [], {}, {}, []
 
     from sqlalchemy import text
     from sqlalchemy.dialects.postgresql import JSONB
@@ -1841,75 +1802,28 @@ def _ingest_semantic_scholar_papers(
             "source": "semantic_scholar",
         })
 
-    # Batch upsert - preserve better metadata from S2:
-    # - Keep HIGHER citation count (S2 often more accurate than OpenAlex)
-    # - Keep EARLIER year (prevents future-dated papers from wrong OpenAlex data)
-    # - Fill in title/year if missing
-    if rows_to_insert:
-        from psycopg2.extras import execute_batch
-        batch_tuples = [
-            (
-                row["work_id"],
-                row["title"],
-                row["year"],
-                row["cited_by_count"],
-                json.dumps(row["authors_json"]),
-                row["venue"],
-                row["primary_topic_id"],
-                row["primary_topic_score"],
-                json.dumps(row["topics_json"]),
-                row["is_retracted"],
-                row["abstract"],
-                row["doi"],
-                row["arxiv_id"],
-                row["oa_pdf_url"],
-            )
-            for row in rows_to_insert
-        ]
-        raw_cursor = conn.connection.dbapi_connection.cursor()
-        try:
-            execute_batch(
-                raw_cursor,
-                """
-                INSERT INTO works (
-                    work_id, title, year, cited_by_count,
-                    authors_json, venue, primary_topic_id,
-                    primary_topic_score, topics_json, is_retracted,
-                    abstract, doi, arxiv_id, oa_pdf_url
-                ) VALUES (
-                    %s, %s, %s, %s,
-                    %s::jsonb, %s, %s,
-                    %s, %s::jsonb, %s,
-                    %s, %s, %s, %s
-                )
-                ON CONFLICT (work_id) DO UPDATE
-                SET
-                    cited_by_count = GREATEST(
-                        COALESCE(works.cited_by_count, 0),
-                        COALESCE(EXCLUDED.cited_by_count, 0)
-                    ),
-                    year = CASE
-                        WHEN works.year IS NULL THEN EXCLUDED.year
-                        WHEN EXCLUDED.year IS NULL THEN works.year
-                        WHEN EXCLUDED.year < works.year THEN EXCLUDED.year
-                        ELSE works.year
-                    END,
-                    title = COALESCE(works.title, EXCLUDED.title),
-                    venue = COALESCE(works.venue, EXCLUDED.venue),
-                    abstract = COALESCE(works.abstract, EXCLUDED.abstract),
-                    doi = COALESCE(works.doi, EXCLUDED.doi),
-                    arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id),
-                    oa_pdf_url = COALESCE(works.oa_pdf_url, EXCLUDED.oa_pdf_url)
-                """,
-                batch_tuples,
-                page_size=200,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to batch ingest S2 papers: {e}")
-        finally:
-            raw_cursor.close()
+    # Build 14-column tuples for deferred bulk upsert
+    batch_tuples = [
+        (
+            row["work_id"],
+            row["title"],
+            row["year"],
+            row["cited_by_count"],
+            json.dumps(row["authors_json"]),
+            row["venue"],
+            row["primary_topic_id"],
+            row["primary_topic_score"],
+            json.dumps(row["topics_json"]),
+            row["is_retracted"],
+            row["abstract"],
+            row["doi"],
+            row["arxiv_id"],
+            row["oa_pdf_url"],
+        )
+        for row in rows_to_insert
+    ]
 
-    return work_ids, title_to_work_id, arxiv_id_to_work_id
+    return work_ids, title_to_work_id, arxiv_id_to_work_id, batch_tuples
 
 
 def _search_openalex(query: str, k: int, year_filter: Optional[str] = None) -> List[Tuple[str, float]]:
@@ -2471,6 +2385,7 @@ def generate_candidates_direct(
 
     # 2c) Ingest ArXiv papers FIRST (they get enriched with S2 data and canonical IDs)
     # This must happen before S2 ingestion so that S2 papers can link to existing ArXiv entries
+    pending_work_upserts: List[tuple] = []  # Accumulate all rows for ONE bulk DB write
     arxiv_title_map: Dict[str, str] = {}  # title -> work_id for cross-source deduplication
     arxiv_id_map: Dict[str, str] = {}  # arxiv_id -> work_id for cross-source deduplication
     doi_map: Dict[str, str] = {}  # doi -> work_id for cross-source deduplication
@@ -2483,8 +2398,9 @@ def generate_candidates_direct(
                 seen_arxiv_ids.add(arxiv_id)
                 unique_arxiv_papers.append((arxiv_id, meta))
 
-        # Ingest into DB and get work_ids + dedup maps (DOI, ArXiv ID, title)
-        arxiv_work_ids, arxiv_title_map, arxiv_id_map = _ingest_arxiv_papers(conn, unique_arxiv_papers)
+        # Ingest and get work_ids + dedup maps (DOI, ArXiv ID, title); rows deferred
+        arxiv_work_ids, arxiv_title_map, arxiv_id_map, arxiv_rows = _ingest_arxiv_papers(conn, unique_arxiv_papers)
+        pending_work_upserts.extend(arxiv_rows)
         logger.info(f"Ingested {len(arxiv_work_ids)} papers from ArXiv (title map: {len(arxiv_title_map)}, arxiv_id map: {len(arxiv_id_map)})")
 
         # Add to candidate map with provenance
@@ -2508,13 +2424,14 @@ def generate_candidates_direct(
                 seen_s2_ids.add(s2_id)
                 unique_s2_papers.append((s2_id, meta))
 
-        # Ingest into DB and get work_ids + updated dedup maps
+        # Ingest and get work_ids + updated dedup maps; rows deferred
         # Pass existing maps to enable linking to freshly-inserted ArXiv papers
-        s2_work_ids, arxiv_title_map, arxiv_id_map = _ingest_semantic_scholar_papers(
+        s2_work_ids, arxiv_title_map, arxiv_id_map, s2_rows = _ingest_semantic_scholar_papers(
             conn, unique_s2_papers,
             arxiv_titles=arxiv_title_map,
             arxiv_ids=arxiv_id_map
         )
+        pending_work_upserts.extend(s2_rows)
         logger.info(f"Ingested {len(s2_work_ids)} papers from Semantic Scholar (updated title map: {len(arxiv_title_map)}, arxiv_id map: {len(arxiv_id_map)})")
 
         # Add to candidate map with provenance (may merge with existing ArXiv entries)
@@ -2569,29 +2486,12 @@ def generate_candidates_direct(
             }
             candidate_map.setdefault(wid, []).append(prov_entry)
 
-            # Upsert into works table with DOI
-            try:
-                conn.execute(
-                    text("""
-                        INSERT INTO works (work_id, title, year, cited_by_count, venue, doi)
-                        VALUES (:wid, :title, :year, :citations, :venue, :doi)
-                        ON CONFLICT (work_id) DO UPDATE SET
-                            cited_by_count = GREATEST(COALESCE(works.cited_by_count, 0), COALESCE(EXCLUDED.cited_by_count, 0)),
-                            title = COALESCE(works.title, EXCLUDED.title),
-                            venue = COALESCE(works.venue, EXCLUDED.venue),
-                            doi = COALESCE(works.doi, EXCLUDED.doi)
-                    """),
-                    {
-                        "wid": wid,
-                        "title": title,
-                        "year": meta.get("year"),
-                        "citations": meta.get("citations", 0),
-                        "venue": meta.get("venue"),
-                        "doi": normalized_doi,
-                    },
-                )
-            except Exception as e:
-                logger.debug(f"CrossRef upsert failed for {wid}: {e}")
+            # Defer upsert — 14-column tuple for bulk write
+            pending_work_upserts.append((
+                wid, title, meta.get("year"), meta.get("citations", 0),
+                json.dumps([]), meta.get("venue"), None, None,
+                json.dumps([]), False, None, normalized_doi, None, None,
+            ))
 
     # 2d-iii) Ingest PubMed papers
     if pubmed_papers:
@@ -2637,27 +2537,12 @@ def generate_candidates_direct(
             }
             candidate_map.setdefault(wid, []).append(prov_entry)
 
-            # Upsert into works table with DOI
-            try:
-                conn.execute(
-                    text("""
-                        INSERT INTO works (work_id, title, year, venue, doi)
-                        VALUES (:wid, :title, :year, :venue, :doi)
-                        ON CONFLICT (work_id) DO UPDATE SET
-                            title = COALESCE(works.title, EXCLUDED.title),
-                            venue = COALESCE(works.venue, EXCLUDED.venue),
-                            doi = COALESCE(works.doi, EXCLUDED.doi)
-                    """),
-                    {
-                        "wid": wid,
-                        "title": title,
-                        "year": meta.get("year"),
-                        "venue": meta.get("venue"),
-                        "doi": normalized_doi,
-                    },
-                )
-            except Exception as e:
-                logger.debug(f"PubMed upsert failed for {wid}: {e}")
+            # Defer upsert — 14-column tuple for bulk write
+            pending_work_upserts.append((
+                wid, title, meta.get("year"), 0,
+                json.dumps([]), meta.get("venue"), None, None,
+                json.dumps([]), False, None, normalized_doi, None, None,
+            ))
 
     # 2d-iv) Ingest DBLP papers
     if dblp_papers:
@@ -2691,25 +2576,12 @@ def generate_candidates_direct(
             }
             candidate_map.setdefault(wid, []).append(prov_entry)
 
-            # Upsert into works table
-            try:
-                conn.execute(
-                    text("""
-                        INSERT INTO works (work_id, title, year, venue)
-                        VALUES (:wid, :title, :year, :venue)
-                        ON CONFLICT (work_id) DO UPDATE SET
-                            title = COALESCE(works.title, EXCLUDED.title),
-                            venue = COALESCE(works.venue, EXCLUDED.venue)
-                    """),
-                    {
-                        "wid": wid,
-                        "title": title,
-                        "year": meta.get("year"),
-                        "venue": meta.get("venue"),
-                    },
-                )
-            except Exception as e:
-                logger.debug(f"DBLP upsert failed for {wid}: {e}")
+            # Defer upsert — 14-column tuple for bulk write
+            pending_work_upserts.append((
+                wid, title, meta.get("year"), 0,
+                json.dumps([]), meta.get("venue"), None, None,
+                json.dumps([]), False, None, None, None, None,
+            ))
 
     # 2e) Cross-source deduplication: Add OpenAlex results with multi-stage dedup
     # OpenAlex results were stored temporarily; now we check each against prior sources
@@ -2989,7 +2861,53 @@ def generate_candidates_direct(
                 prov_entry = {"source": "topic_pool", "rank": idx + 1, "score": score, "topic_id": target_topic_id}
                 candidate_map.setdefault(wid, []).append(prov_entry)
 
-    # Ensure works exist in the DB
+    # Flush all accumulated rows in ONE bulk DB write
+    if pending_work_upserts:
+        from psycopg2.extras import execute_batch as _exec_batch
+        _raw = conn.connection.dbapi_connection.cursor()
+        try:
+            _exec_batch(
+                _raw,
+                """
+                INSERT INTO works (
+                    work_id, title, year, cited_by_count,
+                    authors_json, venue, primary_topic_id,
+                    primary_topic_score, topics_json, is_retracted,
+                    abstract, doi, arxiv_id, oa_pdf_url
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s::jsonb, %s, %s,
+                    %s, %s::jsonb, %s,
+                    %s, %s, %s, %s
+                )
+                ON CONFLICT (work_id) DO UPDATE SET
+                    cited_by_count = GREATEST(
+                        COALESCE(works.cited_by_count, 0),
+                        COALESCE(EXCLUDED.cited_by_count, 0)
+                    ),
+                    title = COALESCE(works.title, EXCLUDED.title),
+                    venue = COALESCE(works.venue, EXCLUDED.venue),
+                    year = CASE
+                        WHEN works.year IS NULL THEN EXCLUDED.year
+                        WHEN EXCLUDED.year IS NULL THEN works.year
+                        WHEN EXCLUDED.year < works.year THEN EXCLUDED.year
+                        ELSE works.year
+                    END,
+                    abstract = COALESCE(works.abstract, EXCLUDED.abstract),
+                    doi = COALESCE(works.doi, EXCLUDED.doi),
+                    arxiv_id = COALESCE(works.arxiv_id, EXCLUDED.arxiv_id),
+                    oa_pdf_url = COALESCE(works.oa_pdf_url, EXCLUDED.oa_pdf_url)
+                """,
+                pending_work_upserts,
+                page_size=500,
+            )
+        except Exception as e:
+            logger.warning(f"Bulk works upsert failed: {e}")
+        finally:
+            _raw.close()
+        logger.info(f"Bulk-upserted {len(pending_work_upserts)} rows into works table")
+
+    # Ensure works exist in the DB (fetches missing OpenAlex metadata)
     all_wids = list(candidate_map.keys())
     logger.info(f"Total unique candidates: {len(all_wids)}")
     WorkStore.ensure_works_present(conn, all_wids)
