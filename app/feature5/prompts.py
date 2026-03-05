@@ -7,9 +7,7 @@ candidates into coherent gap descriptions with inline citations.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-
-from app.common.id_mapping import IdMapper
+from typing import Any, Dict, List
 
 # Prompt for evaluating and synthesizing gap candidates into structured gap cards.
 # The LLM acts as BOTH an evaluator (filtering noise) and a describer.
@@ -264,7 +262,7 @@ Each gap MUST address a DIFFERENT aspect of the research area. If you find multi
 ## Quality Standards
 
 - Each gap must be ACTIONABLE — a researcher should be able to pursue it
-- Reference specific papers from the list as evidence (use their short IDs like P1, P2)
+- Reference specific papers from the list as evidence (use work_id)
 - In the description, cite papers using (Author, Year) format. ONLY cite papers that are also listed in your evidence_work_ids — do NOT mention papers that aren't direct evidence for this specific gap
 - Be specific about WHAT is missing, not just that "more research is needed"
 - Consider whether apparent gaps are actually mature/completed areas
@@ -286,7 +284,7 @@ Return a JSON array:
     "description": "150-250 words with inline citations (Author, Year). Explain what the gap is, cite evidence from the papers above, and explain why it matters. Be SPECIFIC about what each evidence paper assumes or leaves unanswered.",
     "why_it_matters": "2-4 sentences answering: Why should a researcher pursue this direction? What new understanding would filling this gap unlock? What problems remain unsolvable without this knowledge? What would change in the field if this were addressed? This should validate a researcher's motivation for going in this direction — not just describe the gap type.",
     "suggested_direction": "2-3 specific, actionable sentences describing what research would fill this gap.",
-    "evidence_work_ids": ["P1", "P4", "P7", "P12"],
+    "evidence_work_ids": ["W123", "W456", "W789", "W012"],
     "data_sources_used": ["abstracts", "methodology_fingerprints", "citation_structure"],
     "detection_score": 0.75
   }}
@@ -301,13 +299,11 @@ Return ONLY the JSON array, no additional text.
 
 def format_paper_list_for_direct_detection(
     paper_data: Dict[str, Dict[str, Any]],
-    mapper: Optional[IdMapper] = None,
 ) -> str:
     """Format paper data for the LLM-direct gap detection prompt."""
     lines = []
 
     for work_id, data in list(paper_data.items())[:50]:
-        short_id = mapper.add(work_id) if mapper else work_id
         authors = data.get("authors", "Unknown")
         if isinstance(authors, list):
             if len(authors) > 2:
@@ -320,7 +316,7 @@ def format_paper_list_for_direct_detection(
         cited_by = data.get("cited_by_count", 0) or 0
         topic = data.get("topic_name", "")
 
-        line = f"- {short_id}: {authors} ({year}). \"{title}\""
+        line = f"- {work_id}: {authors} ({year}). \"{title}\""
         if cited_by:
             line += f" [cited {cited_by}x]"
         if topic:
@@ -336,17 +332,13 @@ def build_direct_detection_prompt(
     paper_data: Dict[str, Dict[str, Any]],
     citation_summary: str,
     internal_context: str = "",
-    mapper: Optional[IdMapper] = None,
-) -> tuple[str, IdMapper]:
-    """Build the LLM-direct gap detection prompt. Returns (prompt, mapper)."""
-    if mapper is None:
-        mapper = IdMapper("P")
-    prompt = LLM_DIRECT_GAP_PROMPT.format(
-        paper_list=format_paper_list_for_direct_detection(paper_data, mapper),
+) -> str:
+    """Build the LLM-direct gap detection prompt."""
+    return LLM_DIRECT_GAP_PROMPT.format(
+        paper_list=format_paper_list_for_direct_detection(paper_data),
         citation_summary=citation_summary,
         internal_context=internal_context or "No additional internal data available.",
     )
-    return prompt, mapper
 
 
 # Prompt for generating evidence roles
@@ -365,7 +357,7 @@ GOOD roles: "Assumes skip connections improve gradient flow without testing feat
 
 Return as JSON:
 {{
-  "P1": "Role description grounded in paper's abstract",
-  "P2": "Role description grounded in paper's abstract"
+  "work_id_1": "Role description grounded in paper's abstract",
+  "work_id_2": "Role description grounded in paper's abstract"
 }}
 """

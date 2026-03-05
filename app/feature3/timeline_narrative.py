@@ -27,7 +27,6 @@ from openai import OpenAI
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-from app.common.id_mapping import IdMapper
 from app.feature3.json_utils import extract_json_from_llm_response
 from app.feature3.paper_impact_analytics import (
     _is_review_guideline_paper,
@@ -92,8 +91,10 @@ this paper changed, and what it unlocked afterward.
 You write in DEFINITIVE prose. Never hedge. Never use these words: explores, discusses, \
 examines, investigates, assesses, evaluates, addresses, looks at, studies, analyzes, reviews.
 
-You MUST cite specific papers inline using their short IDs in brackets (e.g., [P1], [P5]). \
-Always use the exact IDs shown in the paper lists.
+You MUST cite specific work_ids inline using their FULL IDs in brackets. \
+OpenAlex papers use [W2163605009], Semantic Scholar papers use [S2:204e3073870f], \
+and ArXiv papers use [AX:2301.12345]. NEVER truncate or abbreviate work_ids — \
+always write the complete ID.
 
 CRITICAL CONSTRAINT: You are telling a VERTICAL EVOLUTION story — how ideas evolved over \
 time in a research lineage. Do NOT compare methods side-by-side. Do NOT recommend which \
@@ -102,17 +103,16 @@ tasks, not timeline narratives."""
 
 
 def _format_paper_for_prompt(
-    paper: Dict[str, Any], index: int, mapper: Optional[IdMapper] = None,
+    paper: Dict[str, Any], index: int,
 ) -> str:
     """Format a single paper for the LLM prompt."""
     work_id = paper.get("work_id") or "?"
-    display_id = mapper.add(work_id) if mapper else work_id
     title = paper.get("title") or "Untitled"
     year = paper.get("year") or "?"
     cites = paper.get("cited_by_count") or 0
     abstract = (paper.get("abstract") or "").strip()
 
-    line = f"{index}. [{display_id}] {title} ({year}) — {cites:,} citations"
+    line = f"{index}. [{work_id}] {title} ({year}) — {cites:,} citations"
     if abstract:
         line += f"\n   {abstract}"
     return line
@@ -126,18 +126,15 @@ def _build_narrative_prompt(
     references: List[Dict[str, Any]],
     landmarks: List[Dict[str, Any]],
     citing_papers: List[Dict[str, Any]],
-) -> tuple[str, IdMapper]:
+) -> str:
     """Build the LLM prompt for main timeline narrative (pass 1, no era commentaries)."""
     year_str = f" ({year})" if year else ""
     abstract_text = abstract or "No abstract available."
 
-    # Create mapper for all papers in this prompt
-    mapper = IdMapper("P")
-
     # Landmarks sorted chronologically
     sorted_landmarks = sorted(landmarks[:6], key=lambda p: p.get("year") or 9999)
     landmark_lines = [
-        _format_paper_for_prompt(p, i, mapper)
+        _format_paper_for_prompt(p, i)
         for i, p in enumerate(sorted_landmarks, 1)
     ]
     landmark_section = "\n".join(landmark_lines) if landmark_lines else "(None available)"
@@ -145,7 +142,7 @@ def _build_narrative_prompt(
     # References sorted chronologically
     sorted_refs = sorted(references[:15], key=lambda p: p.get("year") or 9999)
     ref_lines = [
-        _format_paper_for_prompt(p, i, mapper)
+        _format_paper_for_prompt(p, i)
         for i, p in enumerate(sorted_refs, 1)
     ]
     ref_section = "\n".join(ref_lines) if ref_lines else "(None available)"
@@ -153,7 +150,7 @@ def _build_narrative_prompt(
     # Citing papers sorted chronologically
     sorted_citers = sorted(citing_papers[:20], key=lambda p: p.get("year") or 9999)
     citer_lines = [
-        _format_paper_for_prompt(p, i, mapper)
+        _format_paper_for_prompt(p, i)
         for i, p in enumerate(sorted_citers, 1)
     ]
     citer_section = "\n".join(citer_lines) if citer_lines else "(None available)"
@@ -184,7 +181,7 @@ Analyze this paper's place in its research lineage. Return JSON:
 at this paper. Name specific algorithms, architectures, loss functions, or theoretical \
 frameworks that predecessors introduced. Explain what each solved and what concrete \
 limitation remained — e.g., vanishing gradients at N layers, O(n^2) complexity, lack of \
-spatial invariance. Cite specific papers inline using their short IDs (e.g., [P1], [P5]). Build an intellectual chain \
+spatial invariance. Cite specific work_ids inline (e.g., [W2163605009]). Build an intellectual chain \
 where each advance motivated the next.",
     "contribution_statement": "A mini paragraph (3-5 sentences) on what this paper \
 specifically introduced. Name the exact mechanism (e.g., skip connections, self-attention, \
@@ -196,7 +193,7 @@ extend, refine, scale, or apply this paper's contribution to the same problem do
 For each successor: name the specific architecture or technique it introduced, what \
 benchmark or metric it pushed, and exactly how it built on the target paper's mechanism \
 (e.g., replaced component X with Y, scaled from N to M parameters, adapted loss \
-function Z). Cite specific papers inline using their short IDs (e.g., [P1], [P5]). Do NOT include cross-domain \
+function Z). Cite specific work_ids inline (e.g., [W2163605009]). Do NOT include cross-domain \
 adoptions here — those belong in cross_domain_influence.",
     "cross_domain_influence": "A mini paragraph (3-5 sentences) on HORIZONTAL translations \
 to DIFFERENT fields. For each adoption: name the specific target field, the technique \
@@ -204,7 +201,7 @@ that was adapted from this paper, what modification was required to make it work
 the new domain (e.g., different tokenization for protein sequences, modified attention \
 for graph-structured data), and the concrete result achieved. This covers ideas crossing \
 disciplinary boundaries — different problem domains, different data modalities, different \
-research communities. Cite specific papers inline using their short IDs (e.g., [P1], [P5]). null if not applicable.",
+research communities. Cite specific work_ids inline (e.g., [W2163605009]). null if not applicable.",
     "before_approach": "Dominant methodology in predecessor papers — name the specific \
 technique and its key limitation (1-2 sentences)",
     "after_approach": "Dominant methodology in successor papers — name the specific \
@@ -233,7 +230,7 @@ where it applies.
 
 Answer ONLY with the JSON object, no additional text."""
 
-    return prompt, mapper
+    return prompt
 
 
 # ============================================================================
@@ -246,7 +243,7 @@ era narrative.
 
 RULES:
 - Every sentence MUST name a concrete technique, architecture, metric, or dataset
-- Cite each paper using its short ID in brackets: [P1], [P2], etc.
+- Cite each paper using its FULL work_id in brackets: [W2163605009], [S2:204e3073870f], or [AX:2301.12345]. NEVER truncate.
 - For each paper you mention, state WHAT it did technically: the mechanism, the numbers, \
 the result — extracted directly from its abstract
 - End each era narrative with the specific technical bottleneck or open problem that the \
@@ -278,14 +275,11 @@ def _build_era_commentary_prompt(
     target_title: str,
     era_papers: Dict[str, List[Dict[str, Any]]],
     era_labels: List[str],
-    mapper: Optional[IdMapper] = None,
-) -> tuple[str, IdMapper]:
+) -> str:
     """Build a focused prompt for era commentary generation (pass 2).
 
     Papers are pre-grouped by era so the LLM doesn't have to figure out grouping.
     """
-    if mapper is None:
-        mapper = IdMapper("P")
     sections = []
     for era in era_labels:
         papers = era_papers.get(era, [])
@@ -294,12 +288,11 @@ def _build_era_commentary_prompt(
         paper_lines = []
         for i, p in enumerate(papers, 1):
             work_id = p.get("work_id") or "?"
-            display_id = mapper.add(work_id)
             title = p.get("title") or "Untitled"
             year = p.get("year") or "?"
             cites = p.get("cited_by_count") or 0
             abstract = (p.get("abstract") or "").strip()
-            line = f"  {i}. [{display_id}] {title} ({year}) — {cites:,} citations"
+            line = f"  {i}. [{work_id}] {title} ({year}) — {cites:,} citations"
             if abstract:
                 line += f"\n     ABSTRACT: {abstract}"
             else:
@@ -329,22 +322,22 @@ Return a JSON array with one object per era:
     {{
         "era": "{era_labels[0] if era_labels else '2020s'}",
         "headline": "Short descriptive title for this era (e.g., 'Denoising diffusion emergence')",
-        "narrative": "Technical narrative paragraph. For each paper: state its short ID in \
-brackets (e.g., [P1]), then what it specifically did (architecture, loss function, training procedure, \
+        "narrative": "Technical narrative paragraph. For each paper: state its work_id in \
+brackets, then what it specifically did (architecture, loss function, training procedure, \
 benchmark result). End with the bottleneck the next era solved.",
-        "key_work_ids": ["P1", "P3"]
+        "key_work_ids": ["W...", "S..."]
     }}
 ]
 
 REQUIREMENTS:
 - One entry per era: [{era_json_examples}]
-- Each narrative must cite every paper from that era by its short [ID]
+- Each narrative must cite every paper from that era by its [work_id]
 - Extract technical details FROM THE ABSTRACTS — do not invent claims
 - key_work_ids must list the work_ids actually cited in the narrative
 
 Answer ONLY with the JSON array, no additional text."""
 
-    return prompt, mapper
+    return prompt
 
 
 def _call_llm(
@@ -528,7 +521,7 @@ def generate_timeline_narrative(
     client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
 
     # ── Pass 1: Main narrative ──────────────────────────────────────────
-    prompt, mapper = _build_narrative_prompt(
+    prompt = _build_narrative_prompt(
         title, abstract, year, cited_by_count,
         references, landmarks, citing_papers,
     )
@@ -538,29 +531,14 @@ def generate_timeline_narrative(
         logger.warning(f"Pass 1 (main narrative) failed for {work_id}")
         return None
 
-    # Resolve short IDs back to real work_ids in narrative text
-    for field in ("historical_context", "contribution_statement",
-                  "downstream_impact", "cross_domain_influence",
-                  "before_approach", "after_approach"):
-        if result.get(field):
-            result[field] = mapper.resolve_text(result[field])
-
     # ── Pass 2: Era commentaries ────────────────────────────────────────
     if era_labels and era_papers:
         logger.info(f"Pass 2: generating era commentaries for {len(era_labels)} eras")
-        era_prompt, era_mapper = _build_era_commentary_prompt(
-            title, era_papers, era_labels, mapper,  # reuse mapper from pass 1
-        )
+        era_prompt = _build_era_commentary_prompt(title, era_papers, era_labels)
         era_result = _call_llm(
             client, ERA_COMMENTARY_SYSTEM_PROMPT, era_prompt, expected_type="array",
         )
         if era_result and isinstance(era_result, list):
-            # Resolve short IDs in era commentaries
-            for ec in era_result:
-                if ec.get("narrative"):
-                    ec["narrative"] = era_mapper.resolve_text(ec["narrative"])
-                if ec.get("key_work_ids"):
-                    ec["key_work_ids"] = era_mapper.resolve_list(ec["key_work_ids"])
             result["era_commentaries"] = era_result
             logger.info(f"Era commentaries generated: {len(era_result)} eras")
         else:
