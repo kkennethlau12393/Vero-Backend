@@ -2017,6 +2017,8 @@ def generate_candidates_direct(
     filters_json: Optional[Dict[str, Any]] = None,
     rank_params_json: Optional[Dict[str, Any]] = None,
     limit_pool: Optional[int] = None,
+    structured_query: Optional[Dict[str, Any]] = None,
+    scope: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], QueryExpansion]:
     """Generate a candidate pool for direct ranking using OpenAlex lexical search.
 
@@ -2076,26 +2078,40 @@ def generate_candidates_direct(
     # Structure: list of (query_string, importance_weight, source_concept)
     weighted_queries: List[Tuple[str, float, Optional[str]]] = []
 
-    # Always include original query with full weight
-    weighted_queries.append((query_text, 1.0, None))
+    # When structured query + scope are provided, use targeted multi-query strategy
+    if structured_query and scope and structured_query.get("topic"):
+        from app.common.query_generation import generate_retrieval_queries
 
-    # If we have structured concepts, use importance-weighted expansion
-    if query_expansion.concepts:
-        for concept in query_expansion.concepts:
-            importance = concept.importance
-            # Synonyms get full importance weight (safe, direct alternatives)
-            for syn in concept.synonyms:
-                if syn.lower() != query_text.lower():
-                    weighted_queries.append((syn, importance, concept.term))
-            # Related terms get reduced weight (can drift)
-            for rel in concept.related_terms:
-                if rel.lower() != query_text.lower():
-                    weighted_queries.append((rel, importance * 0.5, concept.term))
+        targeted_queries = generate_retrieval_queries(structured_query, scope)
+        for tq in targeted_queries:
+            weighted_queries.append((tq, 1.0, f"structured_{scope}"))
+        logger.info(f"Structured query: scope={scope}, generated {len(targeted_queries)} targeted queries")
+
+        # Also include original query to ensure baseline coverage
+        if not any(tq.lower() == query_text.lower() for tq in targeted_queries):
+            weighted_queries.append((query_text, 1.0, None))
     else:
-        # Fallback to legacy flat expansion
-        for term in query_expansion.expansion_terms:
-            if term.lower() != query_text.lower():
-                weighted_queries.append((term, 0.7, None))
+        # Default: original query + concept-based expansion
+        # Always include original query with full weight
+        weighted_queries.append((query_text, 1.0, None))
+
+        # If we have structured concepts, use importance-weighted expansion
+        if query_expansion.concepts:
+            for concept in query_expansion.concepts:
+                importance = concept.importance
+                # Synonyms get full importance weight (safe, direct alternatives)
+                for syn in concept.synonyms:
+                    if syn.lower() != query_text.lower():
+                        weighted_queries.append((syn, importance, concept.term))
+                # Related terms get reduced weight (can drift)
+                for rel in concept.related_terms:
+                    if rel.lower() != query_text.lower():
+                        weighted_queries.append((rel, importance * 0.5, concept.term))
+        else:
+            # Fallback to legacy flat expansion
+            for term in query_expansion.expansion_terms:
+                if term.lower() != query_text.lower():
+                    weighted_queries.append((term, 0.7, None))
 
     # Sort by importance (highest first) to prioritize important concept searches
     weighted_queries.sort(key=lambda x: -x[1])

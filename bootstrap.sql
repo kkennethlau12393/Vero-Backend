@@ -421,6 +421,20 @@ CREATE INDEX IF NOT EXISTS idx_query_expansion_cache_created
     ON public.query_expansion_cache (created_at DESC);
 
 -- ---------------------------------------------------------------------
+-- Query decomposition cache (structured query analysis)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.query_decomposition_cache (
+    query_hash text PRIMARY KEY,
+    query_text text NOT NULL,
+    decomposition jsonb NOT NULL,
+    model_version text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_query_decomposition_cache_created
+    ON public.query_decomposition_cache (created_at DESC);
+
+-- ---------------------------------------------------------------------
 -- LLM relevance score cache (per paper per query)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.llm_relevance_cache (

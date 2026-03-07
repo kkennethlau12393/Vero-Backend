@@ -1726,6 +1726,8 @@ def _expand_citation_network(
     hop2_fetch: int = 20,
     citation_weight: float = 0.6,
     connectivity_weight: float = 0.4,
+    structured_query: Optional[Dict[str, Any]] = None,
+    expansion: Optional[str] = None,
 ) -> Tuple[Dict[str, Dict[str, Any]], List[Tuple[str, str]]]:
     """Expand citation network from seed using multi-hop exploration.
 
@@ -1833,6 +1835,28 @@ def _expand_citation_network(
         if wid:
             add_edge(seed_work_id, wid)  # seed -> reference
 
+    # Apply hop filtering to hop-1 papers (structured query relevance)
+    if structured_query and structured_query.get("topic") and expansion:
+        try:
+            from app.feature1.hop_filtering import filter_hop_papers
+            hop1_list = [
+                {**papers[wid], "work_id": wid}
+                for wid in papers if papers[wid].get("hop") == 1
+            ]
+            filtered_hop1 = filter_hop_papers(hop1_list, structured_query, expansion, hop_level=1)
+            filtered_wids = {p.get("work_id") for p in filtered_hop1}
+            # Remove unfiltered hop-1 papers from graph
+            removed = [wid for wid in list(papers.keys())
+                        if papers[wid].get("hop") == 1 and wid not in filtered_wids]
+            for wid in removed:
+                del papers[wid]
+            # Also remove edges involving removed papers
+            edges = [(f, t) for f, t in edges if f not in removed and t not in removed]
+            edge_set = set(edges)
+            logger.info(f"Hop-1 filtering: kept {len(filtered_wids)}, removed {len(removed)}")
+        except Exception as e:
+            logger.warning(f"Hop-1 filtering failed: {e}")
+
     # Hop 2: Expand from top hop-1 papers (by citations)
     hop1_papers = [(wid, papers[wid]) for wid in papers if papers[wid].get("hop") == 1]
     hop1_papers.sort(key=lambda x: x[1].get("cited_by_count", 0), reverse=True)
@@ -1926,6 +1950,26 @@ def _expand_citation_network(
                     papers[pid] = {**p, "hop": 2, "is_seed": False}
                 if pid:
                     add_edge(wid, pid)
+
+    # Apply hop filtering to hop-2 papers (structured query relevance)
+    if structured_query and structured_query.get("topic") and expansion:
+        try:
+            from app.feature1.hop_filtering import filter_hop_papers
+            hop2_list = [
+                {**papers[wid], "work_id": wid}
+                for wid in papers if papers[wid].get("hop") == 2
+            ]
+            filtered_hop2 = filter_hop_papers(hop2_list, structured_query, expansion, hop_level=2)
+            filtered_wids = {p.get("work_id") for p in filtered_hop2}
+            removed = [wid for wid in list(papers.keys())
+                        if papers[wid].get("hop") == 2 and wid not in filtered_wids]
+            for wid in removed:
+                del papers[wid]
+            edges = [(f, t) for f, t in edges if f not in removed and t not in removed]
+            edge_set = set(edges)
+            logger.info(f"Hop-2 filtering: kept {len(filtered_wids)}, removed {len(removed)}")
+        except Exception as e:
+            logger.warning(f"Hop-2 filtering failed: {e}")
 
     # Cross-reference metadata backfill: try S2 for papers missing abstracts/authors/venue
     _backfill_metadata_cross_source(papers)
@@ -3783,6 +3827,32 @@ def build_citation_map(
         # Step 2: Build citation network (multi-hop exploration)
         effective_total = request.total_nodes or (request.citing_limit + request.references_limit + 1)
 
+        # Build structured query for hop filtering (if provided or auto-decompose)
+        _sq = None
+        _expansion = getattr(request, "expansion", None)
+        _map_size = getattr(request, "map_size", None)
+        if getattr(request, "topic", None):
+            _sq = {
+                "topic": request.topic,
+                "domain": getattr(request, "domain", None),
+                "aspect": getattr(request, "aspect", None),
+            }
+        elif request.query_text:
+            try:
+                from app.common.query_decomposition import decompose_query as _decompose_q
+                with engine.connect() as _dconn:
+                    _sq = _decompose_q(_dconn, request.query_text)
+            except Exception as _e:
+                logger.warning(f"Citation map auto-decomposition failed: {_e}")
+
+        # Apply map_size limit to effective_total
+        if _map_size:
+            try:
+                from app.feature1.hop_filtering import get_max_papers
+                effective_total = min(effective_total, get_max_papers(_map_size))
+            except Exception:
+                pass
+
         expand_start = time.time()
         # #region agent log
         _debug_log(
@@ -3804,6 +3874,8 @@ def build_citation_map(
             hop2_fetch=30,
             citation_weight=0.6,
             connectivity_weight=0.4,
+            structured_query=_sq,
+            expansion=_expansion,
         )
         # #region agent log
         _debug_log(

@@ -179,6 +179,41 @@ def direct_rank_prod(
     filters_json = filters_json or {}
     rank_params_json = rank_params_json or {}
 
+    # Extract structured query params (injected by rank_api.py)
+    structured_query = rank_params_json.pop("structured_query", None)
+    scope = rank_params_json.pop("scope", None)
+    focus = rank_params_json.pop("focus", None)
+    depth = rank_params_json.pop("depth", None)
+
+    # Auto-decompose if not provided
+    if not structured_query:
+        try:
+            from app.common.query_decomposition import decompose_query as _decompose
+            with engine.connect() as _conn:
+                structured_query = _decompose(_conn, query_text)
+                if not scope and structured_query.get("domain"):
+                    # Infer scope from decomposition
+                    specificity = structured_query.get("suggested_specificity", "broad")
+                    if specificity == "specific":
+                        scope = "intersection"
+                    # For "broad" or "balanced", leave scope as None (default behavior)
+        except Exception as e:
+            logger.warning(f"Auto-decomposition failed: {e}")
+
+    # Build ranking context for LLM prompt enhancement
+    ranking_context = None
+    if structured_query and structured_query.get("topic"):
+        try:
+            from app.common.prompt_enhancement import build_ranking_context
+            ranking_context = build_ranking_context(
+                structured_query,
+                scope or "broad",
+                focus or "all_time",
+                depth or "comprehensive",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to build ranking context: {e}")
+
     # Build a stable params hash keyed on the query and filters
     s = "|".join(
         [
@@ -232,6 +267,8 @@ def direct_rank_prod(
                 context_json=context_json,
                 filters_json=filters_json,
                 rank_params_json=rank_params_json,
+                structured_query=structured_query,
+                scope=scope,
             )
             logger.info(f"Generated {len(candidates)} candidates")
             CandidateSetRepo.bulk_insert_candidate_items(tx, candidate_set_id, candidates)
@@ -600,6 +637,7 @@ def direct_rank_prod(
                     paper_ids=work_ids,
                     works=works,
                     llm_scoring_cap=llm_scoring_cap,
+                    ranking_context=ranking_context,
                 )
                 convergence_state = None
             else:
@@ -611,6 +649,7 @@ def direct_rank_prod(
                     paper_ids=work_ids,
                     works=works,
                     llm_scoring_cap=len(work_ids),  # No additional cap
+                    ranking_context=ranking_context,
                 )
                 convergence_state = None
 
@@ -887,6 +926,20 @@ def direct_rank_prod(
                         llm_entry.get("paper_type", "other")
                         if isinstance(llm_entry, dict) else "other"
                     )
+
+            # Apply focus filtering and depth limiting (structured query)
+            if focus and focus != "all_time":
+                try:
+                    from app.common.focus_filtering import apply_focus_filter
+                    ranked_items = apply_focus_filter(ranked_items, focus)
+                except Exception as e:
+                    logger.warning(f"Focus filtering failed: {e}")
+            if depth and depth == "high_level":
+                try:
+                    from app.common.focus_filtering import apply_depth_limit
+                    ranked_items = apply_depth_limit(ranked_items, depth)
+                except Exception as e:
+                    logger.warning(f"Depth limiting failed: {e}")
 
             # Partition results into 4 categories using LLM classifications
             categorized = partition_results_by_category(
