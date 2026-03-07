@@ -196,7 +196,8 @@ def direct_rank_prod(
                     specificity = structured_query.get("suggested_specificity", "broad")
                     if specificity == "specific":
                         scope = "intersection"
-                    # For "broad" or "balanced", leave scope as None (default behavior)
+                    elif specificity == "balanced" and structured_query.get("domain"):
+                        scope = "intersection"
         except Exception as e:
             logger.warning(f"Auto-decomposition failed: {e}")
 

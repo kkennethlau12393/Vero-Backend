@@ -15,7 +15,7 @@ import json
 import logging
 from uuid import UUID
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
@@ -105,9 +105,9 @@ class DirectQueryRankRequest(BaseModel):
     aspect: Optional[str] = None
 
     # Intent options (all have defaults for backward compatibility)
-    scope: Optional[str] = None       # "broad", "intersection", "topic_focused", "domain_focused"
-    focus: Optional[str] = None       # "foundational", "recent", "surveys", "all_time"
-    depth: Optional[str] = None       # "high_level", "comprehensive"
+    scope: Optional[Literal["broad", "intersection", "topic_focused", "domain_focused"]] = None
+    focus: Optional[Literal["foundational", "recent", "surveys", "all_time"]] = None
+    depth: Optional[Literal["high_level", "comprehensive"]] = None
 
 
 @router.post("", response_model=DirectRankResponse)

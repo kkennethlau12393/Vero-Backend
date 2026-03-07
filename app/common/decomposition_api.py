@@ -18,7 +18,6 @@ from sqlalchemy.engine import Engine
 
 from app.auth.jwt_user import get_current_user_id
 from app.auth.tenant import get_tenant_id
-from app.billing.credits import require_credits
 from app.common.query_decomposition import decompose_query
 from app.db import make_engine
 
@@ -41,8 +40,11 @@ class DecomposeRequest(BaseModel):
 class DecomposeResponse(BaseModel):
     """Response with decomposed query components."""
     topic: str
+    topic_aliases: list[str] = []
     domain: Optional[str] = None
+    domain_aliases: list[str] = []
     aspect: Optional[str] = None
+    aspect_aliases: list[str] = []
     suggested_specificity: str = "broad"
     reasoning: Optional[str] = None
 
@@ -59,18 +61,16 @@ def decompose_query_endpoint(
     Called by frontend to show the refine panel before submitting
     a full ranking or citation map request. Requires authentication.
     """
-    # Credit check — cheap but prevents spam (Groq call per request)
-    if user_id:
-        with engine.connect() as conn:
-            require_credits(conn, user_id, 0.1, "query_decompose", {"workspace_id": str(tenant_id)})
-
     with engine.begin() as conn:
         result = decompose_query(conn, req.query_text)
 
     return DecomposeResponse(
         topic=result.get("topic", req.query_text),
+        topic_aliases=result.get("topic_aliases", []),
         domain=result.get("domain"),
+        domain_aliases=result.get("domain_aliases", []),
         aspect=result.get("aspect"),
+        aspect_aliases=result.get("aspect_aliases", []),
         suggested_specificity=result.get("suggested_specificity", "broad"),
         reasoning=result.get("reasoning"),
     )
