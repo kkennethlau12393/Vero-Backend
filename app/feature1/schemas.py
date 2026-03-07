@@ -39,6 +39,16 @@ class CitationMapRequest(BaseModel):
     # Output control
     create_graph_draft: bool = True
 
+    # Structured query fields (auto-decomposed if not provided)
+    topic: Optional[str] = None
+    domain: Optional[str] = None
+    aspect: Optional[str] = None
+
+    # Intent options (all have defaults for backward compatibility)
+    map_focus: Optional[str] = None     # "landscape", "core_cluster", "evolution"
+    expansion: Optional[str] = None     # "narrow", "foundations", "wide"
+    map_size: Optional[str] = None      # "small", "medium", "large"
+
 
 class CitationNode(BaseModel):
     """A node in the citation graph."""

@@ -60,7 +60,9 @@ MAX_PARALLEL_BATCHES = 6  # 6 batches of 15 = 90 papers, all in parallel
 #      Score is divided by 10 for 0-1 range. Used as one input to RRF ensemble.
 # v29: Qualified-topic rule — "[QUALIFIER] [NOUN]" queries cap papers about
 #      the NOUN without the QUALIFIER at max 3 (e.g., LLM alignment, federated learning).
-MODEL_VERSION = "llm-type-v29"
+# v30: Structured query context injection — when a query is decomposed into
+#      topic/domain/aspect, inject scope-aware instructions into the prompt.
+MODEL_VERSION = "llm-type-v30"
 
 # Legacy tier mapping kept for backwards compatibility with cached scores
 TIER_SCORES = {
@@ -179,11 +181,18 @@ def prepare_scoring_input(
 def score_batch(
     query_text: str,
     papers: List[Dict[str, str]],
+    ranking_context: Optional[str] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Score papers using LLM tier classification.
 
     Returns dict mapping paper_id to {"score": float, "paper_type": str}.
     Uses Groq/Llama for tier-based classification and paper type detection.
+
+    Parameters
+    ----------
+    ranking_context : str, optional
+        Additional context from structured query decomposition to inject
+        into the prompt (scope/focus/depth instructions).
     """
     if not papers:
         return {}
@@ -252,7 +261,7 @@ PAPER TYPE:
 - theoretical: Pure theory, proofs
 - other: If unclear
 
-QUERY: {normalized_query}
+{"STRUCTURED CONTEXT:\n" + ranking_context + "\n\n" if ranking_context else ""}QUERY: {normalized_query}
 
 PAPERS:
 {papers_json}
@@ -357,6 +366,7 @@ def score_papers(
     paper_ids: List[str],
     works: Dict[str, WorkForMap],
     llm_scoring_cap: Optional[int] = None,
+    ranking_context: Optional[str] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Main entry point for relevance scoring.
 
@@ -401,7 +411,7 @@ def score_papers(
     new_scores: Dict[str, Dict[str, Any]] = {}
 
     def score_single_batch(batch: List[Dict[str, str]]) -> Dict[str, Dict[str, Any]]:
-        return score_batch(query_text, batch)
+        return score_batch(query_text, batch, ranking_context=ranking_context)
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_BATCHES) as executor:
         future_to_batch = {
@@ -439,6 +449,7 @@ def score_wave(
     query_hash: str,
     paper_ids: List[str],
     works: Dict[str, WorkForMap],
+    ranking_context: Optional[str] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Score a single wave of papers (no cap logic — caller manages wave sizes).
 
@@ -464,7 +475,7 @@ def score_wave(
     new_scores: Dict[str, Dict[str, Any]] = {}
 
     def score_single_batch(batch: List[Dict[str, str]]) -> Dict[str, Dict[str, Any]]:
-        return score_batch(query_text, batch)
+        return score_batch(query_text, batch, ranking_context=ranking_context)
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_BATCHES) as executor:
         future_to_batch = {
