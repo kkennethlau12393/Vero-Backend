@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -32,13 +32,44 @@ def get_engine() -> Engine:
     return make_engine()
 
 
+# ── Request / Response Models ────────────────────────────────────────────────
+
 class DecomposeRequest(BaseModel):
     """Request to decompose a query into structured components."""
     query_text: str
+    entry_type: Optional[Literal["ranked", "citation"]] = None
+
+
+class RankOptionSet(BaseModel):
+    """Which rank options to show the user (None = hide that option)."""
+    scope: Optional[list[str]] = None
+    focus: list[str] = ["foundational", "recent", "surveys", "all_time"]
+    depth: list[str] = ["high_level", "comprehensive"]
+
+
+class RankDefaults(BaseModel):
+    """Smart defaults for rank options based on query analysis."""
+    scope: Optional[str] = None
+    focus: str = "all_time"
+    depth: str = "comprehensive"
+
+
+class CitationOptionSet(BaseModel):
+    """Which citation map options to show the user."""
+    map_focus: list[str] = ["landscape", "core_cluster", "evolution"]
+    expansion: list[str] = ["narrow", "foundations", "wide"]
+    map_size: list[str] = ["small", "medium", "large"]
+
+
+class CitationDefaults(BaseModel):
+    """Smart defaults for citation map options based on query analysis."""
+    map_focus: str = "core_cluster"
+    expansion: str = "foundations"
+    map_size: str = "medium"
 
 
 class DecomposeResponse(BaseModel):
-    """Response with decomposed query components."""
+    """Response with decomposed query components and option guidance."""
     topic: str
     topic_aliases: list[str] = []
     domain: Optional[str] = None
@@ -47,6 +78,11 @@ class DecomposeResponse(BaseModel):
     aspect_aliases: list[str] = []
     suggested_specificity: str = "broad"
     reasoning: Optional[str] = None
+    # Option guidance (populated based on entry_type)
+    available_options: Optional[RankOptionSet] = None
+    defaults: Optional[RankDefaults] = None
+    citation_options: Optional[CitationOptionSet] = None
+    citation_defaults: Optional[CitationDefaults] = None
 
 
 @router.post("/decompose", response_model=DecomposeResponse)
@@ -64,6 +100,44 @@ def decompose_query_endpoint(
     with engine.begin() as conn:
         result = decompose_query(conn, req.query_text)
 
+    has_domain = bool(result.get("domain"))
+    has_aspect = bool(result.get("aspect"))
+    specificity = result.get("suggested_specificity", "broad")
+
+    # ── Rank options ─────────────────────────────────────────────────────
+    rank_options = None
+    rank_defaults = None
+    if req.entry_type is None or req.entry_type == "ranked":
+        rank_options = RankOptionSet()
+        rank_defaults = RankDefaults()
+
+        if has_domain:
+            rank_options.scope = ["broad", "intersection", "topic_focused", "domain_focused"]
+            if specificity in ("specific", "balanced"):
+                rank_defaults.scope = "intersection"
+            else:
+                rank_defaults.scope = "broad"
+        else:
+            rank_options.scope = None
+            rank_defaults.scope = "broad"
+
+        if not has_aspect:
+            rank_defaults.depth = "high_level"
+
+    # ── Citation map options ─────────────────────────────────────────────
+    cite_options = None
+    cite_defaults = None
+    if req.entry_type is None or req.entry_type == "citation":
+        cite_options = CitationOptionSet()
+        cite_defaults = CitationDefaults()
+
+        if has_domain:
+            cite_options.expansion = ["narrow", "foundations", "wide"]
+            cite_defaults.expansion = "foundations"
+        else:
+            cite_options.expansion = ["narrow", "wide"]
+            cite_defaults.expansion = "narrow"
+
     return DecomposeResponse(
         topic=result.get("topic", req.query_text),
         topic_aliases=result.get("topic_aliases", []),
@@ -73,4 +147,8 @@ def decompose_query_endpoint(
         aspect_aliases=result.get("aspect_aliases", []),
         suggested_specificity=result.get("suggested_specificity", "broad"),
         reasoning=result.get("reasoning"),
+        available_options=rank_options,
+        defaults=rank_defaults,
+        citation_options=cite_options,
+        citation_defaults=cite_defaults,
     )
