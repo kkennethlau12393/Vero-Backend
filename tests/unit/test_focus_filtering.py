@@ -10,7 +10,7 @@ from datetime import datetime
 
 import pytest
 
-from app.common.focus_filtering import apply_focus_filter, apply_depth_limit
+from app.common.focus_filtering import apply_focus_filter, apply_depth_limit, _get_field
 
 
 def _make_papers(specs):
@@ -35,7 +35,18 @@ class TestApplyFocusFilter:
         assert result[1]["title"] == "Paper C"
         assert result[2]["title"] == "Paper A"
 
-    def test_recent_puts_recent_first(self):
+    def test_recent_filters_old_papers(self):
+        current_year = datetime.now().year
+        # Build 12 recent + 3 old papers to exceed MIN_RESULTS
+        specs = [(f"Recent {i}", current_year - i % 5, 50) for i in range(12)]
+        specs += [("Old Paper", 2010, 500), ("Very Old", 2000, 1000), ("Ancient", 1990, 2000)]
+        papers = _make_papers(specs)
+        result = apply_focus_filter(papers, "recent")
+        # Old papers (2010, 2000, 1990) should be filtered out
+        years = [_get_field(p, "year") for p in result]
+        assert all(y >= current_year - 5 for y in years)
+
+    def test_recent_fallback_when_few_papers(self):
         current_year = datetime.now().year
         papers = _make_papers([
             ("Old Paper", 2010, 500),
@@ -44,11 +55,8 @@ class TestApplyFocusFilter:
             ("Also Recent", current_year, 10),
         ])
         result = apply_focus_filter(papers, "recent")
-        # Recent papers (within 3 years) come first
-        assert result[0]["title"] == "Recent Paper"
-        assert result[1]["title"] == "Also Recent"
-        # Older papers follow
-        assert result[2]["title"] == "Old Paper"
+        # Fewer than MIN_RESULTS, so fallback returns all papers
+        assert len(result) == 4
 
     def test_surveys_boosts_survey_titles(self):
         papers = _make_papers([
@@ -93,25 +101,25 @@ class TestApplyFocusFilter:
 # ── apply_depth_limit ─────────────────────────────────────────────────────────
 
 class TestApplyDepthLimit:
-    def test_high_level_limits_to_20(self):
+    def test_high_level_limits_to_15(self):
         papers = [{"title": f"Paper {i}"} for i in range(50)]
         result = apply_depth_limit(papers, "high_level")
-        assert len(result) == 20
+        assert len(result) == 15
 
-    def test_comprehensive_limits_to_60(self):
+    def test_comprehensive_limits_to_50(self):
         papers = [{"title": f"Paper {i}"} for i in range(100)]
         result = apply_depth_limit(papers, "comprehensive")
-        assert len(result) == 60
+        assert len(result) == 50
 
     def test_fewer_than_limit(self):
         papers = [{"title": f"Paper {i}"} for i in range(5)]
         result = apply_depth_limit(papers, "high_level")
         assert len(result) == 5
 
-    def test_unknown_depth_defaults_to_60(self):
+    def test_unknown_depth_defaults_to_50(self):
         papers = [{"title": f"Paper {i}"} for i in range(100)]
         result = apply_depth_limit(papers, "something")
-        assert len(result) == 60
+        assert len(result) == 50
 
     def test_empty_list(self):
         result = apply_depth_limit([], "high_level")
