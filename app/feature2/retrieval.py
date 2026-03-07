@@ -2936,6 +2936,41 @@ def generate_candidates_direct(
     # This is a GENERAL fix that runs for ALL queries, not specific papers
     _validate_and_correct_metadata(conn, all_wids)
 
+    # Apply intersection scoring filter (pre-LLM relevance gate)
+    if structured_query and structured_query.get("topic"):
+        from app.common.intersection_scoring import filter_candidates as _filter_candidates
+
+        loaded_for_scoring = WorkStore.load_many(conn, list(candidate_map.keys()))
+        scorable_papers = []
+        for wid in candidate_map:
+            w = loaded_for_scoring.get(wid)
+            if w:
+                scorable_papers.append({
+                    "work_id": wid,
+                    "title": w.title or "",
+                    "abstract": w.abstract or "",
+                    "cited_by_count": w.cited_by_count or 0,
+                })
+            else:
+                scorable_papers.append({
+                    "work_id": wid,
+                    "title": "",
+                    "abstract": "",
+                    "cited_by_count": 0,
+                })
+
+        filtered = _filter_candidates(
+            scorable_papers, structured_query, scope or "broad", min_score=0.15
+        )
+        filtered_wids = {p["work_id"] for p in filtered}
+
+        before_count = len(candidate_map)
+        candidate_map = {wid: prov for wid, prov in candidate_map.items() if wid in filtered_wids}
+        logger.info(
+            f"Intersection scoring: {before_count} -> {len(candidate_map)} candidates "
+            f"(scope={scope}, min_score=0.15)"
+        )
+
     # Apply year filters
     year_min = filters_json.get("year_min")
     year_max = filters_json.get("year_max")

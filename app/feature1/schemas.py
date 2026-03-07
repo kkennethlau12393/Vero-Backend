@@ -45,9 +45,9 @@ class CitationMapRequest(BaseModel):
     aspect: Optional[str] = None
 
     # Intent options (all have defaults for backward compatibility)
-    map_focus: Optional[str] = None     # "landscape", "core_cluster", "evolution"
-    expansion: Optional[str] = None     # "narrow", "foundations", "wide"
-    map_size: Optional[str] = None      # "small", "medium", "large"
+    map_focus: Optional[Literal["landscape", "core_cluster", "evolution"]] = None
+    expansion: Optional[Literal["narrow", "foundations", "wide"]] = None
+    map_size: Optional[Literal["small", "medium", "large"]] = None
 
 
 class CitationNode(BaseModel):
