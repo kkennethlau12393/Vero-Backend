@@ -224,6 +224,10 @@ def direct_rank_prod(
             json.dumps(context_json or {}, sort_keys=True, separators=(",", ":")),
             json.dumps(filters_json or {}, sort_keys=True, separators=(",", ":")),
             json.dumps(rank_params_json or {}, sort_keys=True, separators=(",", ":")),
+            json.dumps(structured_query or {}, sort_keys=True, separators=(",", ":")),
+            scope or "",
+            focus or "",
+            depth or "",
         ]
     )
     params_hash = hashlib.sha256(s.encode("utf-8")).hexdigest()
