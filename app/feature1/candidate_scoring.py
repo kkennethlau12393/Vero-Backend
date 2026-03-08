@@ -217,6 +217,7 @@ def greedy_graph_select(
     temporal: str,
     min_connectivity: float = 0.0,
     backbone_ratio: float = 0.6,
+    relevance_floor: float = 0.0,
 ) -> List[str]:
     """Greedily select papers to build a connected, relevant graph.
 
@@ -249,6 +250,9 @@ def greedy_graph_select(
     backbone_ratio : float
         Fraction of target_size reserved for graph-traversal candidates (0.0-1.0).
         Default 0.6 means 60% graph backbone, 40% open to enrichment.
+    relevance_floor : float
+        Minimum relevance score for inclusion. Papers below this are skipped
+        regardless of connectivity. Default 0.0 (no floor).
 
     Returns
     -------
@@ -288,6 +292,8 @@ def greedy_graph_select(
         best_score = -1.0
         for wid in eligible:
             s = scored[wid]
+            if s["relevance"] < relevance_floor:
+                continue
             conn = compute_connectivity_score(wid, selected_set, edges)
             if conn < min_connectivity and len(eligible) > (target_size - len(selected)) * 2:
                 continue

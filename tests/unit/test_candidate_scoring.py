@@ -351,6 +351,31 @@ class TestGreedyGraphSelect:
         result_recent = greedy_graph_select(candidates, edges, "SEED", 2, sq, "broad", "recent")
         assert result_recent[1] == "NEW"
 
+    @pytest.mark.unit
+    def test_relevance_floor_filters_low_relevance(self):
+        """Papers below relevance floor are excluded even with high connectivity."""
+        candidates = [
+            _make_paper("Seed", work_id="SEED"),
+            # Low relevance (no topic/domain match) but highly connected
+            _make_paper("Quantum Physics", "quantum entanglement research", work_id="LOW_REL"),
+            # High relevance (topic match) with same connectivity
+            _make_paper("NLP for Law", "natural language processing legal", work_id="HIGH_REL"),
+        ]
+        edges = {
+            "LOW_REL": {"SEED", "HIGH_REL"},
+            "HIGH_REL": {"SEED", "LOW_REL"},
+            "SEED": {"LOW_REL", "HIGH_REL"},
+        }
+        sq = _make_sq()  # topic=NLP, domain=legal
+
+        # With floor=0.3, quantum paper (relevance ~0.1) should be excluded
+        result = greedy_graph_select(
+            candidates, edges, "SEED", 2, sq, "broad", "all",
+            relevance_floor=0.3,
+        )
+        assert "HIGH_REL" in result
+        assert "LOW_REL" not in result
+
 
 # ── Two-phase backbone + enrichment ─────────────────────────────────────────
 
