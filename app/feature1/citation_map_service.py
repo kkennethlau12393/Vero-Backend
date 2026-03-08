@@ -2169,6 +2169,7 @@ def _expand_citation_network_v2(
     drift: str,
     temporal: str,
     map_size: str,
+    engine: Optional[Engine] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Tuple[str, str]], Dict[str, Set]]:
     """V2 citation network expansion with score-and-select.
 
@@ -2305,6 +2306,180 @@ def _expand_citation_network_v2(
         f"V2 Hop-1: {sum(1 for p in all_candidates.values() if p.get('hop') == 1)} fetched, "
         f"{len(hop1_filtered)} passed threshold {drift_config['hop1_threshold']}"
     )
+
+    # ── RETRIEVAL ENRICHMENT: LLM-expanded multi-source search ────────
+    # Discover relevant papers not in the seed's citation neighborhood.
+    # Enrichment candidates enter the same pool as hop-1 papers and are
+    # scored by greedy_graph_select. Connectivity weight (0.35) ensures
+    # only papers that actually connect to the graph are selected.
+    try:
+        from app.feature2.query_expansion import expand_query
+        from app.feature2.retrieval import _search_openalex, _search_semantic_scholar
+
+        # Build query text from structured query
+        query_text = structured_query.get("topic", "")
+        _enrich_domain = structured_query.get("domain")
+        if _enrich_domain:
+            query_text = f"{query_text} {_enrich_domain}"
+
+        if query_text.strip() and engine is not None:
+            # Get LLM-expanded concepts (cached)
+            with engine.connect() as exp_conn:
+                expansion = expand_query(exp_conn, query_text)
+
+            # Build search queries from expansion
+            search_queries = [query_text]
+            foundational_titles = []
+
+            if expansion.concepts:
+                for concept in expansion.concepts:
+                    for syn in concept.synonyms[:2]:
+                        if syn and syn.lower() != query_text.lower() and len(syn) > 2:
+                            search_queries.append(syn)
+                    for fw in getattr(concept, "foundational_works", []):
+                        if fw and len(fw) > 5 and fw.lower() != query_text.lower():
+                            foundational_titles.append(fw)
+
+            MAX_ENRICHMENT_QUERIES = 4
+            search_queries = search_queries[:MAX_ENRICHMENT_QUERIES]
+
+            logger.info(
+                f"V2 retrieval enrichment: {len(search_queries)} queries, "
+                f"{len(foundational_titles)} foundational titles"
+            )
+
+            # Run searches in parallel
+            enrichment_oa_results = []
+            enrichment_s2_results = []
+
+            def _oa_enrich(q, limit=30):
+                try:
+                    return _search_openalex(q, limit)
+                except Exception:
+                    return []
+
+            def _s2_enrich():
+                try:
+                    return _search_semantic_scholar(query_text, 50)
+                except Exception:
+                    return []
+
+            with ThreadPoolExecutor(max_workers=4) as enrich_executor:
+                oa_futures = []
+                for q in search_queries:
+                    oa_futures.append(enrich_executor.submit(_oa_enrich, q, 30))
+                for fw in foundational_titles[:5]:
+                    oa_futures.append(enrich_executor.submit(_oa_enrich, fw, 5))
+
+                s2_future = enrich_executor.submit(_s2_enrich)
+
+                for f in as_completed(oa_futures):
+                    enrichment_oa_results.extend(f.result())
+                enrichment_s2_results = s2_future.result()
+
+            # Process OA results: (work_id, score)
+            enrichment_count = 0
+            for wid, _score in enrichment_oa_results:
+                if not wid or wid in all_candidates or wid == seed_work_id:
+                    continue
+                all_candidates[wid] = {
+                    "work_id": wid,
+                    "title": None,
+                    "year": None,
+                    "cited_by_count": 0,
+                    "hop": 1,
+                    "is_seed": False,
+                    "_source": "retrieval_enrichment",
+                }
+                enrichment_count += 1
+
+            # Process S2 results: (s2_paper_id, metadata_dict)
+            for s2_id, meta in enrichment_s2_results:
+                oa_id = meta.get("openalex_id")
+                wid = oa_id if oa_id else f"S2:{s2_id}"
+                if not wid or wid in all_candidates or wid == seed_work_id:
+                    continue
+                all_candidates[wid] = {
+                    "work_id": wid,
+                    "title": meta.get("title"),
+                    "year": meta.get("year"),
+                    "cited_by_count": meta.get("citations", 0),
+                    "abstract": meta.get("abstract"),
+                    "doi": meta.get("doi"),
+                    "venue": meta.get("venue"),
+                    "hop": 1,
+                    "is_seed": False,
+                    "_source": "retrieval_enrichment",
+                }
+                enrichment_count += 1
+
+            logger.info(f"V2 retrieval enrichment: added {enrichment_count} new candidates")
+
+            # Edge discovery: check which enrichment papers connect to graph
+            enrichment_papers = [
+                p for p in all_candidates.values()
+                if p.get("_source") == "retrieval_enrichment"
+            ]
+            existing_wids = set(
+                wid for wid, p in all_candidates.items()
+                if p.get("_source") != "retrieval_enrichment"
+            )
+
+            # Only check papers that pass drift threshold
+            enrichment_to_check = []
+            for p in enrichment_papers:
+                score = compute_relevance_score(p, structured_query, scope)
+                if score >= drift_config["hop1_threshold"]:
+                    p["_relevance_score"] = score
+                    enrichment_to_check.append(p)
+
+            def _check_enrichment_edges(wid):
+                """Check if enrichment paper connects to existing graph."""
+                found = []
+                try:
+                    refs = fetch_references(wid, limit=100, fetch_limit=100)
+                    for r in refs:
+                        rid = r.get("work_id")
+                        if rid and rid in existing_wids:
+                            found.append((wid, rid))
+                except Exception:
+                    pass
+                try:
+                    citing = fetch_citing_papers(wid, limit=100, fetch_limit=100)
+                    for c in citing:
+                        cid = c.get("work_id")
+                        if cid and cid in existing_wids:
+                            found.append((cid, wid))
+                except Exception:
+                    pass
+                return found
+
+            # Cap at 20 edge-discovery calls to limit API usage
+            with ThreadPoolExecutor(max_workers=3) as edge_executor:
+                edge_futures = {
+                    edge_executor.submit(_check_enrichment_edges, p["work_id"]): p["work_id"]
+                    for p in enrichment_to_check[:20]
+                    if p["work_id"].startswith("W")  # Only OA IDs have fetchable refs
+                }
+                for future in as_completed(edge_futures):
+                    for src, tgt in future.result():
+                        add_edge(src, tgt)
+
+            # Score enrichment papers that passed threshold and add to hop1_filtered
+            for p in enrichment_to_check:
+                if p["work_id"] in all_edges:
+                    hop1_filtered.append(p)
+
+            enrichment_connected = sum(
+                1 for p in enrichment_to_check if p["work_id"] in all_edges
+            )
+            logger.info(
+                f"V2 enrichment: {len(enrichment_to_check)} passed threshold, "
+                f"{enrichment_connected} have graph connections"
+            )
+
+    except Exception as e:
+        logger.warning(f"V2 retrieval enrichment failed (non-fatal): {e}")
 
     # ── HOP 2: Expand top hop-1 papers ───────────────────────────────────
     hop1_sorted = sorted(hop1_filtered, key=lambda p: p.get("_relevance_score", 0), reverse=True)
@@ -4207,6 +4382,7 @@ def build_citation_map(
             drift=_drift,
             temporal=_temporal,
             map_size=_map_size,
+            engine=engine,
         )
 
         # Greedy graph selection
