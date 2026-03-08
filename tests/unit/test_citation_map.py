@@ -390,7 +390,7 @@ class TestAssembleMultihopGraph:
     @pytest.mark.unit
     def test_seed_only(self):
         papers = {"W1": {"title": "Seed", "year": 2020, "cited_by_count": 100, "is_seed": True, "hop": 0}}
-        nodes, edges = _assemble_multihop_graph("W1", papers, [])
+        nodes, edges = _assemble_multihop_graph({"W1"}, papers, [])
         assert len(nodes) == 1
         assert nodes[0].is_seed is True
         assert nodes[0].relationship == "seed"
@@ -402,7 +402,7 @@ class TestAssembleMultihopGraph:
             "W2": {"title": "Citer", "year": 2021, "cited_by_count": 50, "is_seed": False, "hop": 1},
         }
         edge_tuples = [("W2", "W1")]  # W2 cites W1
-        nodes, edges = _assemble_multihop_graph("W1", papers, edge_tuples)
+        nodes, edges = _assemble_multihop_graph({"W1"}, papers, edge_tuples)
         node_map = {n.work_id: n for n in nodes}
         assert node_map["W2"].relationship == "cites_seed"
 
@@ -413,7 +413,7 @@ class TestAssembleMultihopGraph:
             "W3": {"title": "Ref", "year": 2015, "cited_by_count": 5000, "is_seed": False, "hop": 1},
         }
         edge_tuples = [("W1", "W3")]  # W1 cites W3 (seed -> reference)
-        nodes, edges = _assemble_multihop_graph("W1", papers, edge_tuples)
+        nodes, edges = _assemble_multihop_graph({"W1"}, papers, edge_tuples)
         node_map = {n.work_id: n for n in nodes}
         assert node_map["W3"].relationship == "cited_by_seed"
 
@@ -425,7 +425,7 @@ class TestAssembleMultihopGraph:
             "W3": {"title": "Hop2", "year": 2022, "cited_by_count": 30, "is_seed": False, "hop": 2},
         }
         edge_tuples = [("W2", "W1"), ("W3", "W2")]
-        nodes, edges = _assemble_multihop_graph("W1", papers, edge_tuples)
+        nodes, edges = _assemble_multihop_graph({"W1"}, papers, edge_tuples)
         node_map = {n.work_id: n for n in nodes}
         assert node_map["W3"].relationship == "network"
 
@@ -437,7 +437,7 @@ class TestAssembleMultihopGraph:
             "W3": {"title": "Low", "year": 2022, "cited_by_count": 5, "is_seed": False, "hop": 1},
         }
         edge_tuples = [("W2", "W1"), ("W3", "W1")]
-        nodes, edges = _assemble_multihop_graph("W1", papers, edge_tuples, min_citations=100)
+        nodes, edges = _assemble_multihop_graph({"W1"}, papers, edge_tuples, min_citations=100)
         node_ids = {n.work_id for n in nodes}
         assert "W3" not in node_ids
         assert "W2" in node_ids
@@ -451,7 +451,7 @@ class TestAssembleMultihopGraph:
             "W3": {"title": "Excluded", "year": 2022, "cited_by_count": 5, "is_seed": False, "hop": 1},
         }
         edge_tuples = [("W2", "W1"), ("W3", "W1"), ("W3", "W2")]
-        nodes, edges = _assemble_multihop_graph("W1", papers, edge_tuples, min_citations=100)
+        nodes, edges = _assemble_multihop_graph({"W1"}, papers, edge_tuples, min_citations=100)
         # W3 is excluded, so edges involving W3 should be filtered out
         for e in edges:
             assert e.from_work_id != "W3"
@@ -459,7 +459,7 @@ class TestAssembleMultihopGraph:
 
     @pytest.mark.unit
     def test_empty_graph(self):
-        nodes, edges = _assemble_multihop_graph("W1", {}, [])
+        nodes, edges = _assemble_multihop_graph({"W1"}, {}, [])
         assert len(nodes) == 0
         assert len(edges) == 0
 
@@ -470,7 +470,7 @@ class TestAssembleMultihopGraph:
             "W2": {"title": "H1", "year": 2021, "cited_by_count": 50, "is_seed": False, "hop": 1},
             "W3": {"title": "H2", "year": 2022, "cited_by_count": 30, "is_seed": False, "hop": 2},
         }
-        nodes, _ = _assemble_multihop_graph("W1", papers, [("W2", "W1"), ("W3", "W2")])
+        nodes, _ = _assemble_multihop_graph({"W1"}, papers, [("W2", "W1"), ("W3", "W2")])
         node_map = {n.work_id: n for n in nodes}
         assert node_map["W1"].hop == 0
         assert node_map["W2"].hop == 1
@@ -509,7 +509,7 @@ class TestEdgeDirection:
             "W2": {"title": "A", "year": 2021, "cited_by_count": 50, "is_seed": False, "hop": 1},
         }
         edge_tuples = [("W2", "W1")]
-        _, edges = _assemble_multihop_graph("W1", papers, edge_tuples)
+        _, edges = _assemble_multihop_graph({"W1"}, papers, edge_tuples)
         assert edges[0].from_work_id == "W2"
         assert edges[0].to_work_id == "W1"
 

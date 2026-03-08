@@ -95,7 +95,7 @@ class TestMultihopGraphStructure:
             "W4": {"title": "H1b", "year": 2019, "cited_by_count": 80, "is_seed": False, "hop": 1},
         }
         edges = [("W2", "W1"), ("W1", "W4"), ("W3", "W2")]
-        nodes, _ = _assemble_multihop_graph("W1", papers, edges)
+        nodes, _ = _assemble_multihop_graph({"W1"}, papers, edges)
 
         for n in nodes:
             assert n.hop >= 0
@@ -109,7 +109,7 @@ class TestMultihopGraphStructure:
             "W2": {"title": "H1", "year": 2021, "cited_by_count": 50, "is_seed": False, "hop": 1},
         }
         edges = [("W2", "W1")]
-        nodes, graph_edges = _assemble_multihop_graph("W1", papers, edges)
+        nodes, graph_edges = _assemble_multihop_graph({"W1"}, papers, edges)
         node_ids = {n.work_id for n in nodes}
         for e in graph_edges:
             assert e.from_work_id in node_ids
@@ -122,7 +122,7 @@ class TestMultihopGraphStructure:
             "W2": {"title": "H1", "year": 2021, "cited_by_count": 50, "is_seed": False, "hop": 1},
         }
         edges = [("W2", "W1"), ("W1", "W1")]  # self-loop included
-        nodes, graph_edges = _assemble_multihop_graph("W1", papers, edges)
+        nodes, graph_edges = _assemble_multihop_graph({"W1"}, papers, edges)
         # Self-loops are passed through since the function doesn't filter them,
         # but from_work_id != to_work_id should be maintained by callers
         # Here we just verify the function works
@@ -137,7 +137,7 @@ class TestMultihopGraphStructure:
             "W3": {"title": "H2", "year": 2022, "cited_by_count": 30, "is_seed": False, "hop": 2},
         }
         edges = [("W2", "W1"), ("W3", "W2")]
-        nodes, _ = _assemble_multihop_graph("W1", papers, edges)
+        nodes, _ = _assemble_multihop_graph({"W1"}, papers, edges)
         for n in nodes:
             assert n.relationship in valid_relationships
 
@@ -149,7 +149,7 @@ class TestMultihopGraphStructure:
             "W3": {"title": "H1b", "year": 2019, "cited_by_count": 80, "is_seed": False, "hop": 1},
         }
         edges = [("W2", "W1"), ("W1", "W3")]
-        nodes, _ = _assemble_multihop_graph("W1", papers, edges)
+        nodes, _ = _assemble_multihop_graph({"W1"}, papers, edges)
         seeds = [n for n in nodes if n.is_seed]
         assert len(seeds) == 1
 
@@ -172,7 +172,7 @@ class TestMultihopGraphStructure:
         for i in range(3):
             edges.append((f"WN{i}", "WC0"))  # network -> hop1
 
-        nodes, graph_edges = _assemble_multihop_graph("W1", papers, edges)
+        nodes, graph_edges = _assemble_multihop_graph({"W1"}, papers, edges)
 
         # Structural checks
         assert len(nodes) == 14  # 1 seed + 5 citing + 5 ref + 3 network
@@ -208,7 +208,7 @@ class TestNodeDeduplication:
             "W1": {"title": "S", "year": 2020, "cited_by_count": 100, "is_seed": True, "hop": 0},
             "W2": {"title": "A", "year": 2021, "cited_by_count": 50, "is_seed": False, "hop": 1},
         }
-        nodes, _ = _assemble_multihop_graph("W1", papers, [("W2", "W1")])
+        nodes, _ = _assemble_multihop_graph({"W1"}, papers, [("W2", "W1")])
         work_ids = [n.work_id for n in nodes]
         assert len(work_ids) == len(set(work_ids))
 

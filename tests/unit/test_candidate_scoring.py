@@ -464,3 +464,174 @@ class TestGreedyGraphSelectTwoPhase:
         )
         assert len(result) == 6
         assert result[0] == "SEED"
+
+
+# ── Intent-aware scoring ────────────────────────────────────────────────────
+
+class TestIntentScoring:
+    """Tests for intent-aware relevance scoring."""
+
+    @pytest.mark.unit
+    def test_method_in_domain_boosts_domain_match(self):
+        """method_in_domain intent gives domain-only papers higher score than topic-only."""
+        sq = {"topic": "graph neural networks", "domain": "drug discovery", "intent": "method_in_domain"}
+        drug_paper = _make_paper("advances in drug discovery screening", "drug discovery molecules")
+        gnn_paper = _make_paper("graph neural network architectures", "graph neural networks layers")
+
+        drug_score = compute_relevance_score(drug_paper, sq, "intersection")
+        gnn_score = compute_relevance_score(gnn_paper, sq, "intersection")
+
+        assert drug_score > gnn_score  # Domain matters more for method_in_domain
+        assert drug_score == 0.5  # domain-only with method_in_domain
+        assert gnn_score == 0.3  # topic-only with method_in_domain
+
+    @pytest.mark.unit
+    def test_method_in_domain_boosts_both_match(self):
+        """method_in_domain gives both-match papers higher base than default."""
+        sq_intent = {"topic": "graph neural networks", "domain": "drug discovery", "intent": "method_in_domain"}
+        sq_default = {"topic": "graph neural networks", "domain": "drug discovery"}
+        # Abstract-only match avoids title double-match bonus
+        paper = _make_paper("research paper", "graph neural networks drug discovery applications")
+
+        score_intent = compute_relevance_score(paper, sq_intent, "intersection")
+        score_default = compute_relevance_score(paper, sq_default, "intersection")
+
+        assert score_intent == 0.9
+        assert score_default == 0.8
+
+    @pytest.mark.unit
+    def test_non_intersection_scope_ignores_intent(self):
+        """Intent only affects intersection scope."""
+        sq = {"topic": "graph neural networks", "domain": "drug discovery", "intent": "method_in_domain"}
+        paper = _make_paper("graph neural network architectures", "graph neural networks")
+
+        broad_score = compute_relevance_score(paper, sq, "broad")
+        topic_score = compute_relevance_score(paper, sq, "topic_focused")
+
+        assert broad_score == 0.7  # Unchanged by intent
+        assert topic_score == 0.8  # Unchanged by intent
+
+
+# ── Multi-seed greedy selection ──────────────────────────────────────────────
+
+class TestMultiSeed:
+    """Tests for multi-seed greedy selection."""
+
+    @pytest.mark.unit
+    def test_multiple_seeds_all_included(self):
+        """All seed papers appear in the result."""
+        candidates = [
+            {"work_id": "s1", "title": "Seed 1", "cited_by_count": 100},
+            {"work_id": "s2", "title": "Seed 2", "cited_by_count": 80},
+            {"work_id": "A", "title": "Paper A", "cited_by_count": 50},
+        ]
+        edges = {"A": {"s1", "s2"}, "s1": {"A"}, "s2": {"A"}}
+        result = greedy_graph_select(
+            candidates=candidates,
+            edges=edges,
+            seed_ids=["s1", "s2"],
+            target_size=3,
+            structured_query={"topic": "test"},
+            scope="broad",
+            temporal="all",
+        )
+        assert "s1" in result
+        assert "s2" in result
+        assert len(result) == 3
+
+    @pytest.mark.unit
+    def test_multi_seed_backward_compat(self):
+        """Old seed_id param still works when seed_ids not provided."""
+        candidates = [
+            {"work_id": "SEED", "title": "Seed", "cited_by_count": 100},
+            {"work_id": "A", "title": "Paper A", "cited_by_count": 50},
+        ]
+        edges = {"A": {"SEED"}, "SEED": {"A"}}
+        result = greedy_graph_select(
+            candidates=candidates,
+            edges=edges,
+            seed_id="SEED",
+            target_size=2,
+            structured_query={"topic": "test"},
+            scope="broad",
+            temporal="all",
+        )
+        assert result[0] == "SEED"
+        assert len(result) == 2
+
+    @pytest.mark.unit
+    def test_multi_seed_seeds_not_scored_as_candidates(self):
+        """Seeds should not be scored — they're always included."""
+        candidates = [
+            {"work_id": "s1", "title": "Seed 1", "cited_by_count": 100},
+            {"work_id": "s2", "title": "Seed 2", "cited_by_count": 80},
+            {"work_id": "A", "title": "NLP for Law paper", "abstract": "natural language processing legal",
+             "cited_by_count": 50},
+            {"work_id": "B", "title": "NLP for Law paper 2", "abstract": "natural language processing legal",
+             "cited_by_count": 40},
+        ]
+        edges = {"A": {"s1"}, "B": {"s2"}, "s1": {"A"}, "s2": {"B"}}
+        sq = _make_sq()
+        result = greedy_graph_select(
+            candidates=candidates,
+            edges=edges,
+            seed_ids=["s1", "s2"],
+            target_size=4,
+            structured_query=sq,
+            scope="broad",
+            temporal="all",
+        )
+        # Both seeds and both papers should be in result
+        assert set(result) == {"s1", "s2", "A", "B"}
+
+
+# ── LLM relevance score override ────────────────────────────────────────────
+
+class TestLLMRelevanceScore:
+    """Tests for LLM relevance scoring override in greedy selection."""
+
+    @pytest.mark.unit
+    def test_llm_scores_override_keyword_scores(self):
+        """When _llm_relevance is set on a candidate, greedy uses it."""
+        candidates = [
+            {"work_id": "seed", "title": "Seed", "cited_by_count": 100},
+            {"work_id": "A", "title": "Paper A", "cited_by_count": 50, "_llm_relevance": 0.9},
+            {"work_id": "B", "title": "Paper B", "cited_by_count": 500, "_llm_relevance": 0.1},
+        ]
+        edges = {"A": {"seed"}, "B": {"seed"}, "seed": {"A", "B"}}
+        result = greedy_graph_select(
+            candidates=candidates,
+            edges=edges,
+            seed_ids=["seed"],
+            target_size=2,
+            structured_query={"topic": "test"},
+            scope="broad",
+            temporal="all",
+        )
+        # A should be selected over B despite lower citations, because LLM says it's more relevant
+        assert "A" in result
+        assert result[0] == "seed"
+
+    @pytest.mark.unit
+    def test_llm_scores_mixed_with_keyword(self):
+        """Papers without _llm_relevance fall back to keyword scoring."""
+        candidates = [
+            {"work_id": "seed", "title": "Seed", "cited_by_count": 100},
+            {"work_id": "A", "title": "test paper", "cited_by_count": 50, "_llm_relevance": 0.9},
+            {"work_id": "B", "title": "test paper about NLP", "abstract": "natural language processing",
+             "cited_by_count": 40},  # No _llm_relevance, uses keyword
+        ]
+        edges = {"A": {"seed"}, "B": {"seed"}, "seed": {"A", "B"}}
+        sq = _make_sq()
+        result = greedy_graph_select(
+            candidates=candidates,
+            edges=edges,
+            seed_ids=["seed"],
+            target_size=3,
+            structured_query=sq,
+            scope="broad",
+            temporal="all",
+        )
+        assert "seed" in result
+        assert "A" in result
+        assert "B" in result

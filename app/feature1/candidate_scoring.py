@@ -47,9 +47,15 @@ def compute_relevance_score(
     aspect_match = any(t in text for t in aspect_terms) if aspect_terms else False
 
     # Score based on scope
+    intent = structured_query.get("intent", "single_topic")
+
     if scope == "intersection":
         if topic_match and domain_match:
-            base = 0.8
+            base = 0.9 if intent == "method_in_domain" else 0.8
+        elif domain_match and intent == "method_in_domain":
+            base = 0.5  # Domain matters more for method_in_domain
+        elif topic_match and intent == "method_in_domain":
+            base = 0.3  # Method-only less useful for method_in_domain
         elif topic_match or domain_match:
             base = 0.4
         else:
@@ -85,6 +91,124 @@ def compute_relevance_score(
         base = min(1.0, base + 0.1)
 
     return base
+
+
+def llm_relevance_score(
+    candidates: List[Dict[str, Any]],
+    structured_query: Dict[str, Any],
+    scope: str,
+    max_candidates: int = 75,
+) -> Dict[str, float]:
+    """Score candidate relevance using LLM classification.
+
+    Sends batched paper titles+abstracts to Groq and gets 0-3 scores:
+    0 = off-topic, 1 = tangential, 2 = relevant, 3 = core intersection
+
+    Returns dict of work_id -> normalized score (0.0 to 1.0).
+    Papers not scored keep their keyword-based score (not in returned dict).
+    Non-fatal: returns {} on failure.
+    """
+    import json
+    import logging
+    import os
+
+    _logger = logging.getLogger(__name__)
+
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        return {}
+
+    topic = structured_query.get("topic", "")
+    domain = structured_query.get("domain", "")
+    aspect = structured_query.get("aspect", "")
+
+    # Sort by keyword score descending, take top N
+    scored_candidates = []
+    for c in candidates:
+        kw = compute_relevance_score(c, structured_query, scope)
+        scored_candidates.append((kw, c))
+    scored_candidates.sort(key=lambda x: x[0], reverse=True)
+    to_score = scored_candidates[:max_candidates]
+
+    if not to_score:
+        return {}
+
+    # Build paper descriptions for LLM
+    papers_text = []
+    id_map = {}  # index -> work_id
+    for i, (_, c) in enumerate(to_score):
+        wid = c.get("work_id", "")
+        title = c.get("title") or "Unknown"
+        abstract = (c.get("abstract") or "")[:300]
+        papers_text.append(f"P{i}: {title}. {abstract}")
+        id_map[f"P{i}"] = wid
+
+    query_desc = f"Topic: {topic}"
+    if domain:
+        query_desc += f"\nDomain: {domain}"
+    if aspect:
+        query_desc += f"\nAspect: {aspect}"
+
+    scope_instruction = {
+        "intersection": (
+            f"Score 3 if paper is specifically about {topic} applied to/in {domain}. "
+            f"Score 2 if clearly relevant to both but not specifically their intersection. "
+            f"Score 1 if relevant to only {topic} or only {domain}. Score 0 if off-topic."
+        ),
+        "topic_focused": f"Score 3 if core {topic} paper. Score 2 if related. Score 1 if tangential. Score 0 if off-topic.",
+        "domain_focused": f"Score 3 if core {domain} paper. Score 2 if related. Score 1 if tangential. Score 0 if off-topic.",
+        "broad": "Score 3 if highly relevant to the research area. Score 2 if relevant. Score 1 if tangential. Score 0 if off-topic.",
+    }.get(scope, "Score 0-3 for relevance.")
+
+    BATCH_SIZE = 25
+    all_scores: Dict[str, float] = {}
+
+    from openai import OpenAI
+    GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+    client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
+
+    for batch_start in range(0, len(papers_text), BATCH_SIZE):
+        batch = papers_text[batch_start:batch_start + BATCH_SIZE]
+        batch_text = "\n".join(batch)
+
+        prompt = f"""Rate each paper's relevance to this research query.
+
+Query:
+{query_desc}
+
+{scope_instruction}
+
+Papers:
+{batch_text}
+
+Output ONLY a JSON object mapping paper ID to score (0-3). Example: {{"P0": 3, "P1": 1, "P2": 0}}"""
+
+        try:
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "You are a research paper classifier. Output only valid JSON."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.0,
+                max_tokens=1024,
+                response_format={"type": "json_object"},
+            )
+
+            content = (response.choices[0].message.content or "").strip()
+            scores = json.loads(content)
+
+            for pid, score in scores.items():
+                wid = id_map.get(pid)
+                if wid and isinstance(score, (int, float)):
+                    normalized = max(0.0, min(1.0, float(score) / 3.0))
+                    all_scores[wid] = normalized
+
+        except Exception as e:
+            _logger.warning(f"LLM relevance scoring batch failed: {e}")
+            continue
+
+    return all_scores
 
 
 def compute_temporal_score(
@@ -210,14 +334,15 @@ def get_fetch_limits(map_size: str) -> Dict[str, int]:
 def greedy_graph_select(
     candidates: List[Dict[str, Any]],
     edges: Dict[str, Set[str]],
-    seed_id: str,
-    target_size: int,
-    structured_query: Dict[str, Any],
-    scope: str,
-    temporal: str,
+    seed_id: str = "",
+    target_size: int = 40,
+    structured_query: Dict[str, Any] = None,
+    scope: str = "broad",
+    temporal: str = "all",
     min_connectivity: float = 0.0,
     backbone_ratio: float = 0.6,
     relevance_floor: float = 0.0,
+    seed_ids: List[str] = None,
 ) -> List[str]:
     """Greedily select papers to build a connected, relevant graph.
 
@@ -259,13 +384,23 @@ def greedy_graph_select(
     list[str]
         Ordered list of selected work_ids (seed first).
     """
+    # Resolve seed list (backward compat: seed_ids takes priority over seed_id)
+    if seed_ids is None:
+        seed_ids = [seed_id] if seed_id else []
+    seed_ids_set = set(seed_ids)
+
     # Pre-compute relevance and temporal scores for all candidates
     scored = {}
     for c in candidates:
         wid = c["work_id"]
-        if wid == seed_id:
+        if wid in seed_ids_set:
             continue
-        rel = compute_relevance_score(c, structured_query, scope)
+        # Prefer LLM relevance score if available, fall back to keyword
+        llm_rel = c.get("_llm_relevance")
+        if llm_rel is not None:
+            rel = llm_rel
+        else:
+            rel = compute_relevance_score(c, structured_query, scope)
         temp = compute_temporal_score(c, temporal)
         scored[wid] = {
             "relevance": rel,
@@ -283,8 +418,8 @@ def greedy_graph_select(
         )[:target_size * 3]
         scored = dict(top_candidates)
 
-    selected = [seed_id]
-    selected_set = {seed_id}
+    selected = list(seed_ids)
+    selected_set = set(seed_ids)
 
     def _select_best(eligible: Set[str]) -> str | None:
         """Pick the best candidate from eligible set."""
