@@ -154,7 +154,7 @@ class TestGetSeedCount:
 
 class TestGetMaxPapers:
     def test_small(self):
-        assert get_max_papers("small") == 25
+        assert get_max_papers("small") == 20
 
     def test_medium(self):
         assert get_max_papers("medium") == 40
