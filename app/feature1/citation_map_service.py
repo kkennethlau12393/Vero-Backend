@@ -3845,11 +3845,11 @@ def build_citation_map(
             except Exception as _e:
                 logger.warning(f"Citation map auto-decomposition failed: {_e}")
 
-        # Apply map_size limit to effective_total
+        # Apply map_size to control graph size
         if _map_size:
             try:
                 from app.feature1.hop_filtering import get_max_papers
-                effective_total = min(effective_total, get_max_papers(_map_size))
+                effective_total = get_max_papers(_map_size)
             except Exception:
                 pass
 
