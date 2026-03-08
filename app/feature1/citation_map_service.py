@@ -3148,7 +3148,11 @@ def _search_openalex_by_doi(doi: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
+def select_seed_from_query(
+    query: str,
+    scope: str = "broad",
+    structured_query: Optional[Dict[str, Any]] = None,
+) -> Tuple[Optional[str], Dict[str, Any]]:
     """Select the best seed paper from a natural language query.
 
     Uses same retrieval sources as broad ranking:
@@ -3160,6 +3164,8 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
     Then validates topical relevance using LLM scoring:
     - Only papers with HIGH+ relevance (score >= 0.75) are considered
     - Among those, pick the highest cited
+    - When scope=intersection, additionally filters to papers matching
+      BOTH topic AND domain in title/abstract
 
     Returns:
         - seed_work_id (or None if not found)
@@ -3415,6 +3421,30 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
             p for p in openalex_papers
             if llm_scores.get(p.get("work_id"), 0) >= MIN_SEED_LLM_SCORE
         ]
+
+        # Intersection-aware seed selection: prefer papers matching BOTH topic AND domain
+        if relevant_papers and scope == "intersection" and structured_query and structured_query.get("domain"):
+            from app.feature1.candidate_scoring import compute_relevance_score
+            both_match = []
+            either_match = []
+            for p in relevant_papers:
+                rel = compute_relevance_score(p, structured_query, "intersection")
+                if rel >= 0.5:  # Both topic AND domain match → base 0.8
+                    both_match.append(p)
+                elif rel >= 0.3:  # At least one matches
+                    either_match.append(p)
+            if both_match:
+                logger.info(
+                    f"Intersection seed filter: {len(both_match)} papers match both topic+domain "
+                    f"(from {len(relevant_papers)} LLM-validated)"
+                )
+                relevant_papers = both_match
+            elif either_match:
+                logger.info(
+                    f"Intersection seed filter: no both-match, falling back to {len(either_match)} either-match"
+                )
+                relevant_papers = either_match
+            # else: keep original relevant_papers (no intersection filtering)
 
         if relevant_papers:
             result = _pick_best_seed(
@@ -4124,6 +4154,61 @@ def build_citation_map(
     # #endregion
 
     with engine.connect() as conn:
+        # Step 0: Parse V2 inputs (needed before seed selection for intersection-aware filtering)
+        _scope = getattr(request, "scope", None) or "broad"
+        _drift = getattr(request, "drift", None) or "moderate"
+        _temporal = getattr(request, "temporal", None) or "all"
+        _map_size = getattr(request, "map_size", None) or "medium"
+
+        # Legacy backward compatibility mapping
+        if getattr(request, "map_focus", None) and not getattr(request, "drift", None):
+            _drift = {
+                "core_cluster": "strict",
+                "landscape": "open",
+                "evolution": "moderate",
+            }.get(request.map_focus, "moderate")
+
+        if getattr(request, "expansion", None) and not getattr(request, "drift", None):
+            _drift = {
+                "narrow": "strict",
+                "foundations": "moderate",
+                "wide": "open",
+            }.get(request.expansion, _drift)
+
+            if request.expansion == "foundations" and not getattr(request, "temporal", None):
+                _temporal = "seminal"
+            elif request.expansion == "narrow" and not getattr(request, "temporal", None):
+                _temporal = "recent"
+
+        if getattr(request, "map_focus", None) == "evolution" and not getattr(request, "temporal", None):
+            _temporal = "all"
+
+        # Build structured query (if provided or auto-decompose)
+        _sq = None
+        if getattr(request, "topic", None):
+            _sq = {
+                "topic": request.topic,
+                "domain": getattr(request, "domain", None),
+                "aspect": getattr(request, "aspect", None),
+                "topic_aliases": [],
+                "domain_aliases": [],
+                "aspect_aliases": [],
+            }
+        elif request.query_text:
+            try:
+                from app.common.query_decomposition import decompose_query as _decompose_q
+                with engine.connect() as _dconn:
+                    _sq = _decompose_q(_dconn, request.query_text)
+            except Exception as _e:
+                logger.warning(f"Citation map auto-decomposition failed: {_e}")
+
+        if not _sq:
+            _sq = {"topic": request.query_text or "", "domain": None, "aspect": None}
+
+        # If no domain, force scope to broad
+        if not _sq.get("domain"):
+            _scope = "broad"
+
         # Step 1: Determine seed paper (support multiple input modes)
         if request.seed_doi:
             # Mode: DOI (from PDF metadata or user input)
@@ -4252,7 +4337,9 @@ def build_citation_map(
 
         elif request.query_text:
             # Mode 2: Natural language query
-            seed_work_id, selection_info = select_seed_from_query(request.query_text)
+            seed_work_id, selection_info = select_seed_from_query(
+                request.query_text, scope=_scope, structured_query=_sq,
+            )
             if not seed_work_id:
                 logger.info(
                     "Citation map query had no seed: strategy=%s reason=%s candidates=%s",
@@ -4303,62 +4390,6 @@ def build_citation_map(
 
         # Step 2: Build citation network (V2 score-and-select)
 
-        # Parse V2 inputs with defaults
-        _scope = getattr(request, "scope", None) or "broad"
-        _drift = getattr(request, "drift", None) or "moderate"
-        _temporal = getattr(request, "temporal", None) or "all"
-        _map_size = getattr(request, "map_size", None) or "medium"
-
-        # Legacy backward compatibility mapping (Fix 3: includes temporal)
-        if getattr(request, "map_focus", None) and not getattr(request, "drift", None):
-            _drift = {
-                "core_cluster": "strict",
-                "landscape": "open",
-                "evolution": "moderate",
-            }.get(request.map_focus, "moderate")
-
-        if getattr(request, "expansion", None) and not getattr(request, "drift", None):
-            _drift = {
-                "narrow": "strict",
-                "foundations": "moderate",
-                "wide": "open",
-            }.get(request.expansion, _drift)
-
-            # Map expansion to temporal for better semantic match
-            if request.expansion == "foundations" and not getattr(request, "temporal", None):
-                _temporal = "seminal"
-            elif request.expansion == "narrow" and not getattr(request, "temporal", None):
-                _temporal = "recent"
-
-        if getattr(request, "map_focus", None) == "evolution" and not getattr(request, "temporal", None):
-            _temporal = "all"
-
-        # Build structured query (if provided or auto-decompose)
-        _sq = None
-        if getattr(request, "topic", None):
-            _sq = {
-                "topic": request.topic,
-                "domain": getattr(request, "domain", None),
-                "aspect": getattr(request, "aspect", None),
-                "topic_aliases": [],
-                "domain_aliases": [],
-                "aspect_aliases": [],
-            }
-        elif request.query_text:
-            try:
-                from app.common.query_decomposition import decompose_query as _decompose_q
-                with engine.connect() as _dconn:
-                    _sq = _decompose_q(_dconn, request.query_text)
-            except Exception as _e:
-                logger.warning(f"Citation map auto-decomposition failed: {_e}")
-
-        if not _sq:
-            _sq = {"topic": request.query_text or "", "domain": None, "aspect": None}
-
-        # If no domain, force scope to broad
-        if not _sq.get("domain"):
-            _scope = "broad"
-
         expand_start = time.time()
         # #region agent log
         _debug_log(
@@ -4389,6 +4420,21 @@ def build_citation_map(
         from app.feature1.candidate_scoring import greedy_graph_select, get_fetch_limits
         target = get_fetch_limits(_map_size)["target_nodes"]
 
+        # Dedup by DOI — preprint vs published versions
+        by_doi: Dict[str, Dict[str, Any]] = {}
+        no_doi = []
+        for c in candidates:
+            doi = c.get("doi")
+            if doi:
+                existing = by_doi.get(doi)
+                if existing is None or c.get("cited_by_count", 0) > existing.get("cited_by_count", 0):
+                    by_doi[doi] = c
+            else:
+                no_doi.append(c)
+        candidates = list(by_doi.values()) + no_doi
+
+        _relevance_floors = {"intersection": 0.3, "topic_focused": 0.2, "domain_focused": 0.2, "broad": 0.1}
+
         selected_ids = greedy_graph_select(
             candidates=candidates,
             edges=adjacency,
@@ -4397,6 +4443,7 @@ def build_citation_map(
             structured_query=_sq,
             scope=_scope,
             temporal=_temporal,
+            relevance_floor=_relevance_floors.get(_scope, 0.1),
         )
 
         # Build papers_dict from selected candidates
