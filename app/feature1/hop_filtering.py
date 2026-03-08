@@ -75,6 +75,6 @@ def get_max_papers(map_size: str) -> int:
     """Determine max papers based on map size preference."""
     return {
         "small": 25,
-        "medium": 50,
-        "large": 80,
-    }.get(map_size, 50)
+        "medium": 40,
+        "large": 60,
+    }.get(map_size, 40)

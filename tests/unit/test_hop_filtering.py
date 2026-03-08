@@ -157,10 +157,10 @@ class TestGetMaxPapers:
         assert get_max_papers("small") == 25
 
     def test_medium(self):
-        assert get_max_papers("medium") == 50
+        assert get_max_papers("medium") == 40
 
     def test_large(self):
-        assert get_max_papers("large") == 80
+        assert get_max_papers("large") == 60
 
-    def test_unknown_defaults_to_50(self):
-        assert get_max_papers("unknown") == 50
+    def test_unknown_defaults_to_40(self):
+        assert get_max_papers("unknown") == 40
