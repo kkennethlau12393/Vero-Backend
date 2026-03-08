@@ -56,15 +56,17 @@ class RankDefaults(BaseModel):
 
 class CitationOptionSet(BaseModel):
     """Which citation map options to show the user."""
-    map_focus: list[str] = ["landscape", "core_cluster", "evolution"]
-    expansion: list[str] = ["narrow", "foundations", "wide"]
+    scope: Optional[list[str]] = None  # None = hide (no domain)
+    drift: list[str] = ["strict", "moderate", "open"]
+    temporal: list[str] = ["seminal", "recent", "all"]
     map_size: list[str] = ["small", "medium", "large"]
 
 
 class CitationDefaults(BaseModel):
     """Smart defaults for citation map options based on query analysis."""
-    map_focus: str = "core_cluster"
-    expansion: str = "foundations"
+    scope: Optional[str] = None
+    drift: str = "moderate"
+    temporal: str = "all"
     map_size: str = "medium"
 
 
@@ -129,14 +131,17 @@ def decompose_query_endpoint(
     cite_defaults = None
     if req.entry_type is None or req.entry_type == "citation":
         cite_options = CitationOptionSet()
-        cite_defaults = CitationDefaults()
+        cite_defaults = CitationDefaults(drift="moderate", temporal="all", map_size="medium")
 
         if has_domain:
-            cite_options.expansion = ["narrow", "foundations", "wide"]
-            cite_defaults.expansion = "foundations"
+            cite_options.scope = ["broad", "intersection", "topic_focused", "domain_focused"]
+            if specificity in ("specific", "balanced"):
+                cite_defaults.scope = "intersection"
+            else:
+                cite_defaults.scope = "broad"
         else:
-            cite_options.expansion = ["narrow", "wide"]
-            cite_defaults.expansion = "narrow"
+            cite_options.scope = None
+            cite_defaults.scope = "broad"
 
     return DecomposeResponse(
         topic=result.get("topic", req.query_text),

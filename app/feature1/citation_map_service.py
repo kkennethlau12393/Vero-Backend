@@ -2162,6 +2162,308 @@ def _expand_citation_network(
     return filtered_papers, filtered_edges
 
 
+def _expand_citation_network_v2(
+    seed_work_id: str,
+    structured_query: Dict[str, Any],
+    scope: str,
+    drift: str,
+    temporal: str,
+    map_size: str,
+) -> Tuple[List[Dict[str, Any]], List[Tuple[str, str]], Dict[str, Set]]:
+    """V2 citation network expansion with score-and-select.
+
+    1. Fetch hop-1 candidates (all citing + referenced) from OA + S2
+    2. Score and filter by drift threshold
+    3. Expand top hop-1 papers to hop-2
+    4. Score and filter hop-2
+    5. If drift=open and map_size=large: expand to hop-3
+    6. Return all candidates + edges for greedy selection
+
+    Returns
+    -------
+    tuple
+        (candidates_list, edge_tuples, adjacency_map)
+    """
+    from app.feature1.candidate_scoring import (
+        compute_relevance_score,
+        get_drift_thresholds,
+        get_fetch_limits,
+    )
+
+    drift_config = get_drift_thresholds(drift)
+    fetch_config = get_fetch_limits(map_size)
+
+    all_candidates: Dict[str, Dict[str, Any]] = {}  # work_id -> paper dict
+    all_edges: Dict[str, Set] = {}  # work_id -> set of connected work_ids
+    edge_tuples: List[Tuple[str, str]] = []
+    edge_set: set = set()
+
+    def add_edge(from_id: str, to_id: str):
+        if from_id == to_id:
+            return
+        if (from_id, to_id) not in edge_set:
+            edge_set.add((from_id, to_id))
+            edge_tuples.append((from_id, to_id))
+        # Build adjacency map (bidirectional)
+        all_edges.setdefault(from_id, set()).add(to_id)
+        all_edges.setdefault(to_id, set()).add(from_id)
+
+    # Get seed details
+    seed_data = fetch_seed_paper_details(seed_work_id)
+    if seed_data:
+        all_candidates[seed_work_id] = {**seed_data, "hop": 0, "is_seed": True}
+    else:
+        all_candidates[seed_work_id] = {
+            "work_id": seed_work_id,
+            "title": None,
+            "year": None,
+            "cited_by_count": 0,
+            "hop": 0,
+            "is_seed": True,
+        }
+
+    # Resolve identifiers for all sources
+    seed_doi = _get_doi_for_work(seed_work_id) if seed_work_id.startswith("W") else None
+    seed_title = all_candidates[seed_work_id].get("title")
+
+    if seed_work_id.startswith("S2:"):
+        seed_s2_id = seed_work_id[3:]
+    elif seed_work_id.startswith("AX:"):
+        arxiv_id = seed_work_id[3:]
+        seed_s2_id = None
+        _s2_hdrs = get_s2_headers()
+        try:
+            _ax_resp = _s2_get_with_retry(
+                f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}",
+                params={"fields": "paperId"}, headers=_s2_hdrs, timeout=10,
+            )
+            if _ax_resp.status_code == 200:
+                seed_s2_id = _ax_resp.json().get("paperId")
+        except Exception:
+            pass
+        if not seed_s2_id:
+            seed_s2_id = _get_s2_paper_id(doi=seed_doi, title=seed_title)
+    else:
+        seed_s2_id = _get_s2_paper_id(doi=seed_doi, title=seed_title)
+
+    logger.info(f"V2 expansion — seed: OA={seed_work_id}, DOI={seed_doi}, S2={seed_s2_id}")
+
+    hop1_fetch = fetch_config["hop1_fetch"]
+
+    # ── HOP 1: Fetch all citing + referenced papers ──────────────────────
+    hop1_citing = []
+    hop1_refs = []
+
+    # Source 1: OpenAlex
+    if seed_work_id.startswith("W"):
+        hop1_citing = fetch_citing_papers(seed_work_id, limit=hop1_fetch, fetch_limit=hop1_fetch)
+        hop1_refs = fetch_references(seed_work_id, limit=hop1_fetch, fetch_limit=hop1_fetch)
+
+    # Source 2: Semantic Scholar
+    s2_identifier = seed_s2_id or seed_doi
+    s2_id_type = "S2" if seed_s2_id else "DOI"
+    if s2_identifier:
+        s2_citing = _fetch_citing_papers_s2(s2_identifier, limit=hop1_fetch, id_type=s2_id_type)
+        s2_refs = _fetch_references_s2(s2_identifier, limit=hop1_fetch, id_type=s2_id_type)
+
+        s2_citing_mapped = _merge_s2_citations(
+            s2_citing, set(all_candidates.keys()) | {p.get("work_id") for p in hop1_citing}
+        )
+        s2_refs_mapped = _merge_s2_citations(
+            s2_refs, set(all_candidates.keys()) | {p.get("work_id") for p in hop1_refs}
+        )
+
+        hop1_citing.extend(s2_citing_mapped)
+        hop1_refs.extend(s2_refs_mapped)
+
+    # Register hop-1 papers and edges
+    for p in hop1_citing:
+        wid = p.get("work_id")
+        if wid and wid not in all_candidates:
+            all_candidates[wid] = {**p, "hop": 1, "is_seed": False}
+        if wid:
+            add_edge(wid, seed_work_id)  # citing paper -> seed
+
+    for p in hop1_refs:
+        wid = p.get("work_id")
+        if wid and wid not in all_candidates:
+            all_candidates[wid] = {**p, "hop": 1, "is_seed": False}
+        if wid:
+            add_edge(seed_work_id, wid)  # seed -> reference
+
+    # Filter hop-1 by drift threshold
+    hop1_filtered = []
+    for wid, p in list(all_candidates.items()):
+        if p.get("hop") != 1:
+            continue
+        score = compute_relevance_score(p, structured_query, scope)
+        if score >= drift_config["hop1_threshold"]:
+            p["_relevance_score"] = score
+            hop1_filtered.append(p)
+
+    logger.info(
+        f"V2 Hop-1: {sum(1 for p in all_candidates.values() if p.get('hop') == 1)} fetched, "
+        f"{len(hop1_filtered)} passed threshold {drift_config['hop1_threshold']}"
+    )
+
+    # ── HOP 2: Expand top hop-1 papers ───────────────────────────────────
+    hop1_sorted = sorted(hop1_filtered, key=lambda p: p.get("_relevance_score", 0), reverse=True)
+    hop2_sources = hop1_sorted[:fetch_config["hop2_expand_count"]]
+
+    # Batch-resolve S2 paper IDs for hop-1 expansion sources
+    hop1_dois = {}
+    papers_to_resolve = []
+    for p in hop2_sources:
+        wid = p.get("work_id", "")
+        if wid.startswith("S2:"):
+            papers_to_resolve.append({"work_id": wid})
+        elif wid.startswith("W"):
+            doi = _get_doi_for_work(wid)
+            hop1_dois[wid] = doi
+            papers_to_resolve.append({
+                "work_id": wid,
+                "doi": doi,
+                "title": p.get("title"),
+            })
+        else:
+            papers_to_resolve.append({
+                "work_id": wid,
+                "title": p.get("title"),
+            })
+
+    hop1_s2_ids = _batch_resolve_s2_ids(papers_to_resolve)
+
+    hop2_fetch = fetch_config["hop2_fetch"]
+
+    def _expand_single_hop2_v2(wid, paper_data):
+        """Expand one hop-1 paper's citations+refs from OA and S2."""
+        h2_citing = []
+        h2_refs = []
+
+        if wid.startswith("W"):
+            try:
+                h2_citing.extend(fetch_citing_papers(wid, limit=hop2_fetch, fetch_limit=hop2_fetch))
+            except Exception:
+                pass
+            try:
+                h2_refs.extend(fetch_references(wid, limit=hop2_fetch, fetch_limit=hop2_fetch))
+            except Exception:
+                pass
+
+        hop1_s2_id = hop1_s2_ids.get(wid)
+        hop1_doi = hop1_dois.get(wid)
+        h2_s2_id = hop1_s2_id or hop1_doi
+        h2_s2_type = "S2" if hop1_s2_id else "DOI"
+        if h2_s2_id:
+            try:
+                s2_h2_citing = _fetch_citing_papers_s2(h2_s2_id, limit=hop2_fetch, id_type=h2_s2_type)
+                s2_h2_citing_mapped = _merge_s2_citations(
+                    s2_h2_citing, set(all_candidates.keys()) | {p.get("work_id") for p in h2_citing}
+                )
+                h2_citing.extend(s2_h2_citing_mapped)
+            except Exception:
+                pass
+            try:
+                s2_h2_refs = _fetch_references_s2(h2_s2_id, limit=hop2_fetch, id_type=h2_s2_type)
+                s2_h2_refs_mapped = _merge_s2_citations(
+                    s2_h2_refs, set(all_candidates.keys()) | {p.get("work_id") for p in h2_refs}
+                )
+                h2_refs.extend(s2_h2_refs_mapped)
+            except Exception:
+                pass
+
+        return wid, h2_citing, h2_refs
+
+    # Run hop-2 expansion in parallel
+    hop2_papers_raw = []
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {
+            executor.submit(_expand_single_hop2_v2, p.get("work_id", ""), p): p.get("work_id")
+            for p in hop2_sources
+        }
+        for future in as_completed(futures):
+            source_wid, h2_citing, h2_refs = future.result()
+            for p in h2_citing:
+                pid = p.get("work_id")
+                if pid and pid not in all_candidates and pid != seed_work_id:
+                    hop2_papers_raw.append(p)
+                    all_candidates[pid] = {**p, "hop": 2, "is_seed": False}
+                if pid:
+                    add_edge(pid, source_wid)
+            for p in h2_refs:
+                pid = p.get("work_id")
+                if pid and pid not in all_candidates and pid != seed_work_id:
+                    hop2_papers_raw.append(p)
+                    all_candidates[pid] = {**p, "hop": 2, "is_seed": False}
+                if pid:
+                    add_edge(source_wid, pid)
+
+    # Deduplicate hop-2 by work_id (Fix 2: inline dict dedup)
+    hop2_seen: Dict[str, Dict[str, Any]] = {}
+    for p in hop2_papers_raw:
+        hop2_seen.setdefault(p.get("work_id", ""), p)
+    hop2_papers = list(hop2_seen.values())
+
+    # Filter hop-2 by drift threshold
+    hop2_filtered = []
+    for p in hop2_papers:
+        score = compute_relevance_score(p, structured_query, scope)
+        if score >= drift_config["hop2_threshold"]:
+            p["_relevance_score"] = score
+            hop2_filtered.append(p)
+
+    logger.info(
+        f"V2 Hop-2: {len(hop2_papers)} fetched, {len(hop2_filtered)} passed "
+        f"threshold {drift_config['hop2_threshold']}"
+    )
+
+    # ── HOP 3 (only for open + large) ────────────────────────────────────
+    if drift_config["max_hops"] >= 3 and map_size == "large":
+        hop2_sorted = sorted(hop2_filtered, key=lambda p: p.get("_relevance_score", 0), reverse=True)
+        hop3_sources = hop2_sorted[:5]
+
+        hop3_papers_raw = []
+        for source_paper in hop3_sources:
+            source_wid = source_paper.get("work_id", "")
+            try:
+                h3_citing = fetch_citing_papers(source_wid, limit=15, fetch_limit=15)
+            except Exception:
+                h3_citing = []
+            try:
+                h3_refs = fetch_references(source_wid, limit=15, fetch_limit=15)
+            except Exception:
+                h3_refs = []
+
+            for p in h3_citing + h3_refs:
+                wid = p.get("work_id")
+                if wid and wid not in all_candidates and wid != seed_work_id:
+                    hop3_papers_raw.append(p)
+                    all_candidates[wid] = {**p, "hop": 3, "is_seed": False}
+                if wid:
+                    add_edge(source_wid, wid)
+
+        # Deduplicate hop-3 (Fix 2)
+        hop3_seen: Dict[str, Dict[str, Any]] = {}
+        for p in hop3_papers_raw:
+            hop3_seen.setdefault(p.get("work_id", ""), p)
+        hop3_papers = list(hop3_seen.values())
+
+        # Filter hop-3 by drift threshold
+        for p in hop3_papers:
+            score = compute_relevance_score(p, structured_query, scope)
+            if score >= drift_config["hop3_threshold"]:
+                p["_relevance_score"] = score
+
+        logger.info(f"V2 Hop-3: {len(hop3_papers)} fetched")
+
+    # Cross-reference metadata backfill
+    _backfill_metadata_cross_source(all_candidates)
+
+    # Return all candidates for greedy selection
+    candidate_list = list(all_candidates.values())
+    return candidate_list, edge_tuples, all_edges
+
+
 def _score_seed_candidates(
     query: str,
     candidates: List[Dict[str, Any]],
@@ -3824,18 +4126,48 @@ def build_citation_map(
         else:
             raise ValueError("Either seed_work_id or query_text must be provided")
 
-        # Step 2: Build citation network (multi-hop exploration)
-        effective_total = request.total_nodes or (request.citing_limit + request.references_limit + 1)
+        # Step 2: Build citation network (V2 score-and-select)
 
-        # Build structured query for hop filtering (if provided or auto-decompose)
+        # Parse V2 inputs with defaults
+        _scope = getattr(request, "scope", None) or "broad"
+        _drift = getattr(request, "drift", None) or "moderate"
+        _temporal = getattr(request, "temporal", None) or "all"
+        _map_size = getattr(request, "map_size", None) or "medium"
+
+        # Legacy backward compatibility mapping (Fix 3: includes temporal)
+        if getattr(request, "map_focus", None) and not getattr(request, "drift", None):
+            _drift = {
+                "core_cluster": "strict",
+                "landscape": "open",
+                "evolution": "moderate",
+            }.get(request.map_focus, "moderate")
+
+        if getattr(request, "expansion", None) and not getattr(request, "drift", None):
+            _drift = {
+                "narrow": "strict",
+                "foundations": "moderate",
+                "wide": "open",
+            }.get(request.expansion, _drift)
+
+            # Map expansion to temporal for better semantic match
+            if request.expansion == "foundations" and not getattr(request, "temporal", None):
+                _temporal = "seminal"
+            elif request.expansion == "narrow" and not getattr(request, "temporal", None):
+                _temporal = "recent"
+
+        if getattr(request, "map_focus", None) == "evolution" and not getattr(request, "temporal", None):
+            _temporal = "all"
+
+        # Build structured query (if provided or auto-decompose)
         _sq = None
-        _expansion = getattr(request, "expansion", None)
-        _map_size = getattr(request, "map_size", None)
         if getattr(request, "topic", None):
             _sq = {
                 "topic": request.topic,
                 "domain": getattr(request, "domain", None),
                 "aspect": getattr(request, "aspect", None),
+                "topic_aliases": [],
+                "domain_aliases": [],
+                "aspect_aliases": [],
             }
         elif request.query_text:
             try:
@@ -3845,47 +4177,73 @@ def build_citation_map(
             except Exception as _e:
                 logger.warning(f"Citation map auto-decomposition failed: {_e}")
 
-        # Apply map_size to control graph size
-        if _map_size:
-            try:
-                from app.feature1.hop_filtering import get_max_papers
-                effective_total = get_max_papers(_map_size)
-            except Exception:
-                pass
+        if not _sq:
+            _sq = {"topic": request.query_text or "", "domain": None, "aspect": None}
+
+        # If no domain, force scope to broad
+        if not _sq.get("domain"):
+            _scope = "broad"
 
         expand_start = time.time()
         # #region agent log
         _debug_log(
             "H15",
             "app/feature1/citation_map_service.py:build_citation_map.expand_start",
-            "Citation network expansion started",
+            "V2 citation network expansion started",
             {
                 "seedWorkId": seed_work_id,
-                "effectiveTotal": effective_total,
-                "hop1Fetch": max(request.citing_limit, request.references_limit) * 3,
-                "hop2Fetch": 30,
+                "scope": _scope,
+                "drift": _drift,
+                "temporal": _temporal,
+                "mapSize": _map_size,
             },
         )
         # #endregion
-        papers_dict, edge_tuples = _expand_citation_network(
+
+        candidates, edge_tuples, adjacency = _expand_citation_network_v2(
             seed_work_id=seed_work_id,
-            total_limit=effective_total,
-            hop1_fetch=max(request.citing_limit, request.references_limit) * 3,
-            hop2_fetch=30,
-            citation_weight=0.6,
-            connectivity_weight=0.4,
             structured_query=_sq,
-            expansion=_expansion,
+            scope=_scope,
+            drift=_drift,
+            temporal=_temporal,
+            map_size=_map_size,
         )
+
+        # Greedy graph selection
+        from app.feature1.candidate_scoring import greedy_graph_select, get_fetch_limits
+        target = get_fetch_limits(_map_size)["target_nodes"]
+
+        selected_ids = greedy_graph_select(
+            candidates=candidates,
+            edges=adjacency,
+            seed_id=seed_work_id,
+            target_size=target,
+            structured_query=_sq,
+            scope=_scope,
+            temporal=_temporal,
+        )
+
+        # Build papers_dict from selected candidates
+        selected_set = set(selected_ids)
+        papers_dict = {}
+        for c in candidates:
+            wid = c.get("work_id")
+            if wid and wid in selected_set:
+                papers_dict[wid] = c
+
+        # Filter edge_tuples to only selected nodes
+        final_edge_tuples = [(s, t) for s, t in edge_tuples if s in selected_set and t in selected_set]
+
         # #region agent log
         _debug_log(
             "H15",
             "app/feature1/citation_map_service.py:build_citation_map.expand_done",
-            "Citation network expansion finished",
+            "V2 citation network expansion finished",
             {
                 "seedWorkId": seed_work_id,
-                "papersCount": len(papers_dict),
-                "edgeTupleCount": len(edge_tuples),
+                "totalCandidates": len(candidates),
+                "selectedNodes": len(papers_dict),
+                "edgeTupleCount": len(final_edge_tuples),
                 "elapsedMs": int((time.time() - expand_start) * 1000),
             },
         )
@@ -3895,7 +4253,7 @@ def build_citation_map(
         nodes, edges = _assemble_multihop_graph(
             seed_work_id=seed_work_id,
             papers_dict=papers_dict,
-            edge_tuples=edge_tuples,
+            edge_tuples=final_edge_tuples,
             min_citations=request.min_citations,
         )
 
