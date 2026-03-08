@@ -350,3 +350,92 @@ class TestGreedyGraphSelect:
         # With recent temporal, new paper should be preferred
         result_recent = greedy_graph_select(candidates, edges, "SEED", 2, sq, "broad", "recent")
         assert result_recent[1] == "NEW"
+
+
+# ── Two-phase backbone + enrichment ─────────────────────────────────────────
+
+class TestGreedyGraphSelectTwoPhase:
+    """Test two-phase backbone + enrichment selection."""
+
+    @pytest.mark.unit
+    def test_backbone_preserves_graph_structure(self):
+        """Graph-traversal papers selected first, enrichment fills remaining."""
+        seed = "SEED"
+        candidates = []
+        edges = {seed: set()}
+
+        # 5 graph papers connected to seed and each other
+        for i in range(5):
+            wid = f"GRAPH_{i}"
+            candidates.append({
+                "work_id": wid,
+                "title": f"graph neural network paper {i}",
+                "year": 2020,
+                "cited_by_count": 100,
+            })
+            edges.setdefault(seed, set()).add(wid)
+            edges.setdefault(wid, set()).add(seed)
+            if i > 0:
+                prev = f"GRAPH_{i-1}"
+                edges.setdefault(wid, set()).add(prev)
+                edges.setdefault(prev, set()).add(wid)
+
+        # 5 enrichment papers — highly relevant but isolated
+        for i in range(5):
+            candidates.append({
+                "work_id": f"ENRICH_{i}",
+                "title": f"graph neural networks for drug discovery molecule {i}",
+                "year": 2023,
+                "cited_by_count": 50,
+                "_source": "retrieval_enrichment",
+            })
+
+        sq = {"topic": "graph neural networks", "domain": "drug discovery"}
+        result = greedy_graph_select(
+            candidates, edges, seed, target_size=8,
+            structured_query=sq, scope="intersection", temporal="all",
+            backbone_ratio=0.6,
+        )
+
+        assert result[0] == seed
+        graph_in_result = [r for r in result if r.startswith("GRAPH_")]
+        enrich_in_result = [r for r in result if r.startswith("ENRICH_")]
+        # backbone_target = int(8 * 0.6) = 4 (includes seed), so 3 graph papers in backbone
+        assert len(graph_in_result) >= 3, "Backbone should preserve most graph papers"
+        assert len(enrich_in_result) >= 1, "Enrichment should fill remaining slots"
+
+    @pytest.mark.unit
+    def test_enrichment_papers_need_source_tag(self):
+        """Papers without _source tag are treated as graph candidates."""
+        candidates = [
+            {"work_id": "A", "title": "test", "year": 2020, "cited_by_count": 10},
+            {"work_id": "B", "title": "test", "year": 2020, "cited_by_count": 10,
+             "_source": "retrieval_enrichment"},
+        ]
+        edges = {"SEED": {"A", "B"}, "A": {"SEED"}, "B": {"SEED"}}
+        sq = {"topic": "test"}
+
+        result = greedy_graph_select(
+            candidates, edges, "SEED", target_size=3,
+            structured_query=sq, scope="broad", temporal="all",
+        )
+        assert len(result) == 3
+
+    @pytest.mark.unit
+    def test_no_enrichment_papers_works_normally(self):
+        """When no enrichment papers exist, all slots go to graph papers."""
+        candidates = [
+            {"work_id": f"G{i}", "title": "graph paper", "year": 2020, "cited_by_count": 100}
+            for i in range(10)
+        ]
+        edges = {"SEED": set(f"G{i}" for i in range(10))}
+        for i in range(10):
+            edges[f"G{i}"] = {"SEED"}
+        sq = {"topic": "graph"}
+
+        result = greedy_graph_select(
+            candidates, edges, "SEED", target_size=6,
+            structured_query=sq, scope="broad", temporal="all",
+        )
+        assert len(result) == 6
+        assert result[0] == "SEED"

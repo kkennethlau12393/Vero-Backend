@@ -216,12 +216,44 @@ def greedy_graph_select(
     scope: str,
     temporal: str,
     min_connectivity: float = 0.0,
+    backbone_ratio: float = 0.6,
 ) -> List[str]:
     """Greedily select papers to build a connected, relevant graph.
 
-    Starts with the seed and iteratively adds the candidate that
-    maximizes a combined score of relevance, temporal preference,
-    and connectivity to the existing graph.
+    Uses two-phase selection:
+    1. Graph backbone (backbone_ratio of target): only graph-traversal candidates
+    2. Enrichment fill (remaining slots): all candidates including retrieval
+
+    This ensures the citation graph structure is preserved while still
+    incorporating relevant papers found via text retrieval.
+
+    Parameters
+    ----------
+    candidates : list[dict]
+        All candidate papers. Papers with _source="retrieval_enrichment"
+        are deferred to phase 2.
+    edges : dict[str, set[str]]
+        Full adjacency map.
+    seed_id : str
+        Work ID of the seed paper.
+    target_size : int
+        Total nodes to select (including seed).
+    structured_query : dict
+        Topic/domain/aspect + aliases.
+    scope : str
+        Relevance scope.
+    temporal : str
+        Temporal preference.
+    min_connectivity : float
+        Minimum connectivity score for inclusion.
+    backbone_ratio : float
+        Fraction of target_size reserved for graph-traversal candidates (0.0-1.0).
+        Default 0.6 means 60% graph backbone, 40% open to enrichment.
+
+    Returns
+    -------
+    list[str]
+        Ordered list of selected work_ids (seed first).
     """
     # Pre-compute relevance and temporal scores for all candidates
     scored = {}
@@ -235,11 +267,10 @@ def greedy_graph_select(
             "relevance": rel,
             "temporal": temp,
             "paper": c,
+            "is_enrichment": c.get("_source") == "retrieval_enrichment",
         }
 
     # Cap candidate pool: keep top 3x target_size by relevance + temporal
-    # Connectivity is computed dynamically so we can't pre-filter on it,
-    # but this removes the weakest candidates before the expensive greedy loop
     if len(scored) > target_size * 3:
         top_candidates = sorted(
             scored.items(),
@@ -250,35 +281,49 @@ def greedy_graph_select(
 
     selected = [seed_id]
     selected_set = {seed_id}
-    remaining = set(scored.keys())
 
-    while len(selected) < target_size and remaining:
+    def _select_best(eligible: Set[str]) -> str | None:
+        """Pick the best candidate from eligible set."""
         best_id = None
         best_score = -1.0
-
-        for wid in remaining:
+        for wid in eligible:
             s = scored[wid]
             conn = compute_connectivity_score(wid, selected_set, edges)
-
-            # Skip isolated nodes unless we're running low on connected ones
-            if conn < min_connectivity and len(remaining) > (target_size - len(selected)) * 2:
+            if conn < min_connectivity and len(eligible) > (target_size - len(selected)) * 2:
                 continue
-
             combined = (
                 0.45 * s["relevance"]
                 + 0.35 * conn
                 + 0.20 * s["temporal"]
             )
-
             if combined > best_score:
                 best_score = combined
                 best_id = wid
+        return best_id
 
-        if best_id is None:
+    # Split candidates into graph-traversal and enrichment
+    graph_candidates = set(wid for wid, s in scored.items() if not s["is_enrichment"])
+    all_remaining = set(scored.keys())
+
+    # Phase 1: Graph backbone — select from graph-traversal candidates only
+    backbone_target = max(1, int(target_size * backbone_ratio))
+    while len(selected) < backbone_target and graph_candidates:
+        best = _select_best(graph_candidates)
+        if best is None:
             break
+        selected.append(best)
+        selected_set.add(best)
+        graph_candidates.discard(best)
+        all_remaining.discard(best)
 
-        selected.append(best_id)
-        selected_set.add(best_id)
-        remaining.discard(best_id)
+    # Phase 2: Enrichment fill — select from ALL remaining candidates
+    while len(selected) < target_size and all_remaining:
+        best = _select_best(all_remaining)
+        if best is None:
+            break
+        selected.append(best)
+        selected_set.add(best)
+        all_remaining.discard(best)
+        graph_candidates.discard(best)
 
     return selected
