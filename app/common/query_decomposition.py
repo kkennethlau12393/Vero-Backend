@@ -29,7 +29,7 @@ MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 0.5
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-DECOMPOSITION_VERSION = "decomp_v2"
+DECOMPOSITION_VERSION = "decomp_v3"
 
 
 DECOMPOSITION_PROMPT = """You are a research query analyzer. Decompose this query into structured components.
@@ -45,13 +45,21 @@ Return JSON only:
   "aspect": "specific technique/subtopic or null if general",
   "aspect_aliases": ["alternative names for the aspect, or empty if null"],
   "suggested_specificity": "broad | balanced | specific",
+  "intent": "method_in_domain | cross_domain | survey | single_topic",
   "reasoning": "one sentence explaining your decomposition"
 }}
 
+Intent types:
+- method_in_domain: applying a method/technique to a specific domain (e.g., "GNN for drug discovery")
+- cross_domain: comparing or combining two independent fields (e.g., "transfer learning between NLP and computer vision")
+- survey: looking for overview/review of a topic (e.g., "survey of attention mechanisms")
+- single_topic: focused on one topic without intersection (e.g., "transformer architectures")
+
 Examples:
-- "NLP for law" → topic: "natural language processing", topic_aliases: ["NLP", "computational linguistics", "text mining"], domain: "law", domain_aliases: ["legal", "legal AI", "legaltech"], aspect: null, aspect_aliases: []
-- "transformer architectures" → topic: "transformer architectures", topic_aliases: ["transformers", "attention models"], domain: null, domain_aliases: [], aspect: null, aspect_aliases: []
-- "BERT fine-tuning for medical NER" → topic: "BERT fine-tuning", topic_aliases: ["BERT", "language model fine-tuning"], domain: "medical", domain_aliases: ["healthcare", "clinical", "biomedical"], aspect: "named entity recognition", aspect_aliases: ["NER", "entity extraction"]
+- "NLP for law" → topic: "natural language processing", topic_aliases: ["NLP", "computational linguistics", "text mining"], domain: "law", domain_aliases: ["legal", "legal AI", "legaltech"], aspect: null, aspect_aliases: [], intent: "method_in_domain"
+- "transformer architectures" → topic: "transformer architectures", topic_aliases: ["transformers", "attention models"], domain: null, domain_aliases: [], aspect: null, aspect_aliases: [], intent: "single_topic"
+- "BERT fine-tuning for medical NER" → topic: "BERT fine-tuning", topic_aliases: ["BERT", "language model fine-tuning"], domain: "medical", domain_aliases: ["healthcare", "clinical", "biomedical"], aspect: "named entity recognition", aspect_aliases: ["NER", "entity extraction"], intent: "method_in_domain"
+- "comparison of GNN and traditional ML in drug discovery" → topic: "graph neural networks", domain: "drug discovery", intent: "cross_domain"
 """
 
 
