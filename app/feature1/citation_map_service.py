@@ -168,10 +168,10 @@ def _s2_get_with_retry(
     timeout: int = 30,
     max_retries: int = S2_MAX_RETRIES,
 ) -> requests.Response:
-    """Make a GET request to S2 API with exponential backoff on 429.
+    """Make a GET request to S2 API with exponential backoff on 429/500.
 
     Returns the response object. Raises on non-retryable errors.
-    On exhausted retries, returns the last 429 response (caller decides what to do).
+    On exhausted retries, returns the last retryable response (caller decides what to do).
     """
     global _s2_rate_limited_until_ts
     _s2_throttle()  # Proactive rate limiting — wait if needed before request
@@ -197,8 +197,8 @@ def _s2_get_with_retry(
     last_resp = None
     for attempt in range(max_retries + 1):
         resp = requests.get(url, params=params, headers=headers, timeout=timeout)
-        if resp.status_code != 429:
-            # Success or non-429 error — clear any active cooldown
+        if resp.status_code not in (429, 500):
+            # Success or non-retryable error — clear any active cooldown
             _s2_rate_limited_until_ts = 0.0
             return resp
         last_resp = resp
@@ -206,7 +206,7 @@ def _s2_get_with_retry(
         _debug_log(
             "H16",
             "app/feature1/citation_map_service.py:_s2_get_with_retry.rate_limited",
-            "S2 returned 429; retrying",
+            f"S2 returned {resp.status_code}; retrying",
             {
                 "urlPrefix": url[:120],
                 "attempt": attempt + 1,
@@ -216,7 +216,7 @@ def _s2_get_with_retry(
         # #endregion
         if attempt < max_retries:
             delay = S2_RETRY_BASE_DELAY * (2 ** attempt)  # 1s, 2s, 4s
-            logger.info(f"S2 rate limited (429), retry {attempt + 1}/{max_retries} after {delay}s: {url[:80]}")
+            logger.info(f"S2 error ({resp.status_code}), retry {attempt + 1}/{max_retries} after {delay}s: {url[:80]}")
             time.sleep(delay)
 
     # All retries exhausted — activate cooldown to avoid hammering S2
@@ -588,6 +588,9 @@ def _search_arxiv(query: str, k: int = ARXIV_LIMIT) -> List[Dict[str, Any]]:
 
     base_url = "https://export.arxiv.org/api/query"
     words = query.split()[:5]
+    words = [w for w in words if w.upper() not in ("AND", "OR", "NOT")]
+    if not words:
+        return []
     search_terms = [f"all:{quote(word)}" for word in words]
     search_query = "+AND+".join(search_terms)
     url = f"{base_url}?search_query={search_query}&max_results={k}&sortBy=relevance"
@@ -2672,11 +2675,14 @@ def _score_seed_candidates(
     # Limit to top_k candidates (already sorted by citation count)
     candidates_to_score = candidates[:top_k]
 
-    # Prepare papers for prompt — include year and abstract for better judgment
+    # Prepare papers for prompt — use short IDs (P0, P1...) to save tokens
     papers_for_prompt = []
-    for c in candidates_to_score:
-        entry = {
-            "id": c.get("work_id"),
+    id_map: Dict[str, str] = {}  # "P0" -> work_id
+    for i, c in enumerate(candidates_to_score):
+        pid = f"P{i}"
+        id_map[pid] = c.get("work_id", "")
+        entry: Dict[str, Any] = {
+            "id": pid,
             "title": c.get("title", "")[:200],
         }
         if c.get("year"):
@@ -2688,7 +2694,7 @@ def _score_seed_candidates(
             entry["abstract"] = abstract[:300]
         papers_for_prompt.append(entry)
 
-    papers_json = json.dumps(papers_for_prompt, indent=2)
+    papers_json = json.dumps(papers_for_prompt)
 
     prompt = f"""Classify papers by relevance to the query for SEED PAPER selection. Return ONLY a JSON object mapping paper_id to relevance tier.
 
@@ -2739,7 +2745,7 @@ PAPERS:
 {papers_json}
 
 OUTPUT a JSON object mapping each paper_id to its tier. No commentary, no reasoning, no extra fields. Example format:
-{{"W1234": "HIGH", "W5678": "MEDIUM"}}"""
+{{"P0": "HIGH", "P3": "MEDIUM"}}"""
 
     client = Groq(api_key=api_key)
     # #region agent log
@@ -2760,7 +2766,7 @@ OUTPUT a JSON object mapping each paper_id to its tier. No commentary, no reason
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
-                max_tokens=4096,
+                max_tokens=8192,
                 timeout=GROQ_TIMEOUT,
                 response_format={"type": "json_object"},
             )
@@ -2788,11 +2794,10 @@ OUTPUT a JSON object mapping each paper_id to its tier. No commentary, no reason
             json_str = content[start:end]
             response_map = json.loads(json_str)
 
-            # Convert tiers to scores
+            # Convert tiers to scores — map short IDs back to work_ids
             result = {}
-            for c in candidates_to_score:
-                wid = c.get("work_id")
-                tier = response_map.get(wid, "NONE").upper()
+            for pid, wid in id_map.items():
+                tier = response_map.get(pid, "NONE").upper()
                 if tier not in TIER_SCORES:
                     tier = "NONE"
                 result[wid] = TIER_SCORES[tier]
@@ -3382,7 +3387,7 @@ def select_seed_from_query(
         executor.map(_fetch_abstract_for_candidate, openalex_papers[:80])
 
     # Run LLM validation on top-80 candidates (interleaved by citations + relevance)
-    llm_scores = _score_seed_candidates(query, openalex_papers, top_k=80)
+    llm_scores = _score_seed_candidates(query, openalex_papers, top_k=40)
 
     # Helper: pick best seed from candidate list with keyword sanity check
     def _pick_best_seed(candidates, scores, strategy_label, filter_desc):
@@ -3544,8 +3549,9 @@ def select_multi_seeds(
     topic_aliases = structured_query.get("topic_aliases", [])
     domain_aliases = structured_query.get("domain_aliases", [])
 
-    if scope != "intersection" or not domain:
-        # Non-intersection: single seed via existing function
+    intent = structured_query.get("intent", "single_topic")
+    if (scope != "intersection" and intent != "cross_domain") or not domain:
+        # Non-intersection / non-cross-domain: single seed via existing function
         seed_id, info = select_seed_from_query(query, scope=scope, structured_query=structured_query)
         if seed_id:
             paper = fetch_seed_paper_details(seed_id) or {"work_id": seed_id}
@@ -3565,10 +3571,8 @@ def select_multi_seeds(
         seeds.append((intersection_id, paper))
         seen_ids.add(intersection_id)
 
-    # Seed 2: Topic-focused — search for topic alone
-    topic_query = topic
-    if topic_aliases:
-        topic_query = f"{topic} OR {topic_aliases[0]}"
+    # Seed 2: Topic-focused — search full intersection query with topic_focused scope
+    topic_query = f"{topic} {domain}"
     topic_id, _ = select_seed_from_query(
         topic_query, scope="topic_focused", structured_query=structured_query,
     )
@@ -3577,10 +3581,8 @@ def select_multi_seeds(
         seeds.append((topic_id, paper))
         seen_ids.add(topic_id)
 
-    # Seed 3: Domain-focused — search for domain alone
-    domain_query = domain
-    if domain_aliases:
-        domain_query = f"{domain} OR {domain_aliases[0]}"
+    # Seed 3: Domain-focused — search full intersection query with domain_focused scope
+    domain_query = f"{topic} {domain}"
     domain_id, _ = select_seed_from_query(
         domain_query, scope="domain_focused", structured_query=structured_query,
     )
