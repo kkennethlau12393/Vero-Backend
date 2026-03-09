@@ -26,6 +26,13 @@ def _get_field(paper: Dict[str, Any], field: str, default: Any = None) -> Any:
 MIN_RESULTS = 10  # Never filter below this count
 
 
+def _get_llm_relevance(paper: Dict[str, Any]) -> float:
+    """Extract LLM relevance score from paper's score breakdown."""
+    breakdown = paper.get("score_breakdown", paper.get("breakdown", {}))
+    raw = breakdown.get("raw", {})
+    return raw.get("llm_relevance", 0)
+
+
 def _filter_with_fallback(
     papers: List[Dict[str, Any]],
     strict_fn,
@@ -66,10 +73,12 @@ def apply_focus_filter(papers: List[Dict[str, Any]], focus: str) -> List[Dict[st
             strict_fn=lambda ps: [
                 p for p in ps
                 if _get_field(p, "cited_by_count", 0) >= 500
+                and _get_llm_relevance(p) >= 0.55
             ],
             relaxed_fn=lambda ps: [
                 p for p in ps
                 if _get_field(p, "cited_by_count", 0) >= 100
+                and _get_llm_relevance(p) >= 0.45
             ],
             sort_fn=lambda ps: sorted(
                 ps, key=lambda p: _get_field(p, "cited_by_count", 0), reverse=True
