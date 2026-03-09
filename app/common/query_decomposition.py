@@ -29,7 +29,7 @@ MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 0.5
 MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-DECOMPOSITION_VERSION = "decomp_v3"
+DECOMPOSITION_VERSION = "decomp_v3.1"
 
 
 DECOMPOSITION_PROMPT = """You are a research query analyzer. Decompose this query into structured components.
@@ -55,11 +55,14 @@ Intent types:
 - survey: looking for overview/review of a topic (e.g., "survey of attention mechanisms")
 - single_topic: focused on one topic without intersection (e.g., "transformer architectures")
 
+CONSTRAINT: For cross_domain intent, topic and domain must BOTH be non-null. Assign the method/technique to topic and the application area to domain. If both are equal fields, assign the first mentioned to topic and the second to domain.
+
 Examples:
 - "NLP for law" → topic: "natural language processing", topic_aliases: ["NLP", "computational linguistics", "text mining"], domain: "law", domain_aliases: ["legal", "legal AI", "legaltech"], aspect: null, aspect_aliases: [], intent: "method_in_domain"
 - "transformer architectures" → topic: "transformer architectures", topic_aliases: ["transformers", "attention models"], domain: null, domain_aliases: [], aspect: null, aspect_aliases: [], intent: "single_topic"
 - "BERT fine-tuning for medical NER" → topic: "BERT fine-tuning", topic_aliases: ["BERT", "language model fine-tuning"], domain: "medical", domain_aliases: ["healthcare", "clinical", "biomedical"], aspect: "named entity recognition", aspect_aliases: ["NER", "entity extraction"], intent: "method_in_domain"
-- "comparison of GNN and traditional ML in drug discovery" → topic: "graph neural networks", domain: "drug discovery", intent: "cross_domain"
+- "transfer learning between NLP and computer vision" → topic: "transfer learning", topic_aliases: ["TL", "domain adaptation", "knowledge transfer"], domain: "NLP and computer vision", domain_aliases: ["natural language processing and CV", "text and image models"], aspect: null, aspect_aliases: [], intent: "cross_domain"
+- "bridging genomics and machine learning" → topic: "machine learning", topic_aliases: ["ML", "statistical learning"], domain: "genomics", domain_aliases: ["genome analysis", "genetic data analysis"], aspect: null, aspect_aliases: [], intent: "cross_domain"
 """
 
 
