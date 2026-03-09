@@ -51,46 +51,48 @@ def _filter_with_fallback(
 
 
 def apply_focus_filter(papers: List[Dict[str, Any]], focus: str) -> List[Dict[str, Any]]:
-    """Filter papers based on focus preference.
+    """Filter papers based on focus preference. Returns flat ranked list.
 
-    - foundational: high-citation older papers (filter, not just sort)
-    - recent: last 5 years only (relaxed: last 10 years)
-    - surveys: only review/survey papers (relaxed: surveys first + others)
+    - foundational: high-citation papers (>=500 strict, >=100 relaxed), sorted by citations
+    - recent: last 3 years (relaxed: 5 years), sorted by year desc then citations
+    - surveys: papers classified as review/survey by LLM or title, cap 25
     - all_time: no filtering
     """
     current_year = datetime.now().year
 
     if focus == "foundational":
-        return _filter_with_fallback(
+        result = _filter_with_fallback(
             papers,
             strict_fn=lambda ps: [
                 p for p in ps
-                if _get_field(p, "cited_by_count", 0) >= 100
-                and _get_field(p, "year", current_year) <= current_year - 3
+                if _get_field(p, "cited_by_count", 0) >= 500
             ],
             relaxed_fn=lambda ps: [
                 p for p in ps
-                if _get_field(p, "cited_by_count", 0) >= 50
+                if _get_field(p, "cited_by_count", 0) >= 100
             ],
             sort_fn=lambda ps: sorted(
                 ps, key=lambda p: _get_field(p, "cited_by_count", 0), reverse=True
             ),
         )
+        return result[:25]
 
     elif focus == "recent":
-        return _filter_with_fallback(
+        result = _filter_with_fallback(
             papers,
-            strict_fn=lambda ps: sorted(
-                [p for p in ps if _get_field(p, "year", 0) >= current_year - 5],
-                key=lambda p: _get_field(p, "year", 0),
-                reverse=True,
-            ),
-            relaxed_fn=lambda ps: sorted(
-                [p for p in ps if _get_field(p, "year", 0) >= current_year - 10],
-                key=lambda p: _get_field(p, "year", 0),
+            strict_fn=lambda ps: [
+                p for p in ps if _get_field(p, "year", 0) >= current_year - 3
+            ],
+            relaxed_fn=lambda ps: [
+                p for p in ps if _get_field(p, "year", 0) >= current_year - 5
+            ],
+            sort_fn=lambda ps: sorted(
+                ps,
+                key=lambda p: (_get_field(p, "year", 0), _get_field(p, "cited_by_count", 0)),
                 reverse=True,
             ),
         )
+        return result[:25]
 
     elif focus == "surveys":
         survey_terms = {
@@ -101,16 +103,17 @@ def apply_focus_filter(papers: List[Dict[str, Any]], focus: str) -> List[Dict[st
 
         def is_survey(p):
             title = _get_field(p, "title", "").lower()
+            paper_type = p.get("breakdown", {}).get("paper_type", "")
+            if paper_type in ("review", "survey"):
+                return True
             return any(term in title for term in survey_terms)
 
         surveys = [p for p in papers if is_survey(p)]
         others = [p for p in papers if not is_survey(p)]
 
-        # Strict: only surveys if enough
         if len(surveys) >= 5:
-            return surveys
-        # Fallback: surveys first, then others
-        return surveys + others
+            return surveys[:25]
+        return (surveys + others)[:25]
 
     else:  # all_time
         return papers
