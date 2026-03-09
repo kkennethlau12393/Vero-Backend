@@ -83,14 +83,24 @@ class TestApplyFocusFilter:
         assert "survey" in result[0]["title"].lower() or "review" in result[0]["title"].lower()
         assert "survey" in result[1]["title"].lower() or "review" in result[1]["title"].lower()
 
-    def test_all_time_no_change(self):
+    def test_all_time_filters_low_relevance(self):
+        # 12 good papers + 3 low-relevance → low-relevance filtered out
+        specs = [(f"Good {i}", 2020, 100, 0.7) for i in range(12)]
+        specs += [("Low A", 2020, 100, 0.1), ("Low B", 2020, 100, 0.2), ("Low C", 2020, 100, 0.3)]
+        papers = _make_papers(specs)
+        result = apply_focus_filter(papers, "all_time")
+        assert len(result) == 12
+        assert all("Good" in p["title"] for p in result)
+
+    def test_all_time_fallback_when_few_pass(self):
+        # Only 3 papers pass 0.40 floor → fallback returns all
         papers = _make_papers([
-            ("Paper A", 2020, 100),
-            ("Paper B", 2018, 200),
+            ("Paper A", 2020, 100, 0.8),
+            ("Paper B", 2018, 200, 0.1),
+            ("Paper C", 2019, 50, 0.2),
         ])
         result = apply_focus_filter(papers, "all_time")
-        assert result[0]["title"] == "Paper A"
-        assert result[1]["title"] == "Paper B"
+        assert len(result) == 3  # fallback to all
 
     def test_unknown_focus_no_change(self):
         papers = _make_papers([("Paper A", 2020, 100)])

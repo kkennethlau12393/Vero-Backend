@@ -62,7 +62,7 @@ MAX_PARALLEL_BATCHES = 6  # 6 batches of 15 = 90 papers, all in parallel
 #      the NOUN without the QUALIFIER at max 3 (e.g., LLM alignment, federated learning).
 # v30: Structured query context injection — when a query is decomposed into
 #      topic/domain/aspect, inject scope-aware instructions into the prompt.
-MODEL_VERSION = "llm-type-v30"
+MODEL_VERSION = "llm-type-v31"
 
 # Legacy tier mapping kept for backwards compatibility with cached scores
 TIER_SCORES = {
@@ -74,7 +74,7 @@ TIER_SCORES = {
 }
 
 # Valid paper types - LLM classifies paper TYPE, Python decides output category
-PAPER_TYPES = {"foundational", "methodology", "review", "application", "theoretical", "other"}
+PAPER_TYPES = {"seminal", "methodology", "review", "application", "theoretical", "other"}
 
 
 def get_cached_scores(
@@ -254,7 +254,7 @@ STEP 3 - CONTINUOUS SCORE (0-10):
 IMPORTANT: Use the FULL range. Do NOT cluster scores. A 5.3 is different from a 6.7.
 
 PAPER TYPE:
-- foundational: Introduced a genuinely new paradigm (RARE)
+- seminal: Introduced a genuinely new paradigm (RARE)
 - methodology: Tools, algorithms, frameworks, techniques (DEFAULT)
 - review: Surveys, meta-analyses, systematic reviews
 - application: Real-world implementations, clinical trials
