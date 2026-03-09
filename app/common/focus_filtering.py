@@ -133,7 +133,8 @@ def apply_focus_filter(papers: List[Dict[str, Any]], focus: str) -> List[Dict[st
         return (surveys + others)[:25]
 
     else:  # all_time
-        return papers
+        filtered = [p for p in papers if _get_llm_relevance(p) >= 0.40]
+        return filtered if len(filtered) >= MIN_RESULTS else papers
 
 
 def apply_depth_limit(papers: List[Dict[str, Any]], depth: str) -> List[Dict[str, Any]]:

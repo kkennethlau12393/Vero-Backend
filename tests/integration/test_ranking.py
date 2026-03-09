@@ -108,10 +108,8 @@ async def test_rank_endpoint_response_shape(client, auth_headers):
         data = response.json()
         assert "rank_job_id" in data
         assert "job" in data
-        # Should have categorized results OR items (drill-down)
-        has_categories = "foundational" in data or "methodology" in data
-        has_items = "items" in data
-        assert has_categories or has_items
+        # Should have flat items list
+        assert "items" in data
 
 
 @pytest.mark.integration
