@@ -1033,10 +1033,11 @@ def direct_rank_prod(
 
         # Check if skip_categorization is set (for drill-down: flat list only)
         skip_categorization = rank_params_json.get("skip_categorization", False)
+        if focus and focus != "all_time":
+            skip_categorization = True
 
         if skip_categorization:
-            # Return flat list of top papers (for drill-down endpoint)
-            # Just return the top_k items without categorization
+            # Return flat list of top papers (focus filter or drill-down)
             return {
                 "rank_job_id": rank_job_id,
                 "job": {
@@ -1057,6 +1058,12 @@ def direct_rank_prod(
                 "items": [
                     _format_item(item, idx) for idx, item in enumerate(ranked_items[:top_k])
                 ],
+                "foundational": [],
+                "methodology": [],
+                "reviews": [],
+                "applications": [],
+                "textbooks": [],
+                "additional_relevant": [],
             }
 
         # Assemble API response with categorized results
