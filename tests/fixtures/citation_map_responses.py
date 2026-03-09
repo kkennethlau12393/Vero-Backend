@@ -170,7 +170,7 @@ SEED_SCORING_RESPONSE = {
     "choices": [
         {
             "message": {
-                "content": '{"W999": "ESSENTIAL", "W100": "HIGH", "W101": "MEDIUM", "W102": "LOW"}'
+                "content": '{"P0": "ESSENTIAL", "P1": "HIGH", "P2": "MEDIUM", "P3": "LOW"}'
             }
         }
     ],
@@ -181,7 +181,7 @@ SEED_SCORING_ALL_NONE_RESPONSE = {
     "choices": [
         {
             "message": {
-                "content": '{"W100": "NONE", "W101": "NONE", "W102": "NONE"}'
+                "content": '{"P0": "NONE", "P1": "NONE", "P2": "NONE"}'
             }
         }
     ],
