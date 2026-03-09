@@ -432,11 +432,24 @@ def greedy_graph_select(
             conn = compute_connectivity_score(wid, selected_set, edges)
             if conn < min_connectivity and len(eligible) > (target_size - len(selected)) * 2:
                 continue
-            combined = (
-                0.45 * s["relevance"]
-                + 0.35 * conn
-                + 0.20 * s["temporal"]
-            )
+            if temporal == "seminal":
+                combined = (
+                    0.35 * s["relevance"]
+                    + 0.30 * conn
+                    + 0.35 * s["temporal"]
+                )
+            elif temporal == "recent":
+                combined = (
+                    0.35 * s["relevance"]
+                    + 0.35 * conn
+                    + 0.30 * s["temporal"]
+                )
+            else:  # all
+                combined = (
+                    0.45 * s["relevance"]
+                    + 0.35 * conn
+                    + 0.20 * s["temporal"]
+                )
             if combined > best_score:
                 best_score = combined
                 best_id = wid
@@ -467,4 +480,44 @@ def greedy_graph_select(
         all_remaining.discard(best)
         graph_candidates.discard(best)
 
-    return selected
+    # Post-selection: swap isolated nodes for connected alternatives
+    final_selected = list(seed_ids)
+    non_seed_selected = [wid for wid in selected if wid not in seed_ids_set]
+
+    selected_set_final = set(selected)
+    for wid in non_seed_selected:
+        connections = edges.get(wid, set()) & selected_set_final
+        if len(connections) > 0:
+            final_selected.append(wid)
+            continue
+
+        # Isolated — find best connected replacement from remaining candidates
+        remaining = (all_remaining | graph_candidates) - selected_set_final
+        best_replacement = None
+        best_score = -1.0
+        for candidate_wid in remaining:
+            s = scored.get(candidate_wid)
+            if not s:
+                continue
+            candidate_conn = edges.get(candidate_wid, set()) & selected_set_final
+            if len(candidate_conn) == 0:
+                continue
+            conn = compute_connectivity_score(candidate_wid, selected_set_final, edges)
+            if temporal == "seminal":
+                combined = 0.35 * s["relevance"] + 0.30 * conn + 0.35 * s["temporal"]
+            elif temporal == "recent":
+                combined = 0.35 * s["relevance"] + 0.35 * conn + 0.30 * s["temporal"]
+            else:
+                combined = 0.45 * s["relevance"] + 0.35 * conn + 0.20 * s["temporal"]
+            if combined > best_score:
+                best_score = combined
+                best_replacement = candidate_wid
+
+        if best_replacement:
+            final_selected.append(best_replacement)
+            selected_set_final.add(best_replacement)
+            selected_set_final.discard(wid)
+        else:
+            final_selected.append(wid)  # no connected alternative, keep original
+
+    return final_selected
