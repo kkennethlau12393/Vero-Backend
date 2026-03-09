@@ -90,14 +90,22 @@ def apply_focus_filter(papers: List[Dict[str, Any]], focus: str) -> List[Dict[st
         result = _filter_with_fallback(
             papers,
             strict_fn=lambda ps: [
-                p for p in ps if _get_field(p, "year", 0) >= current_year - 3
+                p for p in ps
+                if _get_field(p, "year", 0) >= current_year - 3
+                and _get_llm_relevance(p) >= 0.55
             ],
             relaxed_fn=lambda ps: [
-                p for p in ps if _get_field(p, "year", 0) >= current_year - 5
+                p for p in ps
+                if _get_field(p, "year", 0) >= current_year - 5
+                and _get_llm_relevance(p) >= 0.45
             ],
             sort_fn=lambda ps: sorted(
                 ps,
-                key=lambda p: (_get_field(p, "year", 0), _get_field(p, "cited_by_count", 0)),
+                key=lambda p: (
+                    _get_llm_relevance(p) * 0.4
+                    + min(_get_field(p, "cited_by_count", 0) / 1000, 1.0) * 0.3
+                    + (_get_field(p, "year", 0) - current_year + 5) / 5 * 0.3
+                ),
                 reverse=True,
             ),
         )

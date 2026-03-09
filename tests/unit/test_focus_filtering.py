@@ -13,12 +13,25 @@ import pytest
 from app.common.focus_filtering import apply_focus_filter, apply_depth_limit, _get_field
 
 
-def _make_papers(specs):
-    """Create paper dicts from (title, year, cited_by_count) tuples."""
-    return [
-        {"title": title, "year": year, "cited_by_count": cites, "work_id": f"W{i}"}
-        for i, (title, year, cites) in enumerate(specs)
-    ]
+def _make_papers(specs, llm_relevance=0.8):
+    """Create paper dicts from (title, year, cited_by_count) tuples.
+
+    llm_relevance: default LLM relevance score for all papers (can be
+    overridden per-paper by passing 4-tuples instead of 3-tuples).
+    """
+    papers = []
+    for i, spec in enumerate(specs):
+        if len(spec) == 4:
+            title, year, cites, rel = spec
+        else:
+            title, year, cites = spec
+            rel = llm_relevance
+        papers.append({
+            "title": title, "year": year, "cited_by_count": cites,
+            "work_id": f"W{i}",
+            "score_breakdown": {"raw": {"llm_relevance": rel}},
+        })
+    return papers
 
 
 # ── apply_focus_filter ────────────────────────────────────────────────────────
