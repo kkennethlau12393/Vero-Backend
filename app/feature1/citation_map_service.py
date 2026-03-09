@@ -2392,8 +2392,8 @@ def _expand_citation_network_v2(
 
             # Process OA results: (work_id, score)
             enrichment_count = 0
+            seed_ids_set = set(seed_work_ids)
             for wid, _score in enrichment_oa_results:
-                seed_ids_set = set(seed_work_ids)
                 if not wid or wid in all_candidates or wid in seed_ids_set:
                     continue
                 all_candidates[wid] = {
@@ -2570,9 +2570,9 @@ def _expand_citation_network_v2(
             executor.submit(_expand_single_hop2_v2, p.get("work_id", ""), p): p.get("work_id")
             for p in hop2_sources
         }
+        seed_ids_set = set(seed_work_ids)
         for future in as_completed(futures):
             source_wid, h2_citing, h2_refs = future.result()
-            seed_ids_set = set(seed_work_ids)
             for p in h2_citing:
                 pid = p.get("work_id")
                 if pid and pid not in all_candidates and pid not in seed_ids_set:
@@ -3571,8 +3571,11 @@ def select_multi_seeds(
         seeds.append((intersection_id, paper))
         seen_ids.add(intersection_id)
 
-    # Seed 2: Topic-focused — search full intersection query with topic_focused scope
-    topic_query = f"{topic} {domain}"
+    # Seed 2: Topic-focused
+    if intent == "cross_domain":
+        topic_query = topic  # bare topic works for cross-domain
+    else:
+        topic_query = f"{topic} {domain}"  # full query prevents off-topic seeds
     topic_id, _ = select_seed_from_query(
         topic_query, scope="topic_focused", structured_query=structured_query,
     )
@@ -3581,8 +3584,11 @@ def select_multi_seeds(
         seeds.append((topic_id, paper))
         seen_ids.add(topic_id)
 
-    # Seed 3: Domain-focused — search full intersection query with domain_focused scope
-    domain_query = f"{topic} {domain}"
+    # Seed 3: Domain-focused
+    if intent == "cross_domain":
+        domain_query = domain  # bare domain works for cross-domain
+    else:
+        domain_query = f"{topic} {domain}"  # full query prevents off-topic seeds
     domain_id, _ = select_seed_from_query(
         domain_query, scope="domain_focused", structured_query=structured_query,
     )
