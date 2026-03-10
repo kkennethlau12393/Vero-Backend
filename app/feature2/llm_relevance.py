@@ -62,7 +62,7 @@ MAX_PARALLEL_BATCHES = 6  # 6 batches of 15 = 90 papers, all in parallel
 #      the NOUN without the QUALIFIER at max 3 (e.g., LLM alignment, federated learning).
 # v30: Structured query context injection — when a query is decomposed into
 #      topic/domain/aspect, inject scope-aware instructions into the prompt.
-MODEL_VERSION = "llm-type-v31"
+MODEL_VERSION = "llm-type-v32"
 
 # Legacy tier mapping kept for backwards compatibility with cached scores
 TIER_SCORES = {
@@ -230,7 +230,17 @@ Domain mismatches → 0-2:
 - Different scientific systems (bacterial vs tumor drug resistance)
 - Adjacent phenomena (dark matter ≠ dark energy, Type 1 ≠ Type 2 diabetes)
 
-STEP 2 - QUERY TYPE:
+STEP 2 - CONTRIBUTION CHECK (ABOUT vs USES):
+Ask: "If the query technique were swapped for a different one, would this paper's core contribution change?"
+- If NO → the paper merely USES the technique as a tool (e.g., "uses transformers for oil well prediction"). Cap at 4.
+- If YES → the paper is ABOUT the technique (advances, analyzes, or improves it). Can score 7+.
+Examples:
+- "Battery health monitoring with attention mechanisms" → USES attention → max 4 for "attention" query
+- "Self-attention is all you need" → ABOUT attention → can score 9-10
+- "Drug discovery using graph neural networks" → USES GNNs → max 4 for "graph neural networks" query
+- "Message passing neural networks" → ABOUT GNNs → can score 7+
+
+STEP 3 - QUERY TYPE:
 - SINGLE TOPIC: Papers about any core aspect can score 7-10.
   For "[cause] [system]" queries, paper must discuss the cause-effect, not just the system.
 - INTERSECTION QUERY ("[METHOD] + [DOMAIN]"):
@@ -243,7 +253,7 @@ STEP 2 - QUERY TYPE:
   "Reinforcement learning" requires RL algorithms (Q-learning, policy gradient), not just optimization.
   The qualifier is what makes the topic specific — without it, the paper is a different topic.
 
-STEP 3 - CONTINUOUS SCORE (0-10):
+STEP 4 - CONTINUOUS SCORE (0-10):
 - 9-10: Seminal/foundational work that defined this specific field
 - 7-8: Directly addresses the query topic — paper is primarily ABOUT this
 - 5-6: Same field, useful context, but not primarily about the query topic
