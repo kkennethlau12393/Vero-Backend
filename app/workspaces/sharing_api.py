@@ -480,6 +480,9 @@ def delete_workspace(
         # when we delete the parent rows (maps, rank_jobs, candidate_sets).
         # Tables without FK cascades must be deleted explicitly.
 
+        # 0. Paper tags (keyed by workspace_id)
+        conn.execute(text("DELETE FROM paper_tags WHERE workspace_id = :ws"), {"ws": workspace_id})
+
         # 1. Saved papers (keyed by workspace_id)
         conn.execute(text("DELETE FROM saved_papers WHERE workspace_id = :ws"), {"ws": workspace_id})
 

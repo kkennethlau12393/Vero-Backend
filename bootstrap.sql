@@ -588,6 +588,25 @@ CREATE INDEX IF NOT EXISTS idx_saved_papers_user
 ALTER TABLE public.saved_papers
     ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'manual';
 
+-- ---------------------------------------------------------------------
+-- Paper tags (user-defined tags on papers, workspace-scoped)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.paper_tags (
+    tag_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    work_id text NOT NULL,
+    tag text NOT NULL,
+    color text DEFAULT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE(workspace_id, user_id, work_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_tags_workspace
+    ON public.paper_tags (workspace_id);
+CREATE INDEX IF NOT EXISTS idx_paper_tags_user
+    ON public.paper_tags (user_id, workspace_id);
+
 -- ==========================================================================
 -- Feature 4: Methodology Comparison
 -- ==========================================================================
