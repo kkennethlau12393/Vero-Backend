@@ -842,9 +842,13 @@ def direct_rank_prod(
                     item["breakdown"]["raw"] = {
                         "llm_relevance": llm_raw.get(wid, 0.0),
                     }
-                    item["breakdown"]["paper_type"] = (
+                    raw_paper_type = (
                         llm_entry.get("paper_type", "other")
                         if isinstance(llm_entry, dict) else "other"
+                    )
+                    # Seminal describes importance, not paper kind — display as methodology
+                    item["breakdown"]["paper_type"] = (
+                        "methodology" if raw_paper_type == "seminal" else raw_paper_type
                     )
 
             # Apply focus filtering and depth limiting (structured query)
