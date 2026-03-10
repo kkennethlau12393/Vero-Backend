@@ -13,7 +13,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from app.auth.jwt_user import get_current_user_id
-from app.auth.tenant import get_tenant_id
 from app.db import get_engine
 
 logger = logging.getLogger(__name__)
@@ -27,9 +26,19 @@ router = APIRouter(prefix="/v1/tags", tags=["tags"])
 
 class CreateTagRequest(BaseModel):
     workspace_id: UUID
-    work_id: str = Field(..., min_length=1)
+    paper_id: str = Field(..., min_length=1)
     tag: str = Field(..., min_length=1, max_length=100)
-    color: Optional[str] = None
+    color: Optional[str] = "#6b7280"
+
+
+def _format_tag(row: dict) -> dict:
+    """Map DB columns to frontend field names."""
+    return {
+        "id": str(row["tag_id"]),
+        "paper_id": row["work_id"],
+        "label": row["tag"],
+        "color": row.get("color") or "#6b7280",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +72,6 @@ def list_user_tags(
 def list_workspace_tags(
     workspace_id: UUID,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
     user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """Get all tags for papers in a workspace, for the current user."""
@@ -81,7 +89,7 @@ def list_workspace_tags(
             {"ws": workspace_id, "uid": user_id},
         ).mappings().all()
 
-    return [dict(r) for r in rows]
+    return [_format_tag(dict(r)) for r in rows]
 
 
 @router.post("/", status_code=201)
@@ -109,7 +117,7 @@ def create_tag(
             {
                 "ws": req.workspace_id,
                 "uid": user_id,
-                "wid": req.work_id,
+                "wid": req.paper_id,
                 "tag": tag_text,
                 "color": req.color,
             },
@@ -126,14 +134,14 @@ def create_tag(
             {
                 "ws": req.workspace_id,
                 "uid": user_id,
-                "wid": req.work_id,
+                "wid": req.paper_id,
                 "tag": tag_text,
             },
         ).mappings().first()
 
         conn.commit()
 
-    return dict(row)
+    return _format_tag(dict(row))
 
 
 @router.delete("/{tag_id}", status_code=204)
