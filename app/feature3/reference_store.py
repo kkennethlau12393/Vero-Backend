@@ -27,7 +27,7 @@ from app.shared.s2_keys import get_s2_headers
 
 logger = logging.getLogger(__name__)
 
-OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
+from app.shared.oa_keys import get_oa_api_key
 OPENALEX_BATCH_SIZE = 50
 OPENALEX_TIMEOUT = 15
 S2_TIMEOUT = 15
@@ -174,8 +174,9 @@ def _fetch_references_from_openalex(work_id: str) -> Tuple[List[str], Optional[s
         try:
             url = f"https://api.openalex.org/works/{work_id}"
             params = {}
-            if OPENALEX_API_KEY:
-                params["api_key"] = OPENALEX_API_KEY
+            oa_key = get_oa_api_key()
+            if oa_key:
+                params["api_key"] = oa_key
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
 
             if resp.status_code == 429:
@@ -248,8 +249,9 @@ def _fetch_and_insert_works(conn: Connection, work_ids: List[str]) -> None:
             ids_param = "|".join(f"https://openalex.org/{wid}" for wid in work_ids)
             url = "https://api.openalex.org/works"
             params = {"filter": f"openalex:{ids_param}", "per-page": len(work_ids)}
-            if OPENALEX_API_KEY:
-                params["api_key"] = OPENALEX_API_KEY
+            oa_key = get_oa_api_key()
+            if oa_key:
+                params["api_key"] = oa_key
 
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
 

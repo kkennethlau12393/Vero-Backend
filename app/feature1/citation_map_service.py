@@ -79,7 +79,7 @@ MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 0.5
 
 # API keys
-OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
+from app.shared.oa_keys import get_oa_api_key
 
 # Search limits
 OPENALEX_LIMIT = 100
@@ -266,8 +266,9 @@ def _search_openalex(query: str, k: int = OPENALEX_LIMIT) -> List[Dict[str, Any]
         "per-page": min(k, 200),
         "select": "id,title,publication_year,cited_by_count",
     }
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
 
     url = "https://api.openalex.org/works"
 
@@ -323,8 +324,9 @@ def _search_openalex_highly_cited(query: str, k: int = OPENALEX_HIGHLY_CITED_LIM
         "per-page": min(k, 200),
         "select": "id,title,publication_year,cited_by_count",
     }
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -387,8 +389,9 @@ def _search_openalex_by_title(
             "per-page": min(k * 2, 50),
             "select": "id,title,publication_year,cited_by_count",
         }
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         try:
             _oa_throttle()
@@ -666,8 +669,9 @@ def _get_doi_for_work(work_id: str) -> Optional[str]:
     try:
         url = f"https://api.openalex.org/works/{work_id}"
         params = {"select": "doi"}
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -719,8 +723,9 @@ def _lookup_openalex_by_doi(doi: str) -> Optional[str]:
             "select": "id",
             "per-page": 1,
         }
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -784,8 +789,9 @@ def _batch_lookup_openalex_by_dois(dois: List[str]) -> Dict[str, str]:
                 "select": "id,doi",
                 "per-page": len(clean_dois),
             }
-            if OPENALEX_API_KEY:
-                params["api_key"] = OPENALEX_API_KEY
+            oa_key = get_oa_api_key()
+            if oa_key:
+                params["api_key"] = oa_key
 
             _oa_throttle()
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -1036,8 +1042,9 @@ def fetch_citing_papers(work_id: str, limit: int = 25, fetch_limit: int = 100) -
             "sort": "cited_by_count:desc",
             "per-page": fetch_limit,
         }
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -1111,8 +1118,9 @@ def fetch_references(work_id: str, limit: int = 25, fetch_limit: int = 100) -> L
         # First get the work to find its referenced_works
         url = f"https://api.openalex.org/works/{work_id}"
         params = {}
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -1140,8 +1148,9 @@ def fetch_references(work_id: str, limit: int = 25, fetch_limit: int = 100) -> L
             "filter": f"openalex_id:{filter_str}",
             "per-page": 100,
         }
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -1310,8 +1319,9 @@ def fetch_seed_paper_details(work_id: str) -> Optional[Dict[str, Any]]:
     try:
         url = f"https://api.openalex.org/works/{work_id}"
         params = {}
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -3139,8 +3149,9 @@ def _search_openalex_by_doi(doi: str) -> Optional[Dict[str, Any]]:
         "filter": f"doi:{clean_doi}",
         "select": "id,title,publication_year,cited_by_count",
     }
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
 
     try:
         _oa_throttle()
@@ -3343,8 +3354,9 @@ def select_seed_from_query(
             try:
                 url = f"https://api.openalex.org/works/{wid}"
                 params = {"select": "abstract_inverted_index"}
-                if OPENALEX_API_KEY:
-                    params["api_key"] = OPENALEX_API_KEY
+                oa_key = get_oa_api_key()
+                if oa_key:
+                    params["api_key"] = oa_key
                 _oa_throttle()
                 resp = requests.get(url, params=params, timeout=10)
                 if resp.status_code == 200:

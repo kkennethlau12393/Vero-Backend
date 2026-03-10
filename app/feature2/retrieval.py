@@ -94,7 +94,7 @@ DBLP_LIMIT = 100  # Papers from DBLP
 OPENCITATIONS_ENABLED = True  # Use OpenCitations for citation counts (fast, free)
 
 # OpenAlex API key (improves rate limits significantly)
-OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
+from app.shared.oa_keys import get_oa_api_key
 
 # OpenAlex recent papers configuration
 # Note: OpenAlex limits per-page to 200 when using filters
@@ -939,8 +939,9 @@ def _search_openalex_highly_cited(query: str, k: int = OPENALEX_HIGHLY_CITED_LIM
         "per-page": min(k, 200),
         "select": "id,cited_by_count",
     }
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -998,8 +999,9 @@ def _search_openalex_by_title(title: str, k: int = 10) -> List[Tuple[str, float]
         "per_page": min(k, 50),
         "select": "id,cited_by_count,title",
     }
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -1864,8 +1866,9 @@ def _search_openalex(query: str, k: int, year_filter: Optional[str] = None) -> L
             logger.debug(f"OpenAlex year filter: {year_filter} -> {params['filter']}")
         else:
             params["filter"] = f"publication_year:{year_filter}"
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
     url = "https://api.openalex.org/works"
 
     results = []
