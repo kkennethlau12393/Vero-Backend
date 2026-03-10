@@ -500,14 +500,20 @@ def delete_workspace(
         # 6. Maps (cascades: map_nodes, map_edges, gap_feature_usage)
         conn.execute(text("DELETE FROM maps WHERE tenant_id = :tid"), {"tid": workspace_id})
 
-        # 7. Rank jobs (cascades: rank_results)
+        # 7. Rank results first (FK references rank_jobs without CASCADE)
+        conn.execute(text(
+            "DELETE FROM rank_results WHERE rank_job_id IN "
+            "(SELECT rank_job_id FROM rank_jobs WHERE tenant_id = :tid)"
+        ), {"tid": workspace_id})
+
+        # 8. Rank jobs (now safe to delete)
         conn.execute(text("DELETE FROM rank_jobs WHERE tenant_id = :tid"), {"tid": workspace_id})
 
-        # 8. Graph drafts & candidate sets (cascades: candidate_set_items)
+        # 9. Graph drafts & candidate sets (cascades: candidate_set_items)
         conn.execute(text("DELETE FROM graph_drafts WHERE tenant_id = :tid"), {"tid": workspace_id})
         conn.execute(text("DELETE FROM candidate_sets WHERE tenant_id = :tid"), {"tid": workspace_id})
 
-        # 9. Workspace members
+        # 10. Workspace members
         conn.execute(text("DELETE FROM workspace_members WHERE workspace_id = :ws"), {"ws": workspace_id})
 
         # 10. Workspace itself
