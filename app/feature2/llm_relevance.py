@@ -285,7 +285,7 @@ OUTPUT (JSON only — use the paper IDs exactly as given above):
                 model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
-                max_tokens=2048,
+                max_tokens=4096,
             )
 
             content = response.choices[0].message.content.strip()

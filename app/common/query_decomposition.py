@@ -162,7 +162,7 @@ def _call_groq(prompt: str) -> Optional[Dict[str, Any]]:
                 model=MODEL_VERSION,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
-                max_tokens=300,
+                max_tokens=512,
                 response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
@@ -173,7 +173,7 @@ def _call_groq(prompt: str) -> Optional[Dict[str, Any]]:
             return None
         except Exception as e:
             error_str = str(e).lower()
-            is_transient = "rate" in error_str or "timeout" in error_str or "connection" in error_str
+            is_transient = "rate" in error_str or "timeout" in error_str or "connection" in error_str or "validate" in error_str
             if is_transient and attempt < MAX_RETRIES - 1:
                 time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
                 continue
