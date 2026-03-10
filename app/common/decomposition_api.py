@@ -17,7 +17,6 @@ from pydantic import BaseModel
 from sqlalchemy.engine import Engine
 
 from app.auth.jwt_user import get_current_user_id
-from app.auth.tenant import get_tenant_id
 from app.common.query_decomposition import decompose_query
 from app.db import make_engine
 
@@ -91,7 +90,6 @@ class DecomposeResponse(BaseModel):
 def decompose_query_endpoint(
     req: DecomposeRequest,
     engine: Engine = Depends(get_engine),
-    tenant_id: UUID = Depends(get_tenant_id),
     user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
     """Auto-decompose a query into structured components.
