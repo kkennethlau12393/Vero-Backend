@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import Optional
 from uuid import UUID
 
@@ -13,7 +14,13 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from app.auth.jwt_user import get_current_user_id
-from app.db import get_engine
+from app.db import make_engine
+
+
+@lru_cache(maxsize=1)
+def get_engine() -> Engine:
+    """Lazily construct the database engine once per process."""
+    return make_engine()
 
 logger = logging.getLogger(__name__)
 
