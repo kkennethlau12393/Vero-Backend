@@ -282,7 +282,7 @@ OUTPUT (JSON only — use the paper IDs exactly as given above):
     for attempt in range(MAX_RETRIES):
         try:
             response = client.chat.completions.create(
-                model="meta-llama/llama-4-maverick-17b-128e-instruct",
+                model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=2048,

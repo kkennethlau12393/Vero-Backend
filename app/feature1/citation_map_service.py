@@ -2760,7 +2760,7 @@ OUTPUT a JSON object mapping each paper_id to its tier. No commentary, no reason
     for attempt in range(MAX_RETRIES):
         try:
             response = client.chat.completions.create(
-                model="meta-llama/llama-4-maverick-17b-128e-instruct",
+                model="openai/gpt-oss-120b",
                 messages=[
                     {"role": "system", "content": "You are a research paper classifier. Output only valid JSON. No markdown, no commentary, no code blocks. Respond in English only."},
                     {"role": "user", "content": prompt},
@@ -3819,7 +3819,7 @@ CRITICAL: Every paper ID (0 through {len(paper_list) - 1}) must appear in exactl
     for attempt in range(3):
         try:
             resp = client.chat.completions.create(
-                model="meta-llama/llama-4-maverick-17b-128e-instruct",
+                model="openai/gpt-oss-120b",
                 messages=[
                     {"role": "system", "content": "You are a research librarian. Return only valid JSON. Respond in English only. No markdown code blocks."},
                     {"role": "user", "content": prompt},
