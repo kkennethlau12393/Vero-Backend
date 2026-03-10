@@ -30,11 +30,11 @@ from openai import OpenAI
 from app.feature3.grounding_supplement import _extract_search_terms
 from app.feature3.landmark_retrieval import (
     _search_openalex_topic_landmarks,
-    OPENALEX_API_KEY,
     OPENALEX_TIMEOUT,
     MAX_RETRIES,
     RETRY_BACKOFF_BASE,
 )
+from app.shared.oa_keys import get_oa_api_key
 from app.feature3.paper_identity import content_word_overlap, decode_openalex_abstract
 from app.feature3.json_utils import extract_json_from_llm_response
 
@@ -159,8 +159,9 @@ def _search_openalex_fulltext(
                 "sort": "cited_by_count:desc",
                 "per-page": limit * 2,
             }
-            if OPENALEX_API_KEY:
-                params["api_key"] = OPENALEX_API_KEY
+            oa_key = get_oa_api_key()
+            if oa_key:
+                params["api_key"] = oa_key
 
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
 

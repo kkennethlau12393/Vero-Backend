@@ -29,7 +29,7 @@ from app.shared.s2_keys import get_s2_headers
 logger = logging.getLogger(__name__)
 
 # API settings
-OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
+from app.shared.oa_keys import get_oa_api_key
 OPENALEX_TIMEOUT = 15
 S2_TIMEOUT = 15
 MAX_RETRIES = 3
@@ -49,8 +49,9 @@ def _verify_topic_from_openalex(work_id: str) -> Optional[str]:
     try:
         url = f"https://api.openalex.org/works/{work_id}"
         params = {}
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
         if resp.status_code != 200:
             return None
@@ -115,8 +116,9 @@ def _search_openalex_topic_landmarks(
                 "sort": "cited_by_count:desc",
                 "per-page": limit,
             }
-            if OPENALEX_API_KEY:
-                params["api_key"] = OPENALEX_API_KEY
+            oa_key = get_oa_api_key()
+            if oa_key:
+                params["api_key"] = oa_key
 
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
 
@@ -280,8 +282,9 @@ def _resolve_s2_to_openalex(
                 "filter": f"doi:{doi_filter}",
                 "per-page": len(batch),
             }
-            if OPENALEX_API_KEY:
-                params["api_key"] = OPENALEX_API_KEY
+            oa_key = get_oa_api_key()
+            if oa_key:
+                params["api_key"] = oa_key
 
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
             if resp.status_code == 429:
