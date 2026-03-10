@@ -41,7 +41,7 @@ class CreateTagRequest(BaseModel):
 def _format_tag(row: dict) -> dict:
     """Map DB columns to frontend field names."""
     return {
-        "id": str(row["tag_id"]),
+        "id": str(row["id"]),
         "paper_id": row["work_id"],
         "label": row["tag"],
         "color": row.get("color") or "#6b7280",
@@ -88,7 +88,7 @@ def list_workspace_tags(
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
-                SELECT tag_id, work_id, tag, color, created_at
+                SELECT id, work_id, tag, color, created_at
                 FROM paper_tags
                 WHERE workspace_id = :ws AND user_id = :uid
                 ORDER BY created_at DESC
@@ -133,7 +133,7 @@ def create_tag(
         # Always fetch back the row (new or existing)
         row = conn.execute(
             text("""
-                SELECT tag_id, workspace_id, user_id, work_id, tag, color, created_at
+                SELECT id, workspace_id, user_id, work_id, tag, color, created_at
                 FROM paper_tags
                 WHERE workspace_id = :ws AND user_id = :uid
                   AND work_id = :wid AND tag = :tag
@@ -163,7 +163,7 @@ def delete_tag(
 
     with engine.connect() as conn:
         result = conn.execute(
-            text("DELETE FROM paper_tags WHERE tag_id = :tid AND user_id = :uid"),
+            text("DELETE FROM paper_tags WHERE id = :tid AND user_id = :uid"),
             {"tid": tag_id, "uid": user_id},
         )
         conn.commit()
