@@ -592,7 +592,7 @@ ALTER TABLE public.saved_papers
 -- Paper tags (user-defined tags on papers, workspace-scoped)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.paper_tags (
-    tag_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id uuid NOT NULL,
     user_id uuid NOT NULL,
     work_id text NOT NULL,
