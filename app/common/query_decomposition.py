@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 0.5
-MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
+MODEL_VERSION = "openai/gpt-oss-120b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 DECOMPOSITION_VERSION = "decomp_v3.1"
 

@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
+MODEL_VERSION = "openai/gpt-oss-120b"
 COMPARISON_VERSION = "v4-source-text-10"  # complement title dedup
 EXTRACTION_VERSION = "v2-rich-no-selfref"  # + self-reference prohibition
 MAX_RETRIES = 4

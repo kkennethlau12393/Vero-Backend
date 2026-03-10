@@ -29,7 +29,7 @@ MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 0.5
 
 # Groq Llama 4 Maverick - fast and high quality
-MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
+MODEL_VERSION = "openai/gpt-oss-120b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 MAX_SUBTOPICS = 5
