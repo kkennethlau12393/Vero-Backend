@@ -63,6 +63,10 @@ Examples:
 - "BERT fine-tuning for medical NER" → topic: "BERT fine-tuning", topic_aliases: ["BERT", "language model fine-tuning"], domain: "medical", domain_aliases: ["healthcare", "clinical", "biomedical"], aspect: "named entity recognition", aspect_aliases: ["NER", "entity extraction"], intent: "method_in_domain"
 - "transfer learning between NLP and computer vision" → topic: "transfer learning", topic_aliases: ["TL", "domain adaptation", "knowledge transfer"], domain: "NLP and computer vision", domain_aliases: ["natural language processing and CV", "text and image models"], aspect: null, aspect_aliases: [], intent: "cross_domain"
 - "bridging genomics and machine learning" → topic: "machine learning", topic_aliases: ["ML", "statistical learning"], domain: "genomics", domain_aliases: ["genome analysis", "genetic data analysis"], aspect: null, aspect_aliases: [], intent: "cross_domain"
+- "influence of market sentiment on venture capital decision making" → topic: "venture capital decision making", topic_aliases: ["VC decision making", "VC investment decisions", "venture capital evaluation"], domain: "market sentiment and macroeconomics", domain_aliases: ["investor sentiment", "economic conditions", "market mood"], aspect: "causal influence", aspect_aliases: ["effect", "impact", "role of"], intent: "method_in_domain"
+- "how climate change affects agricultural supply chains" → topic: "agricultural supply chains", topic_aliases: ["food supply chains", "agricultural logistics", "crop distribution"], domain: "climate change", domain_aliases: ["global warming", "climate impacts", "environmental change"], aspect: "effects and adaptation", aspect_aliases: ["impacts", "resilience", "vulnerability"], intent: "method_in_domain"
+- "comparing deep learning and traditional methods for anomaly detection" → topic: "anomaly detection", topic_aliases: ["outlier detection", "anomaly identification"], domain: null, domain_aliases: [], aspect: "deep learning vs traditional methods", aspect_aliases: ["DL comparison", "neural vs classical"], intent: "single_topic"
+- "ethical implications of facial recognition in law enforcement" → topic: "facial recognition", topic_aliases: ["face detection", "biometric identification"], domain: "law enforcement", domain_aliases: ["policing", "criminal justice", "public safety"], aspect: "ethical implications", aspect_aliases: ["ethics", "privacy concerns", "civil liberties"], intent: "method_in_domain"
 """
 
 
@@ -163,9 +167,39 @@ def _call_groq(prompt: str) -> Optional[Dict[str, Any]]:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
                 max_tokens=512,
-                response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
+
+            # Extract JSON from possible markdown wrapping
+            if content.startswith("```"):
+                lines = content.split("\n")
+                json_lines = []
+                inside = False
+                for line in lines:
+                    if line.strip().startswith("```"):
+                        inside = not inside
+                        continue
+                    if inside:
+                        json_lines.append(line)
+                content = "\n".join(json_lines)
+
+            # Find the JSON object
+            start = content.find("{")
+            if start == -1:
+                logger.warning(f"Decomposition response has no JSON: {content[:200]}")
+                return None
+            depth = 0
+            end = start
+            for i, c in enumerate(content[start:], start):
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            content = content[start:end]
+
             return json.loads(content)
 
         except json.JSONDecodeError as e:
