@@ -141,6 +141,10 @@ def decompose_query_endpoint(
             cite_options.scope = None
             cite_defaults.scope = "broad"
 
+    # When entry_type is "citation", populate defaults from citation_defaults
+    # so the frontend always has a defaults object regardless of entry type.
+    effective_defaults = rank_defaults if rank_defaults is not None else cite_defaults
+
     return DecomposeResponse(
         topic=result.get("topic", req.query_text),
         topic_aliases=result.get("topic_aliases", []),
@@ -151,7 +155,7 @@ def decompose_query_endpoint(
         suggested_specificity=result.get("suggested_specificity", "broad"),
         reasoning=result.get("reasoning"),
         available_options=rank_options,
-        defaults=rank_defaults,
+        defaults=effective_defaults,
         citation_options=cite_options,
         citation_defaults=cite_defaults,
     )
