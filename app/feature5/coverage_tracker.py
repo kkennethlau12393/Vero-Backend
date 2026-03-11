@@ -253,9 +253,9 @@ def _calculate_map_coverage(conn: Connection, map_id: UUID) -> CoverageBreakdown
             _calculate_methodology_contribution(comparisons)
         )
     else:
-        # Legacy fallback: simple count from cache table, average 4% each (2-node default)
-        methodology_count = get_methodology_comparison_count(conn, map_id)
-        methodology_pct = min(methodology_count * 0.04, METHODOLOGY_CAP)
+        # No activity log entries = no comparisons in THIS workspace
+        methodology_count = 0
+        methodology_pct = 0.0
         stale_penalty = 0.0
 
     # Node-specific: prefer activity log, fall back to explored node count
@@ -489,18 +489,21 @@ def get_available_data_sources(
         if has_map_wide_timeline(conn, map_id):
             sources.append("timeline")
 
-        if get_methodology_comparison_count(conn, map_id) > 0:
+        method_logged = conn.execute(
+            text("""
+                SELECT 1 FROM research_activity_log
+                WHERE map_id = :map_id AND activity_type = 'methodology_compared'
+                LIMIT 1
+            """),
+            {"map_id": map_id},
+        ).first()
+        if method_logged:
             sources.append("methodology")
 
         novelty_count = conn.execute(
             text("""
-                SELECT COUNT(*) FROM node_details_cache ndc
-                WHERE ndc.novelty_assessment IS NOT NULL
-                AND EXISTS (
-                    SELECT 1 FROM map_nodes mn
-                    WHERE mn.map_id = :map_id
-                    AND mn.work_id = ndc.work_id
-                )
+                SELECT COUNT(*) FROM research_activity_log
+                WHERE map_id = :map_id AND activity_type = 'novelty_assessed'
             """),
             {"map_id": map_id},
         ).scalar() or 0
