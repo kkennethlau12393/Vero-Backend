@@ -3838,7 +3838,6 @@ CRITICAL: Every paper ID (0 through {len(paper_list) - 1}) must appear in exactl
                 ],
                 temperature=0.3,
                 timeout=60.0,
-                response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
 
