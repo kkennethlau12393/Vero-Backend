@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -81,7 +81,7 @@ class DecomposeResponse(BaseModel):
     reasoning: Optional[str] = None
     # Option guidance (populated based on entry_type)
     available_options: Optional[RankOptionSet] = None
-    defaults: Optional[RankDefaults] = None
+    defaults: Optional[Union[RankDefaults, CitationDefaults]] = None
     citation_options: Optional[CitationOptionSet] = None
     citation_defaults: Optional[CitationDefaults] = None
 
