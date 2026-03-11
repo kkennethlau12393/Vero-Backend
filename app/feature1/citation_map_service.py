@@ -3883,8 +3883,12 @@ CRITICAL: Every paper ID (0 through {len(paper_list) - 1}) must appear in exactl
                 paper_ids = st.get("paper_ids", [])
                 work_ids = []
                 for pid in paper_ids:
-                    if isinstance(pid, int) and 0 <= pid < len(paper_list):
-                        wid = paper_list[pid]["work_id"]
+                    try:
+                        idx_int = int(pid)
+                    except (ValueError, TypeError):
+                        continue
+                    if 0 <= idx_int < len(paper_list):
+                        wid = paper_list[idx_int]["work_id"]
                         if wid not in seen_work_ids:
                             work_ids.append(wid)
                             seen_work_ids.add(wid)
@@ -3988,9 +3992,6 @@ def _assign_subtopics(nodes: List[CitationNode], query_text: Optional[str] = Non
                  "its", "it", "be", "was", "were", "been", "being", "do", "does",
                  "did", "has", "have", "had", "not", "but", "if", "we", "our",
                  "via", "using", "based", "towards", "toward"}
-    if query_text:
-        stopwords |= set(query_text.lower().replace("-", " ").split())
-
     node_by_wid = {n.work_id: n for n in nodes}
     subtopic_keywords: Dict[str, set] = {}
     for label in set(wid_to_label.values()):
@@ -4019,8 +4020,10 @@ def _assign_subtopics(nodes: List[CitationNode], query_text: Optional[str] = Non
         if not node.title:
             node.subtopic = "Other"
             continue
+        title_words = len(_subtopic_title_keywords(node.title, stopwords))
+        min_req = 2 if title_words >= 5 else 1
         best_label = _match_to_closest_subtopic(
-            node.title, subtopic_keywords, stopwords, min_overlap=2
+            node.title, subtopic_keywords, stopwords, min_overlap=min_req
         )
         if best_label:
             node.subtopic = best_label
@@ -4028,8 +4031,21 @@ def _assign_subtopics(nodes: List[CitationNode], query_text: Optional[str] = Non
         else:
             node.subtopic = "Other"
 
+    # Third pass: if "Other" is too large (>20%), retry with min_overlap=1
+    other_nodes = [n for n in nodes if n.subtopic == "Other"]
+    if len(other_nodes) > len(nodes) * 0.2:
+        for node in other_nodes:
+            if not node.title:
+                continue
+            best_label = _match_to_closest_subtopic(
+                node.title, subtopic_keywords, stopwords, min_overlap=1
+            )
+            if best_label:
+                node.subtopic = best_label
+                matched += 1
+
     total_assigned = assigned + matched
-    other_count = len(nodes) - total_assigned
+    other_count = len([n for n in nodes if n.subtopic == "Other"])
     logger.info(
         f"Subtopic assignment: {assigned} LLM-assigned + {matched} keyword-matched = "
         f"{total_assigned}/{len(nodes)} nodes in {len(subtopics)} subtopics, {other_count} as Other"
@@ -4611,6 +4627,17 @@ def build_citation_map(
             edge_tuples=final_edge_tuples,
             min_citations=request.min_citations,
         )
+
+        # Safety net: remove any isolated non-seed nodes post-assembly
+        edge_endpoints = set()
+        for e in edges:
+            edge_endpoints.add(e.from_work_id)
+            edge_endpoints.add(e.to_work_id)
+        isolated = [n for n in nodes if not n.is_seed and n.work_id not in edge_endpoints]
+        if isolated:
+            logger.warning(f"Removing {len(isolated)} isolated nodes post-assembly")
+            isolated_ids = {n.work_id for n in isolated}
+            nodes = [n for n in nodes if n.work_id not in isolated_ids]
 
         # Step 4a: Assign subtopics via LLM clustering
         cluster_context = request.query_text or (seed_data.get("title") if seed_data else "") or ""

@@ -427,7 +427,11 @@ class TestGreedyGraphSelectTwoPhase:
         enrich_in_result = [r for r in result if r.startswith("ENRICH_")]
         # backbone_target = int(8 * 0.6) = 4 (includes seed), so 3 graph papers in backbone
         assert len(graph_in_result) >= 3, "Backbone should preserve most graph papers"
-        assert len(enrich_in_result) >= 1, "Enrichment should fill remaining slots"
+        # Enrichment papers are isolated (no edges) — post-selection swap drops them
+        # All remaining nodes should be connected
+        for wid in result[1:]:  # skip seed
+            neighbors = edges.get(wid, set())
+            assert neighbors & set(result), f"{wid} should be connected to at least one other selected node"
 
     @pytest.mark.unit
     def test_enrichment_papers_need_source_tag(self):

@@ -12,7 +12,10 @@ The graph is built greedily, adding the best-scoring candidate at each step.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Set
+
+logger = logging.getLogger(__name__)
 
 
 def compute_relevance_score(
@@ -480,44 +483,64 @@ def greedy_graph_select(
         all_remaining.discard(best)
         graph_candidates.discard(best)
 
-    # Post-selection: swap isolated nodes for connected alternatives
-    final_selected = list(seed_ids)
-    non_seed_selected = [wid for wid in selected if wid not in seed_ids_set]
+    # Post-selection: replace isolated non-seed nodes with connected alternatives
+    # Use the FULL scored pool (minus seeds) as replacement source
+    full_replacement_pool = set(scored.keys()) - seed_ids_set
 
-    selected_set_final = set(selected)
-    for wid in non_seed_selected:
-        connections = edges.get(wid, set()) & selected_set_final
-        if len(connections) > 0:
-            final_selected.append(wid)
-            continue
+    MAX_SWAP_PASSES = 3
+    final_selected = list(selected)
+    final_set = set(selected)
 
-        # Isolated — find best connected replacement from remaining candidates
-        remaining = (all_remaining | graph_candidates) - selected_set_final
-        best_replacement = None
-        best_score = -1.0
-        for candidate_wid in remaining:
-            s = scored.get(candidate_wid)
-            if not s:
+    for pass_num in range(MAX_SWAP_PASSES):
+        swaps_made = 0
+        new_selected = list(seed_ids)
+
+        for wid in [w for w in final_selected if w not in seed_ids_set]:
+            neighbors = edges.get(wid, set())
+            if neighbors & (final_set - {wid}):
+                new_selected.append(wid)
                 continue
-            candidate_conn = edges.get(candidate_wid, set()) & selected_set_final
-            if len(candidate_conn) == 0:
-                continue
-            conn = compute_connectivity_score(candidate_wid, selected_set_final, edges)
-            if temporal == "seminal":
-                combined = 0.35 * s["relevance"] + 0.30 * conn + 0.35 * s["temporal"]
-            elif temporal == "recent":
-                combined = 0.35 * s["relevance"] + 0.35 * conn + 0.30 * s["temporal"]
+
+            # Isolated — find best connected replacement from full pool
+            available = full_replacement_pool - final_set
+            best_replacement = None
+            best_score = -1.0
+
+            for cand_wid in available:
+                s = scored.get(cand_wid)
+                if not s or s["relevance"] < relevance_floor:
+                    continue
+                cand_neighbors = edges.get(cand_wid, set())
+                if not (cand_neighbors & final_set):
+                    continue
+                conn = compute_connectivity_score(cand_wid, final_set, edges)
+                if temporal == "seminal":
+                    combined = 0.35 * s["relevance"] + 0.30 * conn + 0.35 * s["temporal"]
+                elif temporal == "recent":
+                    combined = 0.35 * s["relevance"] + 0.35 * conn + 0.30 * s["temporal"]
+                else:
+                    combined = 0.45 * s["relevance"] + 0.35 * conn + 0.20 * s["temporal"]
+                if combined > best_score:
+                    best_score = combined
+                    best_replacement = cand_wid
+
+            if best_replacement:
+                new_selected.append(best_replacement)
+                final_set.discard(wid)
+                final_set.add(best_replacement)
+                swaps_made += 1
+                logger.info(f"Swap pass {pass_num+1}: replaced isolated {wid[:20]} with {best_replacement[:20]}")
             else:
-                combined = 0.45 * s["relevance"] + 0.35 * conn + 0.20 * s["temporal"]
-            if combined > best_score:
-                best_score = combined
-                best_replacement = candidate_wid
+                # No connected alternative — DROP entirely
+                final_set.discard(wid)
+                swaps_made += 1
+                logger.info(f"Swap pass {pass_num+1}: dropped isolated {wid[:20]} (no replacement)")
 
-        if best_replacement:
-            final_selected.append(best_replacement)
-            selected_set_final.add(best_replacement)
-            selected_set_final.discard(wid)
-        else:
-            final_selected.append(wid)  # no connected alternative, keep original
+        final_selected = new_selected
+        final_set = set(final_selected)
+
+        if swaps_made == 0:
+            break
+        logger.info(f"Swap pass {pass_num+1}: {swaps_made} swaps/drops")
 
     return final_selected
