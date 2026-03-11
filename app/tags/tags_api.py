@@ -36,6 +36,7 @@ class CreateTagRequest(BaseModel):
     paper_id: str = Field(..., min_length=1)
     tag: str = Field(..., min_length=1, max_length=100)
     color: Optional[str] = "#6b7280"
+    title: Optional[str] = None
 
 
 def _format_tag(row: dict) -> dict:
@@ -45,6 +46,7 @@ def _format_tag(row: dict) -> dict:
         "paper_id": row["work_id"],
         "label": row["tag"],
         "color": row.get("color") or "#6b7280",
+        "title": row.get("title"),
     }
 
 
@@ -87,7 +89,7 @@ def list_all_user_tags(
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
-                SELECT id, workspace_id, work_id, tag, color, created_at
+                SELECT id, workspace_id, work_id, tag, color, title, created_at
                 FROM paper_tags
                 WHERE user_id = :uid
                 ORDER BY tag, created_at DESC
@@ -102,6 +104,7 @@ def list_all_user_tags(
             "paper_id": r["work_id"],
             "label": r["tag"],
             "color": r.get("color") or "#6b7280",
+            "title": r.get("title"),
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
         }
         for r in rows
@@ -121,7 +124,7 @@ def list_workspace_tags(
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
-                SELECT id, work_id, tag, color, created_at
+                SELECT id, work_id, tag, color, title, created_at
                 FROM paper_tags
                 WHERE workspace_id = :ws AND user_id = :uid
                 ORDER BY created_at DESC
@@ -150,9 +153,10 @@ def create_tag(
         # Insert, ignoring duplicate
         conn.execute(
             text("""
-                INSERT INTO paper_tags (workspace_id, user_id, work_id, tag, color)
-                VALUES (:ws, :uid, :wid, :tag, :color)
-                ON CONFLICT (workspace_id, user_id, work_id, tag) DO NOTHING
+                INSERT INTO paper_tags (workspace_id, user_id, work_id, tag, color, title)
+                VALUES (:ws, :uid, :wid, :tag, :color, :title)
+                ON CONFLICT (workspace_id, user_id, work_id, tag)
+                DO UPDATE SET title = COALESCE(EXCLUDED.title, paper_tags.title)
             """),
             {
                 "ws": req.workspace_id,
@@ -160,13 +164,14 @@ def create_tag(
                 "wid": req.paper_id,
                 "tag": tag_text,
                 "color": req.color,
+                "title": req.title,
             },
         )
 
         # Always fetch back the row (new or existing)
         row = conn.execute(
             text("""
-                SELECT id, workspace_id, user_id, work_id, tag, color, created_at
+                SELECT id, workspace_id, user_id, work_id, tag, color, title, created_at
                 FROM paper_tags
                 WHERE workspace_id = :ws AND user_id = :uid
                   AND work_id = :wid AND tag = :tag
