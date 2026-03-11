@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 MAX_CITING_PAPERS = 20  # Limit for timeline (more than grounding supplement)
 
-OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY", "")
+from app.shared.oa_keys import get_oa_api_key
 
 
 # ============================================================================
@@ -267,8 +267,9 @@ def _resolve_s2_papers_to_openalex(
                 "per-page": len(batch),
                 "select": "id,doi,title,publication_year,cited_by_count,abstract_inverted_index",
             }
-            if OPENALEX_API_KEY:
-                params["api_key"] = OPENALEX_API_KEY
+            oa_key = get_oa_api_key()
+            if oa_key:
+                params["api_key"] = oa_key
 
             resp = requests.get(url, params=params, timeout=30)
             if resp.status_code != 200:

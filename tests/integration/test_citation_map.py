@@ -357,7 +357,7 @@ class TestScoreSeedCandidates:
         ]
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = '{"W999": "ESSENTIAL", "W100": "HIGH"}'
+        mock_response.choices[0].message.content = '{"P0": "ESSENTIAL", "P1": "HIGH"}'
 
         with patch(GROQ_CLASS) as MockGroq:
             mock_client = MagicMock()
@@ -386,7 +386,7 @@ class TestScoreSeedCandidates:
         candidates = [{"work_id": "W1", "title": "Paper"}]
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = '{"W1": "INVALID_TIER"}'
+        mock_response.choices[0].message.content = '{"P0": "INVALID_TIER"}'
 
         with patch(GROQ_CLASS) as MockGroq:
             mock_client = MagicMock()
@@ -489,7 +489,7 @@ class TestSelectSeedFromQuery:
 
         mock_scoring = MagicMock()
         mock_scoring.choices = [MagicMock()]
-        mock_scoring.choices[0].message.content = '{"W999": "ESSENTIAL", "W100": "LOW"}'
+        mock_scoring.choices[0].message.content = '{"P0": "ESSENTIAL", "P1": "LOW"}'
 
         mock_expansion = MagicMock()
         mock_expansion.choices = [MagicMock()]
@@ -536,7 +536,7 @@ class TestSelectSeedFromQuery:
 
         mock_scoring = MagicMock()
         mock_scoring.choices = [MagicMock()]
-        mock_scoring.choices[0].message.content = '{"W100": "MEDIUM"}'
+        mock_scoring.choices[0].message.content = '{"P0": "MEDIUM"}'
 
         mock_expansion = MagicMock()
         mock_expansion.choices = [MagicMock()]
@@ -651,7 +651,7 @@ class TestBuildCitationMap:
 
         mock_scoring = MagicMock()
         mock_scoring.choices = [MagicMock()]
-        mock_scoring.choices[0].message.content = '{"W999": "ESSENTIAL"}'
+        mock_scoring.choices[0].message.content = '{"P0": "ESSENTIAL"}'
 
         mock_expansion = MagicMock()
         mock_expansion.choices = [MagicMock()]

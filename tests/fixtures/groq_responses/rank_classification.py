@@ -31,7 +31,7 @@ RELEVANCE_SCORING_RESPONSE = {
     "choices": [
         {
             "message": {
-                "content": '{"W2000000000": {"relevance": "HIGH", "type": "foundational"}, "W2000000001": {"relevance": "MEDIUM", "type": "methodology"}, "W2000000002": {"relevance": "LOW", "type": "application"}}'
+                "content": '{"W2000000000": {"relevance": "HIGH", "type": "seminal"}, "W2000000001": {"relevance": "MEDIUM", "type": "methodology"}, "W2000000002": {"relevance": "LOW", "type": "application"}}'
             }
         }
     ],

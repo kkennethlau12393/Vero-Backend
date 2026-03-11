@@ -29,7 +29,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 logger = logging.getLogger(__name__)
 
 # Constants for OpenAlex API
-OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
+from app.shared.oa_keys import get_oa_api_key
 OPENALEX_TIMEOUT = 15
 
 
@@ -58,8 +58,9 @@ def get_work_metadata(work_id: str) -> Optional[Dict[str, Any]]:
     try:
         url = f"https://api.openalex.org/works/{work_id}"
         params = {}
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
         resp.raise_for_status()

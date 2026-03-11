@@ -18,6 +18,8 @@ from app.settings.api import router as settings_router
 from app.workspaces.status_api import router as workspaces_router
 from app.workspaces.sharing_api import router as sharing_router
 from app.billing.billing_api import router as billing_router
+from app.common.decomposition_api import router as decomposition_router
+from app.tags.tags_api import router as tags_router
 
 app = FastAPI()
 app.add_middleware(
@@ -37,6 +39,8 @@ app.include_router(settings_router)
 app.include_router(workspaces_router)
 app.include_router(sharing_router)
 app.include_router(billing_router)
+app.include_router(decomposition_router)
+app.include_router(tags_router)
 
 @app.get("/test")
 async def test():

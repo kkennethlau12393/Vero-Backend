@@ -15,7 +15,7 @@ import json
 import logging
 from uuid import UUID
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
@@ -98,6 +98,16 @@ class DirectQueryRankRequest(BaseModel):
     params: Optional[RankParams] = None
     # Backwards-compatible alias for clients using "rank_params"
     rank_params: Optional[RankParams] = None
+
+    # Structured query fields (auto-decomposed if not provided)
+    topic: Optional[str] = None
+    domain: Optional[str] = None
+    aspect: Optional[str] = None
+
+    # Intent options (all have defaults for backward compatibility)
+    scope: Optional[Literal["broad", "intersection", "topic_focused", "domain_focused"]] = None
+    focus: Optional[Literal["foundational", "recent", "surveys", "all_time"]] = None
+    depth: Optional[Literal["high_level", "comprehensive"]] = None
 
 
 @router.post("", response_model=DirectRankResponse)
@@ -183,6 +193,20 @@ def direct_rank_endpoint(
         filters_json = req.filters.model_dump() if req.filters else {}
         params_obj = req.params or req.rank_params
         rank_params_json = params_obj.model_dump() if params_obj else {}
+
+        # Inject structured query params for downstream processing
+        if req.topic:
+            rank_params_json["structured_query"] = {
+                "topic": req.topic,
+                "domain": req.domain,
+                "aspect": req.aspect,
+            }
+        if req.scope:
+            rank_params_json["scope"] = req.scope
+        if req.focus:
+            rank_params_json["focus"] = req.focus
+        if req.depth:
+            rank_params_json["depth"] = req.depth
 
         # Invoke the production ranking pipeline
         result = direct_rank_prod(

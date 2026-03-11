@@ -60,7 +60,9 @@ MAX_PARALLEL_BATCHES = 6  # 6 batches of 15 = 90 papers, all in parallel
 #      Score is divided by 10 for 0-1 range. Used as one input to RRF ensemble.
 # v29: Qualified-topic rule — "[QUALIFIER] [NOUN]" queries cap papers about
 #      the NOUN without the QUALIFIER at max 3 (e.g., LLM alignment, federated learning).
-MODEL_VERSION = "llm-type-v29"
+# v30: Structured query context injection — when a query is decomposed into
+#      topic/domain/aspect, inject scope-aware instructions into the prompt.
+MODEL_VERSION = "llm-type-v32"
 
 # Legacy tier mapping kept for backwards compatibility with cached scores
 TIER_SCORES = {
@@ -72,7 +74,7 @@ TIER_SCORES = {
 }
 
 # Valid paper types - LLM classifies paper TYPE, Python decides output category
-PAPER_TYPES = {"foundational", "methodology", "review", "application", "theoretical", "other"}
+PAPER_TYPES = {"seminal", "methodology", "review", "application", "theoretical", "other"}
 
 
 def get_cached_scores(
@@ -179,11 +181,18 @@ def prepare_scoring_input(
 def score_batch(
     query_text: str,
     papers: List[Dict[str, str]],
+    ranking_context: Optional[str] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Score papers using LLM tier classification.
 
     Returns dict mapping paper_id to {"score": float, "paper_type": str}.
     Uses Groq/Llama for tier-based classification and paper type detection.
+
+    Parameters
+    ----------
+    ranking_context : str, optional
+        Additional context from structured query decomposition to inject
+        into the prompt (scope/focus/depth instructions).
     """
     if not papers:
         return {}
@@ -221,7 +230,17 @@ Domain mismatches → 0-2:
 - Different scientific systems (bacterial vs tumor drug resistance)
 - Adjacent phenomena (dark matter ≠ dark energy, Type 1 ≠ Type 2 diabetes)
 
-STEP 2 - QUERY TYPE:
+STEP 2 - CONTRIBUTION CHECK (ABOUT vs USES):
+Ask: "If the query technique were swapped for a different one, would this paper's core contribution change?"
+- If NO → the paper merely USES the technique as a tool (e.g., "uses transformers for oil well prediction"). Cap at 4.
+- If YES → the paper is ABOUT the technique (advances, analyzes, or improves it). Can score 7+.
+Examples:
+- "Battery health monitoring with attention mechanisms" → USES attention → max 4 for "attention" query
+- "Self-attention is all you need" → ABOUT attention → can score 9-10
+- "Drug discovery using graph neural networks" → USES GNNs → max 4 for "graph neural networks" query
+- "Message passing neural networks" → ABOUT GNNs → can score 7+
+
+STEP 3 - QUERY TYPE:
 - SINGLE TOPIC: Papers about any core aspect can score 7-10.
   For "[cause] [system]" queries, paper must discuss the cause-effect, not just the system.
 - INTERSECTION QUERY ("[METHOD] + [DOMAIN]"):
@@ -234,7 +253,7 @@ STEP 2 - QUERY TYPE:
   "Reinforcement learning" requires RL algorithms (Q-learning, policy gradient), not just optimization.
   The qualifier is what makes the topic specific — without it, the paper is a different topic.
 
-STEP 3 - CONTINUOUS SCORE (0-10):
+STEP 4 - CONTINUOUS SCORE (0-10):
 - 9-10: Seminal/foundational work that defined this specific field
 - 7-8: Directly addresses the query topic — paper is primarily ABOUT this
 - 5-6: Same field, useful context, but not primarily about the query topic
@@ -245,14 +264,14 @@ STEP 3 - CONTINUOUS SCORE (0-10):
 IMPORTANT: Use the FULL range. Do NOT cluster scores. A 5.3 is different from a 6.7.
 
 PAPER TYPE:
-- foundational: Introduced a genuinely new paradigm (RARE)
+- seminal: Introduced a genuinely new paradigm (RARE)
 - methodology: Tools, algorithms, frameworks, techniques (DEFAULT)
 - review: Surveys, meta-analyses, systematic reviews
 - application: Real-world implementations, clinical trials
 - theoretical: Pure theory, proofs
 - other: If unclear
 
-QUERY: {normalized_query}
+{"STRUCTURED CONTEXT:\n" + ranking_context + "\n\n" if ranking_context else ""}QUERY: {normalized_query}
 
 PAPERS:
 {papers_json}
@@ -263,10 +282,10 @@ OUTPUT (JSON only — use the paper IDs exactly as given above):
     for attempt in range(MAX_RETRIES):
         try:
             response = client.chat.completions.create(
-                model="meta-llama/llama-4-maverick-17b-128e-instruct",
+                model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
-                max_tokens=2048,
+                max_tokens=4096,
             )
 
             content = response.choices[0].message.content.strip()
@@ -357,6 +376,7 @@ def score_papers(
     paper_ids: List[str],
     works: Dict[str, WorkForMap],
     llm_scoring_cap: Optional[int] = None,
+    ranking_context: Optional[str] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Main entry point for relevance scoring.
 
@@ -401,7 +421,7 @@ def score_papers(
     new_scores: Dict[str, Dict[str, Any]] = {}
 
     def score_single_batch(batch: List[Dict[str, str]]) -> Dict[str, Dict[str, Any]]:
-        return score_batch(query_text, batch)
+        return score_batch(query_text, batch, ranking_context=ranking_context)
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_BATCHES) as executor:
         future_to_batch = {
@@ -439,6 +459,7 @@ def score_wave(
     query_hash: str,
     paper_ids: List[str],
     works: Dict[str, WorkForMap],
+    ranking_context: Optional[str] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Score a single wave of papers (no cap logic — caller manages wave sizes).
 
@@ -464,7 +485,7 @@ def score_wave(
     new_scores: Dict[str, Dict[str, Any]] = {}
 
     def score_single_batch(batch: List[Dict[str, str]]) -> Dict[str, Dict[str, Any]]:
-        return score_batch(query_text, batch)
+        return score_batch(query_text, batch, ranking_context=ranking_context)
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_BATCHES) as executor:
         future_to_batch = {

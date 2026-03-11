@@ -58,10 +58,7 @@ from .convergence import (
 )
 from .tfidf_similarity import compute_tfidf_vectors, compute_tfidf_query_similarity
 from .query_classification import classify_query, QueryType, QuerySpecificity
-from .methodological_alignment import (
-    partition_results_by_category,
-    DEFAULT_CATEGORY_LIMITS,
-)
+from .methodological_alignment import apply_quality_filters
 
 
 # Ranking pipeline version - increment to invalidate rank caches when logic changes
@@ -179,6 +176,42 @@ def direct_rank_prod(
     filters_json = filters_json or {}
     rank_params_json = rank_params_json or {}
 
+    # Extract structured query params (injected by rank_api.py)
+    structured_query = rank_params_json.pop("structured_query", None)
+    scope = rank_params_json.pop("scope", None)
+    focus = rank_params_json.pop("focus", None)
+    depth = rank_params_json.pop("depth", None)
+
+    # Auto-decompose if not provided
+    if not structured_query:
+        try:
+            from app.common.query_decomposition import decompose_query as _decompose
+            with engine.connect() as _conn:
+                structured_query = _decompose(_conn, query_text)
+                if not scope and structured_query.get("domain"):
+                    # Infer scope from decomposition
+                    specificity = structured_query.get("suggested_specificity", "broad")
+                    if specificity == "specific":
+                        scope = "intersection"
+                    elif specificity == "balanced" and structured_query.get("domain"):
+                        scope = "intersection"
+        except Exception as e:
+            logger.warning(f"Auto-decomposition failed: {e}")
+
+    # Build ranking context for LLM prompt enhancement
+    ranking_context = None
+    if structured_query and structured_query.get("topic"):
+        try:
+            from app.common.prompt_enhancement import build_ranking_context
+            ranking_context = build_ranking_context(
+                structured_query,
+                scope or "broad",
+                focus or "all_time",
+                depth or "comprehensive",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to build ranking context: {e}")
+
     # Build a stable params hash keyed on the query and filters
     s = "|".join(
         [
@@ -188,6 +221,10 @@ def direct_rank_prod(
             json.dumps(context_json or {}, sort_keys=True, separators=(",", ":")),
             json.dumps(filters_json or {}, sort_keys=True, separators=(",", ":")),
             json.dumps(rank_params_json or {}, sort_keys=True, separators=(",", ":")),
+            json.dumps(structured_query or {}, sort_keys=True, separators=(",", ":")),
+            scope or "",
+            focus or "",
+            depth or "",
         ]
     )
     params_hash = hashlib.sha256(s.encode("utf-8")).hexdigest()
@@ -232,6 +269,8 @@ def direct_rank_prod(
                 context_json=context_json,
                 filters_json=filters_json,
                 rank_params_json=rank_params_json,
+                structured_query=structured_query,
+                scope=scope,
             )
             logger.info(f"Generated {len(candidates)} candidates")
             CandidateSetRepo.bulk_insert_candidate_items(tx, candidate_set_id, candidates)
@@ -277,70 +316,9 @@ def direct_rank_prod(
                     # Return cached results
                     logger.info(f"Returning cached rank job {rank_job_id} with {len(items)} items")
 
-                    # Check if skip_categorization is set (drill-down endpoint)
-                    skip_categorization = rank_params_json.get("skip_categorization", False)
-                    if skip_categorization:
-                        # Return flat list of items for drill-down (no categorization)
-                        # Get query classification for the response
-                        cached_query_class = classify_query(tx, query_text)
-                        top_k = rank_params_json.get("top_k", 10)
-                        return {
-                            "rank_job_id": rank_job_id,
-                            "job": loaded.get("job", {}),
-                            "query_classification": {
-                                "type": cached_query_class.query_type.value,
-                                "confidence": cached_query_class.confidence,
-                                "query_specificity": cached_query_class.query_specificity.value if cached_query_class.query_specificity else None,
-                            },
-                            "items": [
-                                {
-                                    "rank_index": idx,
-                                    "work_id": item["work_id"],
-                                    "score": item["score"],
-                                    "reasons": item.get("reasons", []),
-                                    "score_breakdown": item.get("score_breakdown", {}),
-                                    "preview": item.get("preview", {}),
-                                    "provenance": item.get("provenance", []),
-                                }
-                                for idx, item in enumerate(items[:top_k])
-                            ],
-                        }
-
-                    # Re-categorize cached results using stored paper_type + citations
+                    # Return cached results as flat list
                     cached_query_class = classify_query(tx, query_text)
-
-                    # Reconstruct llm_scores from cached breakdowns
-                    cached_llm_scores = {}
-                    for item in items:
-                        wid = item["work_id"]
-                        breakdown = item.get("score_breakdown", {})
-                        norm = breakdown.get("norm", {})
-                        cached_llm_scores[wid] = {
-                            "score": norm.get("llm_relevance", 0.0),
-                            "paper_type": breakdown.get("paper_type", "other"),
-                        }
-
-                    # Use partition_results_by_category for proper categorization
-                    categorized = partition_results_by_category(
-                        items,
-                        cached_llm_scores,
-                        category_limits=None,
-                        query_text=query_text,
-                    )
-
-                    def _fmt_cached(item, idx):
-                        return {
-                            "rank_index": idx,
-                            "work_id": item["work_id"],
-                            "score": item["score"],
-                            "reasons": item.get("reasons", []),
-                            "score_breakdown": item.get("score_breakdown", {}),
-                            "preview": item.get("preview", {}),
-                            "provenance": item.get("provenance", []),
-                            "evaluation": item.get("score_breakdown", {}).get("evaluation"),
-                            "scoring": item.get("score_breakdown", {}).get("scoring"),
-                        }
-
+                    top_k = rank_params_json.get("top_k", 50)
                     return {
                         "rank_job_id": rank_job_id,
                         "job": loaded.get("job", {}),
@@ -349,23 +327,19 @@ def direct_rank_prod(
                             "confidence": cached_query_class.confidence,
                             "query_specificity": cached_query_class.query_specificity.value if cached_query_class.query_specificity else None,
                         },
-                        "foundational": [
-                            _fmt_cached(item, idx) for idx, item in enumerate(categorized["foundational"])
-                        ],
-                        "methodology": [
-                            _fmt_cached(item, idx) for idx, item in enumerate(categorized["methodology"])
-                        ],
-                        "reviews": [
-                            _fmt_cached(item, idx) for idx, item in enumerate(categorized["reviews"])
-                        ],
-                        "applications": [
-                            _fmt_cached(item, idx) for idx, item in enumerate(categorized["applications"])
-                        ],
-                        "textbooks": [
-                            _fmt_cached(item, idx) for idx, item in enumerate(categorized.get("textbooks", []))
-                        ],
-                        "additional_relevant": [
-                            _fmt_cached(item, idx) for idx, item in enumerate(categorized.get("additional_relevant", []))
+                        "items": [
+                            {
+                                "rank_index": idx,
+                                "work_id": item["work_id"],
+                                "score": item["score"],
+                                "reasons": item.get("reasons", []),
+                                "score_breakdown": item.get("score_breakdown", {}),
+                                "preview": item.get("preview", {}),
+                                "provenance": item.get("provenance", []),
+                                "evaluation": item.get("score_breakdown", {}).get("evaluation"),
+                                "scoring": item.get("score_breakdown", {}).get("scoring"),
+                            }
+                            for idx, item in enumerate(items[:top_k])
                         ],
                     }
             else:
@@ -374,12 +348,7 @@ def direct_rank_prod(
             return {
                 "rank_job_id": rank_job_id,
                 "job": {"rank_job_id": rank_job_id, "status": status},
-                "foundational": [],
-                "methodology": [],
-                "reviews": [],
-                "applications": [],
-                "textbooks": [],
-                "additional_relevant": [],
+                "items": [],
             }
         if not created_new and status == "failed":
             # Failed jobs should be retried - delete old results and job, then re-run
@@ -427,12 +396,7 @@ def direct_rank_prod(
             year_min = safe_int(filters_json.get("year_min"))
             year_max = safe_int(filters_json.get("year_max"))
             topic_id_filter = filters_json.get("topic_id")  # Strict topic filter for "Research this topic"
-            # Category limits can be overridden via rank_params_json
-            # Default: Fundamentals 15 + Core 15 + Recent 5 + Applications 3 + Specific 2 = 40
-            category_limits = rank_params_json.get("category_limits") or DEFAULT_CATEGORY_LIMITS
-            total_target = sum(v for k, v in category_limits.items() if k != "implementation_resources")
-            # top_k should be large enough to fill all categories with buffer for distribution variance
-            top_k = safe_int(rank_params_json.get("top_k"), total_target * 3)
+            top_k = safe_int(rank_params_json.get("top_k"), 50)
             max_candidates_scored = safe_int(rank_params_json.get("max_candidates_scored"), 3000)
             if max_candidates_scored < 1:
                 max_candidates_scored = 3000
@@ -468,8 +432,6 @@ def direct_rank_prod(
                 # Note: Don't use stricter threshold - causes sparse results for intersection topics
                 if llm_scoring_cap is None:
                     llm_scoring_cap = 200  # was 150: larger pool to fill categories
-                # NOTE: Removed skip_categorization for specific queries since we always want
-                # categorized output (foundational/methodology/reviews/applications)
                 # Use single S2 bulk search (2000 papers) instead of multiple searches
                 # This avoids rate limiting issues and is sufficient for specific queries
                 if "single_s2_search" not in rank_params_json:
@@ -600,6 +562,7 @@ def direct_rank_prod(
                     paper_ids=work_ids,
                     works=works,
                     llm_scoring_cap=llm_scoring_cap,
+                    ranking_context=ranking_context,
                 )
                 convergence_state = None
             else:
@@ -611,6 +574,7 @@ def direct_rank_prod(
                     paper_ids=work_ids,
                     works=works,
                     llm_scoring_cap=len(work_ids),  # No additional cap
+                    ranking_context=ranking_context,
                 )
                 convergence_state = None
 
@@ -708,7 +672,7 @@ def direct_rank_prod(
             # Log LLM filter stats (threshold 0.40 = 4/10 on continuous scale)
             logger.info(f"LLM filter: {llm_filter_stats['passed']} passed, {llm_filter_stats['filtered']} filtered (threshold={min_llm_relevance})")
 
-            # If no candidates remain, return empty categorized result
+            # If no candidates remain, return empty result
             if not valid_work_ids:
                 logger.warning("No candidates remain after LLM filtering")
                 with engine.begin() as tx:
@@ -726,12 +690,7 @@ def direct_rank_prod(
                         "confidence": query_classification.confidence,
                         "query_specificity": query_classification.query_specificity.value,
                     },
-                    "foundational": [],
-                    "methodology": [],
-                    "reviews": [],
-                    "applications": [],
-                    "textbooks": [],
-                    "additional_relevant": [],
+                    "items": [],
                 }
 
             # Normalise features for display/reasons (not used for scoring)
@@ -883,18 +842,31 @@ def direct_rank_prod(
                     item["breakdown"]["raw"] = {
                         "llm_relevance": llm_raw.get(wid, 0.0),
                     }
-                    item["breakdown"]["paper_type"] = (
+                    raw_paper_type = (
                         llm_entry.get("paper_type", "other")
                         if isinstance(llm_entry, dict) else "other"
                     )
+                    # Seminal describes importance, not paper kind — display as methodology
+                    item["breakdown"]["paper_type"] = (
+                        "methodology" if raw_paper_type == "seminal" else raw_paper_type
+                    )
 
-            # Partition results into 4 categories using LLM classifications
-            categorized = partition_results_by_category(
-                ranked_items,
-                llm_scores,
-                category_limits,
-                query_text=query_text,
-            )
+            # Apply focus filtering and depth limiting (structured query)
+            if focus and focus != "all_time":
+                try:
+                    from app.common.focus_filtering import apply_focus_filter
+                    ranked_items = apply_focus_filter(ranked_items, focus)
+                except Exception as e:
+                    logger.warning(f"Focus filtering failed: {e}")
+            if depth and depth == "high_level":
+                try:
+                    from app.common.focus_filtering import apply_depth_limit
+                    ranked_items = apply_depth_limit(ranked_items, depth)
+                except Exception as e:
+                    logger.warning(f"Depth limiting failed: {e}")
+
+            # Apply quality filters (data quality, review override, domain boundary)
+            ranked_items = apply_quality_filters(ranked_items, llm_scores, query_text=query_text)
 
             # Generate user-facing scoring rubric (pure computation, zero cost)
             combined_scores = {item["work_id"]: item["score"] for item in ranked_items}
@@ -973,36 +945,7 @@ def direct_rank_prod(
                 "scoring": item.get("breakdown", {}).get("scoring"),
             }
 
-        # Check if skip_categorization is set (for drill-down: flat list only)
-        skip_categorization = rank_params_json.get("skip_categorization", False)
-
-        if skip_categorization:
-            # Return flat list of top papers (for drill-down endpoint)
-            # Just return the top_k items without categorization
-            return {
-                "rank_job_id": rank_job_id,
-                "job": {
-                    "rank_job_id": rank_job_id,
-                    "rank_type": "direct_prod",
-                    "candidate_set_id": candidate_set_id,
-                    "status": "completed",
-                    "context_json": {"target_topic_id": target_topic_id},
-                    "filters_json": filters_json,
-                    "rank_params_json": rank_params_json,
-                },
-                "query_classification": {
-                    "type": query_classification.query_type.value,
-                    "confidence": query_classification.confidence,
-                    "query_specificity": query_classification.query_specificity.value,
-                },
-                "convergence": convergence_info,
-                "items": [
-                    _format_item(item, idx) for idx, item in enumerate(ranked_items[:top_k])
-                ],
-            }
-
-        # Assemble API response with categorized results
-        # FOUR CATEGORIES: Foundational, Methodology, Reviews, Applications
+        # Assemble flat list response
         return {
             "rank_job_id": rank_job_id,
             "job": {
@@ -1019,25 +962,10 @@ def direct_rank_prod(
                 "confidence": query_classification.confidence,
                 "query_specificity": query_classification.query_specificity.value,
             },
-            "foundational": [
-                _format_item(item, idx) for idx, item in enumerate(categorized["foundational"])
-            ],
-            "methodology": [
-                _format_item(item, idx) for idx, item in enumerate(categorized["methodology"])
-            ],
-            "reviews": [
-                _format_item(item, idx) for idx, item in enumerate(categorized["reviews"])
-            ],
-            "applications": [
-                _format_item(item, idx) for idx, item in enumerate(categorized["applications"])
-            ],
-            "textbooks": [
-                _format_item(item, idx) for idx, item in enumerate(categorized.get("textbooks", []))
-            ],
-            "additional_relevant": [
-                _format_item(item, idx) for idx, item in enumerate(categorized.get("additional_relevant", []))
-            ],
             "convergence": convergence_info,
+            "items": [
+                _format_item(item, idx) for idx, item in enumerate(ranked_items[:top_k])
+            ],
         }
     except Exception as e:
         # On failure, record the error and re‑raise

@@ -94,7 +94,7 @@ DBLP_LIMIT = 100  # Papers from DBLP
 OPENCITATIONS_ENABLED = True  # Use OpenCitations for citation counts (fast, free)
 
 # OpenAlex API key (improves rate limits significantly)
-OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
+from app.shared.oa_keys import get_oa_api_key
 
 # OpenAlex recent papers configuration
 # Note: OpenAlex limits per-page to 200 when using filters
@@ -939,8 +939,9 @@ def _search_openalex_highly_cited(query: str, k: int = OPENALEX_HIGHLY_CITED_LIM
         "per-page": min(k, 200),
         "select": "id,cited_by_count",
     }
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -998,8 +999,9 @@ def _search_openalex_by_title(title: str, k: int = 10) -> List[Tuple[str, float]
         "per_page": min(k, 50),
         "select": "id,cited_by_count,title",
     }
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -1864,8 +1866,9 @@ def _search_openalex(query: str, k: int, year_filter: Optional[str] = None) -> L
             logger.debug(f"OpenAlex year filter: {year_filter} -> {params['filter']}")
         else:
             params["filter"] = f"publication_year:{year_filter}"
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
     url = "https://api.openalex.org/works"
 
     results = []
@@ -2017,6 +2020,8 @@ def generate_candidates_direct(
     filters_json: Optional[Dict[str, Any]] = None,
     rank_params_json: Optional[Dict[str, Any]] = None,
     limit_pool: Optional[int] = None,
+    structured_query: Optional[Dict[str, Any]] = None,
+    scope: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], QueryExpansion]:
     """Generate a candidate pool for direct ranking using OpenAlex lexical search.
 
@@ -2076,26 +2081,40 @@ def generate_candidates_direct(
     # Structure: list of (query_string, importance_weight, source_concept)
     weighted_queries: List[Tuple[str, float, Optional[str]]] = []
 
-    # Always include original query with full weight
-    weighted_queries.append((query_text, 1.0, None))
+    # When structured query + scope are provided, use targeted multi-query strategy
+    if structured_query and scope and structured_query.get("topic"):
+        from app.common.query_generation import generate_retrieval_queries
 
-    # If we have structured concepts, use importance-weighted expansion
-    if query_expansion.concepts:
-        for concept in query_expansion.concepts:
-            importance = concept.importance
-            # Synonyms get full importance weight (safe, direct alternatives)
-            for syn in concept.synonyms:
-                if syn.lower() != query_text.lower():
-                    weighted_queries.append((syn, importance, concept.term))
-            # Related terms get reduced weight (can drift)
-            for rel in concept.related_terms:
-                if rel.lower() != query_text.lower():
-                    weighted_queries.append((rel, importance * 0.5, concept.term))
+        targeted_queries = generate_retrieval_queries(structured_query, scope)
+        for tq in targeted_queries:
+            weighted_queries.append((tq, 1.0, f"structured_{scope}"))
+        logger.info(f"Structured query: scope={scope}, generated {len(targeted_queries)} targeted queries")
+
+        # Also include original query to ensure baseline coverage
+        if not any(tq.lower() == query_text.lower() for tq in targeted_queries):
+            weighted_queries.append((query_text, 1.0, None))
     else:
-        # Fallback to legacy flat expansion
-        for term in query_expansion.expansion_terms:
-            if term.lower() != query_text.lower():
-                weighted_queries.append((term, 0.7, None))
+        # Default: original query + concept-based expansion
+        # Always include original query with full weight
+        weighted_queries.append((query_text, 1.0, None))
+
+        # If we have structured concepts, use importance-weighted expansion
+        if query_expansion.concepts:
+            for concept in query_expansion.concepts:
+                importance = concept.importance
+                # Synonyms get full importance weight (safe, direct alternatives)
+                for syn in concept.synonyms:
+                    if syn.lower() != query_text.lower():
+                        weighted_queries.append((syn, importance, concept.term))
+                # Related terms get reduced weight (can drift)
+                for rel in concept.related_terms:
+                    if rel.lower() != query_text.lower():
+                        weighted_queries.append((rel, importance * 0.5, concept.term))
+        else:
+            # Fallback to legacy flat expansion
+            for term in query_expansion.expansion_terms:
+                if term.lower() != query_text.lower():
+                    weighted_queries.append((term, 0.7, None))
 
     # Sort by importance (highest first) to prioritize important concept searches
     weighted_queries.sort(key=lambda x: -x[1])
@@ -2919,6 +2938,41 @@ def generate_candidates_direct(
     # Validate and correct suspicious metadata (future years, wrong papers, etc.)
     # This is a GENERAL fix that runs for ALL queries, not specific papers
     _validate_and_correct_metadata(conn, all_wids)
+
+    # Apply intersection scoring filter (pre-LLM relevance gate)
+    if structured_query and structured_query.get("topic"):
+        from app.common.intersection_scoring import filter_candidates as _filter_candidates
+
+        loaded_for_scoring = WorkStore.load_many(conn, list(candidate_map.keys()))
+        scorable_papers = []
+        for wid in candidate_map:
+            w = loaded_for_scoring.get(wid)
+            if w:
+                scorable_papers.append({
+                    "work_id": wid,
+                    "title": w.title or "",
+                    "abstract": w.abstract or "",
+                    "cited_by_count": w.cited_by_count or 0,
+                })
+            else:
+                scorable_papers.append({
+                    "work_id": wid,
+                    "title": "",
+                    "abstract": "",
+                    "cited_by_count": 0,
+                })
+
+        filtered = _filter_candidates(
+            scorable_papers, structured_query, scope or "broad", min_score=0.15
+        )
+        filtered_wids = {p["work_id"] for p in filtered}
+
+        before_count = len(candidate_map)
+        candidate_map = {wid: prov for wid, prov in candidate_map.items() if wid in filtered_wids}
+        logger.info(
+            f"Intersection scoring: {before_count} -> {len(candidate_map)} candidates "
+            f"(scope={scope}, min_score=0.15)"
+        )
 
     # Apply year filters
     year_min = filters_json.get("year_min")
