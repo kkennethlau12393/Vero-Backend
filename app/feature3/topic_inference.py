@@ -28,7 +28,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 logger = logging.getLogger(__name__)
 
 # Groq Llama 4 Maverick - fast and high quality
-MODEL_VERSION = "meta-llama/llama-4-maverick-17b-128e-instruct"
+MODEL_VERSION = "openai/gpt-oss-120b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # API settings

@@ -39,6 +39,21 @@ class CitationMapRequest(BaseModel):
     # Output control
     create_graph_draft: bool = True
 
+    # Structured query fields (auto-decomposed if not provided)
+    topic: Optional[str] = None
+    domain: Optional[str] = None
+    aspect: Optional[str] = None
+
+    # V2 controls (replace map_focus + expansion)
+    scope: Optional[Literal["broad", "intersection", "topic_focused", "domain_focused"]] = None
+    drift: Optional[Literal["strict", "moderate", "open"]] = None
+    temporal: Optional[Literal["seminal", "recent", "all"]] = None
+    map_size: Optional[Literal["small", "medium", "large"]] = None
+
+    # DEPRECATED — kept for backward compatibility, ignored if new fields present
+    map_focus: Optional[Literal["landscape", "core_cluster", "evolution"]] = None
+    expansion: Optional[Literal["narrow", "foundations", "wide"]] = None
+
 
 class CitationNode(BaseModel):
     """A node in the citation graph."""

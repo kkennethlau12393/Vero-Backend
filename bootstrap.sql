@@ -421,6 +421,20 @@ CREATE INDEX IF NOT EXISTS idx_query_expansion_cache_created
     ON public.query_expansion_cache (created_at DESC);
 
 -- ---------------------------------------------------------------------
+-- Query decomposition cache (structured query analysis)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.query_decomposition_cache (
+    query_hash text PRIMARY KEY,
+    query_text text NOT NULL,
+    decomposition jsonb NOT NULL,
+    model_version text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_query_decomposition_cache_created
+    ON public.query_decomposition_cache (created_at DESC);
+
+-- ---------------------------------------------------------------------
 -- LLM relevance score cache (per paper per query)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.llm_relevance_cache (
@@ -573,6 +587,25 @@ CREATE INDEX IF NOT EXISTS idx_saved_papers_user
 -- Migration: add source column for existing tables
 ALTER TABLE public.saved_papers
     ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'manual';
+
+-- ---------------------------------------------------------------------
+-- Paper tags (user-defined tags on papers, workspace-scoped)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.paper_tags (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    work_id text NOT NULL,
+    tag text NOT NULL,
+    color text DEFAULT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE(workspace_id, user_id, work_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_tags_workspace
+    ON public.paper_tags (workspace_id);
+CREATE INDEX IF NOT EXISTS idx_paper_tags_user
+    ON public.paper_tags (user_id, workspace_id);
 
 -- ==========================================================================
 -- Feature 4: Methodology Comparison

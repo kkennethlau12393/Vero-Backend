@@ -19,7 +19,7 @@ import unicodedata
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
@@ -79,7 +79,7 @@ MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 0.5
 
 # API keys
-OPENALEX_API_KEY = os.environ.get("OPENALEX_API_KEY")
+from app.shared.oa_keys import get_oa_api_key
 
 # Search limits
 OPENALEX_LIMIT = 100
@@ -168,10 +168,10 @@ def _s2_get_with_retry(
     timeout: int = 30,
     max_retries: int = S2_MAX_RETRIES,
 ) -> requests.Response:
-    """Make a GET request to S2 API with exponential backoff on 429.
+    """Make a GET request to S2 API with exponential backoff on 429/500.
 
     Returns the response object. Raises on non-retryable errors.
-    On exhausted retries, returns the last 429 response (caller decides what to do).
+    On exhausted retries, returns the last retryable response (caller decides what to do).
     """
     global _s2_rate_limited_until_ts
     _s2_throttle()  # Proactive rate limiting — wait if needed before request
@@ -197,8 +197,8 @@ def _s2_get_with_retry(
     last_resp = None
     for attempt in range(max_retries + 1):
         resp = requests.get(url, params=params, headers=headers, timeout=timeout)
-        if resp.status_code != 429:
-            # Success or non-429 error — clear any active cooldown
+        if resp.status_code not in (429, 500):
+            # Success or non-retryable error — clear any active cooldown
             _s2_rate_limited_until_ts = 0.0
             return resp
         last_resp = resp
@@ -206,7 +206,7 @@ def _s2_get_with_retry(
         _debug_log(
             "H16",
             "app/feature1/citation_map_service.py:_s2_get_with_retry.rate_limited",
-            "S2 returned 429; retrying",
+            f"S2 returned {resp.status_code}; retrying",
             {
                 "urlPrefix": url[:120],
                 "attempt": attempt + 1,
@@ -216,7 +216,7 @@ def _s2_get_with_retry(
         # #endregion
         if attempt < max_retries:
             delay = S2_RETRY_BASE_DELAY * (2 ** attempt)  # 1s, 2s, 4s
-            logger.info(f"S2 rate limited (429), retry {attempt + 1}/{max_retries} after {delay}s: {url[:80]}")
+            logger.info(f"S2 error ({resp.status_code}), retry {attempt + 1}/{max_retries} after {delay}s: {url[:80]}")
             time.sleep(delay)
 
     # All retries exhausted — activate cooldown to avoid hammering S2
@@ -266,8 +266,9 @@ def _search_openalex(query: str, k: int = OPENALEX_LIMIT) -> List[Dict[str, Any]
         "per-page": min(k, 200),
         "select": "id,title,publication_year,cited_by_count",
     }
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
 
     url = "https://api.openalex.org/works"
 
@@ -323,8 +324,9 @@ def _search_openalex_highly_cited(query: str, k: int = OPENALEX_HIGHLY_CITED_LIM
         "per-page": min(k, 200),
         "select": "id,title,publication_year,cited_by_count",
     }
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -387,8 +389,9 @@ def _search_openalex_by_title(
             "per-page": min(k * 2, 50),
             "select": "id,title,publication_year,cited_by_count",
         }
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         try:
             _oa_throttle()
@@ -588,6 +591,9 @@ def _search_arxiv(query: str, k: int = ARXIV_LIMIT) -> List[Dict[str, Any]]:
 
     base_url = "https://export.arxiv.org/api/query"
     words = query.split()[:5]
+    words = [w for w in words if w.upper() not in ("AND", "OR", "NOT")]
+    if not words:
+        return []
     search_terms = [f"all:{quote(word)}" for word in words]
     search_query = "+AND+".join(search_terms)
     url = f"{base_url}?search_query={search_query}&max_results={k}&sortBy=relevance"
@@ -663,8 +669,9 @@ def _get_doi_for_work(work_id: str) -> Optional[str]:
     try:
         url = f"https://api.openalex.org/works/{work_id}"
         params = {"select": "doi"}
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -716,8 +723,9 @@ def _lookup_openalex_by_doi(doi: str) -> Optional[str]:
             "select": "id",
             "per-page": 1,
         }
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -781,8 +789,9 @@ def _batch_lookup_openalex_by_dois(dois: List[str]) -> Dict[str, str]:
                 "select": "id,doi",
                 "per-page": len(clean_dois),
             }
-            if OPENALEX_API_KEY:
-                params["api_key"] = OPENALEX_API_KEY
+            oa_key = get_oa_api_key()
+            if oa_key:
+                params["api_key"] = oa_key
 
             _oa_throttle()
             resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -1033,8 +1042,9 @@ def fetch_citing_papers(work_id: str, limit: int = 25, fetch_limit: int = 100) -
             "sort": "cited_by_count:desc",
             "per-page": fetch_limit,
         }
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -1108,8 +1118,9 @@ def fetch_references(work_id: str, limit: int = 25, fetch_limit: int = 100) -> L
         # First get the work to find its referenced_works
         url = f"https://api.openalex.org/works/{work_id}"
         params = {}
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -1137,8 +1148,9 @@ def fetch_references(work_id: str, limit: int = 25, fetch_limit: int = 100) -> L
             "filter": f"openalex_id:{filter_str}",
             "per-page": 100,
         }
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -1307,8 +1319,9 @@ def fetch_seed_paper_details(work_id: str) -> Optional[Dict[str, Any]]:
     try:
         url = f"https://api.openalex.org/works/{work_id}"
         params = {}
-        if OPENALEX_API_KEY:
-            params["api_key"] = OPENALEX_API_KEY
+        oa_key = get_oa_api_key()
+        if oa_key:
+            params["api_key"] = oa_key
 
         _oa_throttle()
         resp = requests.get(url, params=params, timeout=OPENALEX_TIMEOUT)
@@ -1726,6 +1739,8 @@ def _expand_citation_network(
     hop2_fetch: int = 20,
     citation_weight: float = 0.6,
     connectivity_weight: float = 0.4,
+    structured_query: Optional[Dict[str, Any]] = None,
+    expansion: Optional[str] = None,
 ) -> Tuple[Dict[str, Dict[str, Any]], List[Tuple[str, str]]]:
     """Expand citation network from seed using multi-hop exploration.
 
@@ -1833,6 +1848,28 @@ def _expand_citation_network(
         if wid:
             add_edge(seed_work_id, wid)  # seed -> reference
 
+    # Apply hop filtering to hop-1 papers (structured query relevance)
+    if structured_query and structured_query.get("topic") and expansion:
+        try:
+            from app.feature1.hop_filtering import filter_hop_papers
+            hop1_list = [
+                {**papers[wid], "work_id": wid}
+                for wid in papers if papers[wid].get("hop") == 1
+            ]
+            filtered_hop1 = filter_hop_papers(hop1_list, structured_query, expansion, hop_level=1)
+            filtered_wids = {p.get("work_id") for p in filtered_hop1}
+            # Remove unfiltered hop-1 papers from graph
+            removed = [wid for wid in list(papers.keys())
+                        if papers[wid].get("hop") == 1 and wid not in filtered_wids]
+            for wid in removed:
+                del papers[wid]
+            # Also remove edges involving removed papers
+            edges = [(f, t) for f, t in edges if f not in removed and t not in removed]
+            edge_set = set(edges)
+            logger.info(f"Hop-1 filtering: kept {len(filtered_wids)}, removed {len(removed)}")
+        except Exception as e:
+            logger.warning(f"Hop-1 filtering failed: {e}")
+
     # Hop 2: Expand from top hop-1 papers (by citations)
     hop1_papers = [(wid, papers[wid]) for wid in papers if papers[wid].get("hop") == 1]
     hop1_papers.sort(key=lambda x: x[1].get("cited_by_count", 0), reverse=True)
@@ -1926,6 +1963,26 @@ def _expand_citation_network(
                     papers[pid] = {**p, "hop": 2, "is_seed": False}
                 if pid:
                     add_edge(wid, pid)
+
+    # Apply hop filtering to hop-2 papers (structured query relevance)
+    if structured_query and structured_query.get("topic") and expansion:
+        try:
+            from app.feature1.hop_filtering import filter_hop_papers
+            hop2_list = [
+                {**papers[wid], "work_id": wid}
+                for wid in papers if papers[wid].get("hop") == 2
+            ]
+            filtered_hop2 = filter_hop_papers(hop2_list, structured_query, expansion, hop_level=2)
+            filtered_wids = {p.get("work_id") for p in filtered_hop2}
+            removed = [wid for wid in list(papers.keys())
+                        if papers[wid].get("hop") == 2 and wid not in filtered_wids]
+            for wid in removed:
+                del papers[wid]
+            edges = [(f, t) for f, t in edges if f not in removed and t not in removed]
+            edge_set = set(edges)
+            logger.info(f"Hop-2 filtering: kept {len(filtered_wids)}, removed {len(removed)}")
+        except Exception as e:
+            logger.warning(f"Hop-2 filtering failed: {e}")
 
     # Cross-reference metadata backfill: try S2 for papers missing abstracts/authors/venue
     _backfill_metadata_cross_source(papers)
@@ -2118,6 +2175,495 @@ def _expand_citation_network(
     return filtered_papers, filtered_edges
 
 
+def _expand_citation_network_v2(
+    seed_work_ids: List[str],
+    structured_query: Dict[str, Any],
+    scope: str,
+    drift: str,
+    temporal: str,
+    map_size: str,
+    engine: Optional[Engine] = None,
+) -> Tuple[List[Dict[str, Any]], List[Tuple[str, str]], Dict[str, Set]]:
+    """V2 citation network expansion with score-and-select.
+
+    1. Fetch hop-1 candidates (all citing + referenced) from OA + S2 for ALL seeds
+    2. Score and filter by drift threshold
+    3. Expand top hop-1 papers to hop-2
+    4. Score and filter hop-2
+    5. If drift=open and map_size=large: expand to hop-3
+    6. Return all candidates + edges for greedy selection
+
+    Returns
+    -------
+    tuple
+        (candidates_list, edge_tuples, adjacency_map)
+    """
+    from app.feature1.candidate_scoring import (
+        compute_relevance_score,
+        get_drift_thresholds,
+        get_fetch_limits,
+    )
+
+    drift_config = get_drift_thresholds(drift)
+    fetch_config = get_fetch_limits(map_size)
+
+    all_candidates: Dict[str, Dict[str, Any]] = {}  # work_id -> paper dict
+    all_edges: Dict[str, Set] = {}  # work_id -> set of connected work_ids
+    edge_tuples: List[Tuple[str, str]] = []
+    edge_set: set = set()
+
+    def add_edge(from_id: str, to_id: str):
+        if from_id == to_id:
+            return
+        if (from_id, to_id) not in edge_set:
+            edge_set.add((from_id, to_id))
+            edge_tuples.append((from_id, to_id))
+        # Build adjacency map (bidirectional)
+        all_edges.setdefault(from_id, set()).add(to_id)
+        all_edges.setdefault(to_id, set()).add(from_id)
+
+    # Register all seeds
+    for seed_work_id in seed_work_ids:
+        seed_data = fetch_seed_paper_details(seed_work_id)
+        if seed_data:
+            all_candidates[seed_work_id] = {**seed_data, "hop": 0, "is_seed": True}
+        else:
+            all_candidates[seed_work_id] = {
+                "work_id": seed_work_id,
+                "title": None,
+                "year": None,
+                "cited_by_count": 0,
+                "hop": 0,
+                "is_seed": True,
+            }
+
+    hop1_fetch_per_seed = fetch_config["hop1_fetch"] // len(seed_work_ids)
+
+    # ── HOP 1: Fetch citing + referenced for ALL seeds ──────────────────
+    for seed_work_id in seed_work_ids:
+        seed_doi = _get_doi_for_work(seed_work_id) if seed_work_id.startswith("W") else None
+        seed_title = all_candidates[seed_work_id].get("title")
+
+        if seed_work_id.startswith("S2:"):
+            seed_s2_id = seed_work_id[3:]
+        elif seed_work_id.startswith("AX:"):
+            arxiv_id = seed_work_id[3:]
+            seed_s2_id = None
+            _s2_hdrs = get_s2_headers()
+            try:
+                _ax_resp = _s2_get_with_retry(
+                    f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}",
+                    params={"fields": "paperId"}, headers=_s2_hdrs, timeout=10,
+                )
+                if _ax_resp.status_code == 200:
+                    seed_s2_id = _ax_resp.json().get("paperId")
+            except Exception:
+                pass
+            if not seed_s2_id:
+                seed_s2_id = _get_s2_paper_id(doi=seed_doi, title=seed_title)
+        else:
+            seed_s2_id = _get_s2_paper_id(doi=seed_doi, title=seed_title)
+
+        logger.info(f"V2 expansion — seed: OA={seed_work_id}, DOI={seed_doi}, S2={seed_s2_id}")
+
+        hop1_citing = []
+        hop1_refs = []
+
+        # Source 1: OpenAlex
+        if seed_work_id.startswith("W"):
+            hop1_citing = fetch_citing_papers(seed_work_id, limit=hop1_fetch_per_seed, fetch_limit=hop1_fetch_per_seed)
+            hop1_refs = fetch_references(seed_work_id, limit=hop1_fetch_per_seed, fetch_limit=hop1_fetch_per_seed)
+
+        # Source 2: Semantic Scholar
+        s2_identifier = seed_s2_id or seed_doi
+        s2_id_type = "S2" if seed_s2_id else "DOI"
+        if s2_identifier:
+            s2_citing = _fetch_citing_papers_s2(s2_identifier, limit=hop1_fetch_per_seed, id_type=s2_id_type)
+            s2_refs = _fetch_references_s2(s2_identifier, limit=hop1_fetch_per_seed, id_type=s2_id_type)
+
+            s2_citing_mapped = _merge_s2_citations(
+                s2_citing, set(all_candidates.keys()) | {p.get("work_id") for p in hop1_citing}
+            )
+            s2_refs_mapped = _merge_s2_citations(
+                s2_refs, set(all_candidates.keys()) | {p.get("work_id") for p in hop1_refs}
+            )
+
+            hop1_citing.extend(s2_citing_mapped)
+            hop1_refs.extend(s2_refs_mapped)
+
+        # Register hop-1 papers and edges
+        for p in hop1_citing:
+            wid = p.get("work_id")
+            if wid and wid not in all_candidates:
+                all_candidates[wid] = {**p, "hop": 1, "is_seed": False}
+            if wid:
+                add_edge(wid, seed_work_id)  # citing paper -> seed
+
+        for p in hop1_refs:
+            wid = p.get("work_id")
+            if wid and wid not in all_candidates:
+                all_candidates[wid] = {**p, "hop": 1, "is_seed": False}
+            if wid:
+                add_edge(seed_work_id, wid)  # seed -> reference
+
+    # Add implicit edges between seeds if they share citations
+    if len(seed_work_ids) > 1:
+        for i, sid1 in enumerate(seed_work_ids):
+            for sid2 in seed_work_ids[i + 1:]:
+                neighbors_1 = all_edges.get(sid1, set())
+                neighbors_2 = all_edges.get(sid2, set())
+                if neighbors_1 & neighbors_2:
+                    add_edge(sid1, sid2)
+
+    # Filter hop-1 by drift threshold
+    hop1_filtered = []
+    for wid, p in list(all_candidates.items()):
+        if p.get("hop") != 1:
+            continue
+        score = compute_relevance_score(p, structured_query, scope)
+        if score >= drift_config["hop1_threshold"]:
+            p["_relevance_score"] = score
+            hop1_filtered.append(p)
+
+    logger.info(
+        f"V2 Hop-1: {sum(1 for p in all_candidates.values() if p.get('hop') == 1)} fetched, "
+        f"{len(hop1_filtered)} passed threshold {drift_config['hop1_threshold']}"
+    )
+
+    # ── RETRIEVAL ENRICHMENT: LLM-expanded multi-source search ────────
+    # Discover relevant papers not in the seed's citation neighborhood.
+    # Enrichment candidates enter the same pool as hop-1 papers and are
+    # scored by greedy_graph_select. Connectivity weight (0.35) ensures
+    # only papers that actually connect to the graph are selected.
+    try:
+        from app.feature2.query_expansion import expand_query
+        from app.feature2.retrieval import _search_openalex, _search_semantic_scholar
+
+        # Build query text from structured query
+        query_text = structured_query.get("topic", "")
+        _enrich_domain = structured_query.get("domain")
+        if _enrich_domain:
+            query_text = f"{query_text} {_enrich_domain}"
+
+        if query_text.strip() and engine is not None:
+            # Get LLM-expanded concepts (cached)
+            with engine.connect() as exp_conn:
+                expansion = expand_query(exp_conn, query_text)
+
+            # Build search queries from expansion
+            search_queries = [query_text]
+            foundational_titles = []
+
+            if expansion.concepts:
+                for concept in expansion.concepts:
+                    for syn in concept.synonyms[:2]:
+                        if syn and syn.lower() != query_text.lower() and len(syn) > 2:
+                            search_queries.append(syn)
+                    for fw in getattr(concept, "foundational_works", []):
+                        if fw and len(fw) > 5 and fw.lower() != query_text.lower():
+                            foundational_titles.append(fw)
+
+            MAX_ENRICHMENT_QUERIES = 4
+            search_queries = search_queries[:MAX_ENRICHMENT_QUERIES]
+
+            logger.info(
+                f"V2 retrieval enrichment: {len(search_queries)} queries, "
+                f"{len(foundational_titles)} foundational titles"
+            )
+
+            # Run searches in parallel
+            enrichment_oa_results = []
+            enrichment_s2_results = []
+
+            def _oa_enrich(q, limit=30):
+                try:
+                    return _search_openalex(q, limit)
+                except Exception:
+                    return []
+
+            def _s2_enrich():
+                try:
+                    return _search_semantic_scholar(query_text, 50)
+                except Exception:
+                    return []
+
+            with ThreadPoolExecutor(max_workers=4) as enrich_executor:
+                oa_futures = []
+                for q in search_queries:
+                    oa_futures.append(enrich_executor.submit(_oa_enrich, q, 30))
+                for fw in foundational_titles[:5]:
+                    oa_futures.append(enrich_executor.submit(_oa_enrich, fw, 5))
+
+                s2_future = enrich_executor.submit(_s2_enrich)
+
+                for f in as_completed(oa_futures):
+                    enrichment_oa_results.extend(f.result())
+                enrichment_s2_results = s2_future.result()
+
+            # Process OA results: (work_id, score)
+            enrichment_count = 0
+            seed_ids_set = set(seed_work_ids)
+            for wid, _score in enrichment_oa_results:
+                if not wid or wid in all_candidates or wid in seed_ids_set:
+                    continue
+                all_candidates[wid] = {
+                    "work_id": wid,
+                    "title": None,
+                    "year": None,
+                    "cited_by_count": 0,
+                    "hop": 1,
+                    "is_seed": False,
+                    "_source": "retrieval_enrichment",
+                }
+                enrichment_count += 1
+
+            # Process S2 results: (s2_paper_id, metadata_dict)
+            for s2_id, meta in enrichment_s2_results:
+                oa_id = meta.get("openalex_id")
+                wid = oa_id if oa_id else f"S2:{s2_id}"
+                if not wid or wid in all_candidates or wid in seed_ids_set:
+                    continue
+                all_candidates[wid] = {
+                    "work_id": wid,
+                    "title": meta.get("title"),
+                    "year": meta.get("year"),
+                    "cited_by_count": meta.get("citations", 0),
+                    "abstract": meta.get("abstract"),
+                    "doi": meta.get("doi"),
+                    "venue": meta.get("venue"),
+                    "hop": 1,
+                    "is_seed": False,
+                    "_source": "retrieval_enrichment",
+                }
+                enrichment_count += 1
+
+            logger.info(f"V2 retrieval enrichment: added {enrichment_count} new candidates")
+
+            # Edge discovery: check which enrichment papers connect to graph
+            enrichment_papers = [
+                p for p in all_candidates.values()
+                if p.get("_source") == "retrieval_enrichment"
+            ]
+            existing_wids = set(
+                wid for wid, p in all_candidates.items()
+                if p.get("_source") != "retrieval_enrichment"
+            )
+
+            # Only check papers that pass drift threshold
+            enrichment_to_check = []
+            for p in enrichment_papers:
+                score = compute_relevance_score(p, structured_query, scope)
+                if score >= drift_config["hop1_threshold"]:
+                    p["_relevance_score"] = score
+                    enrichment_to_check.append(p)
+
+            def _check_enrichment_edges(wid):
+                """Check if enrichment paper connects to existing graph."""
+                found = []
+                try:
+                    refs = fetch_references(wid, limit=100, fetch_limit=100)
+                    for r in refs:
+                        rid = r.get("work_id")
+                        if rid and rid in existing_wids:
+                            found.append((wid, rid))
+                except Exception:
+                    pass
+                try:
+                    citing = fetch_citing_papers(wid, limit=100, fetch_limit=100)
+                    for c in citing:
+                        cid = c.get("work_id")
+                        if cid and cid in existing_wids:
+                            found.append((cid, wid))
+                except Exception:
+                    pass
+                return found
+
+            # Cap at 20 edge-discovery calls to limit API usage
+            with ThreadPoolExecutor(max_workers=3) as edge_executor:
+                edge_futures = {
+                    edge_executor.submit(_check_enrichment_edges, p["work_id"]): p["work_id"]
+                    for p in enrichment_to_check[:20]
+                    if p["work_id"].startswith("W")  # Only OA IDs have fetchable refs
+                }
+                for future in as_completed(edge_futures):
+                    for src, tgt in future.result():
+                        add_edge(src, tgt)
+
+            # Score enrichment papers that passed threshold and add to hop1_filtered
+            for p in enrichment_to_check:
+                if p["work_id"] in all_edges:
+                    hop1_filtered.append(p)
+
+            enrichment_connected = sum(
+                1 for p in enrichment_to_check if p["work_id"] in all_edges
+            )
+            logger.info(
+                f"V2 enrichment: {len(enrichment_to_check)} passed threshold, "
+                f"{enrichment_connected} have graph connections"
+            )
+
+    except Exception as e:
+        logger.warning(f"V2 retrieval enrichment failed (non-fatal): {e}")
+
+    # ── HOP 2: Expand top hop-1 papers ───────────────────────────────────
+    hop1_sorted = sorted(hop1_filtered, key=lambda p: p.get("_relevance_score", 0), reverse=True)
+    hop2_sources = hop1_sorted[:fetch_config["hop2_expand_count"]]
+
+    # Batch-resolve S2 paper IDs for hop-1 expansion sources
+    hop1_dois = {}
+    papers_to_resolve = []
+    for p in hop2_sources:
+        wid = p.get("work_id", "")
+        if wid.startswith("S2:"):
+            papers_to_resolve.append({"work_id": wid})
+        elif wid.startswith("W"):
+            doi = _get_doi_for_work(wid)
+            hop1_dois[wid] = doi
+            papers_to_resolve.append({
+                "work_id": wid,
+                "doi": doi,
+                "title": p.get("title"),
+            })
+        else:
+            papers_to_resolve.append({
+                "work_id": wid,
+                "title": p.get("title"),
+            })
+
+    hop1_s2_ids = _batch_resolve_s2_ids(papers_to_resolve)
+
+    hop2_fetch = fetch_config["hop2_fetch"]
+
+    def _expand_single_hop2_v2(wid, paper_data):
+        """Expand one hop-1 paper's citations+refs from OA and S2."""
+        h2_citing = []
+        h2_refs = []
+
+        if wid.startswith("W"):
+            try:
+                h2_citing.extend(fetch_citing_papers(wid, limit=hop2_fetch, fetch_limit=hop2_fetch))
+            except Exception:
+                pass
+            try:
+                h2_refs.extend(fetch_references(wid, limit=hop2_fetch, fetch_limit=hop2_fetch))
+            except Exception:
+                pass
+
+        hop1_s2_id = hop1_s2_ids.get(wid)
+        hop1_doi = hop1_dois.get(wid)
+        h2_s2_id = hop1_s2_id or hop1_doi
+        h2_s2_type = "S2" if hop1_s2_id else "DOI"
+        if h2_s2_id:
+            try:
+                s2_h2_citing = _fetch_citing_papers_s2(h2_s2_id, limit=hop2_fetch, id_type=h2_s2_type)
+                s2_h2_citing_mapped = _merge_s2_citations(
+                    s2_h2_citing, set(all_candidates.keys()) | {p.get("work_id") for p in h2_citing}
+                )
+                h2_citing.extend(s2_h2_citing_mapped)
+            except Exception:
+                pass
+            try:
+                s2_h2_refs = _fetch_references_s2(h2_s2_id, limit=hop2_fetch, id_type=h2_s2_type)
+                s2_h2_refs_mapped = _merge_s2_citations(
+                    s2_h2_refs, set(all_candidates.keys()) | {p.get("work_id") for p in h2_refs}
+                )
+                h2_refs.extend(s2_h2_refs_mapped)
+            except Exception:
+                pass
+
+        return wid, h2_citing, h2_refs
+
+    # Run hop-2 expansion in parallel
+    hop2_papers_raw = []
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {
+            executor.submit(_expand_single_hop2_v2, p.get("work_id", ""), p): p.get("work_id")
+            for p in hop2_sources
+        }
+        seed_ids_set = set(seed_work_ids)
+        for future in as_completed(futures):
+            source_wid, h2_citing, h2_refs = future.result()
+            for p in h2_citing:
+                pid = p.get("work_id")
+                if pid and pid not in all_candidates and pid not in seed_ids_set:
+                    hop2_papers_raw.append(p)
+                    all_candidates[pid] = {**p, "hop": 2, "is_seed": False}
+                if pid:
+                    add_edge(pid, source_wid)
+            for p in h2_refs:
+                pid = p.get("work_id")
+                if pid and pid not in all_candidates and pid not in seed_ids_set:
+                    hop2_papers_raw.append(p)
+                    all_candidates[pid] = {**p, "hop": 2, "is_seed": False}
+                if pid:
+                    add_edge(source_wid, pid)
+
+    # Deduplicate hop-2 by work_id (Fix 2: inline dict dedup)
+    hop2_seen: Dict[str, Dict[str, Any]] = {}
+    for p in hop2_papers_raw:
+        hop2_seen.setdefault(p.get("work_id", ""), p)
+    hop2_papers = list(hop2_seen.values())
+
+    # Filter hop-2 by drift threshold
+    hop2_filtered = []
+    for p in hop2_papers:
+        score = compute_relevance_score(p, structured_query, scope)
+        if score >= drift_config["hop2_threshold"]:
+            p["_relevance_score"] = score
+            hop2_filtered.append(p)
+
+    logger.info(
+        f"V2 Hop-2: {len(hop2_papers)} fetched, {len(hop2_filtered)} passed "
+        f"threshold {drift_config['hop2_threshold']}"
+    )
+
+    # ── HOP 3 (only for open + large) ────────────────────────────────────
+    if drift_config["max_hops"] >= 3 and map_size == "large":
+        hop2_sorted = sorted(hop2_filtered, key=lambda p: p.get("_relevance_score", 0), reverse=True)
+        hop3_sources = hop2_sorted[:5]
+
+        hop3_papers_raw = []
+        for source_paper in hop3_sources:
+            source_wid = source_paper.get("work_id", "")
+            try:
+                h3_citing = fetch_citing_papers(source_wid, limit=15, fetch_limit=15)
+            except Exception:
+                h3_citing = []
+            try:
+                h3_refs = fetch_references(source_wid, limit=15, fetch_limit=15)
+            except Exception:
+                h3_refs = []
+
+            for p in h3_citing + h3_refs:
+                wid = p.get("work_id")
+                if wid and wid not in all_candidates and wid not in set(seed_work_ids):
+                    hop3_papers_raw.append(p)
+                    all_candidates[wid] = {**p, "hop": 3, "is_seed": False}
+                if wid:
+                    add_edge(source_wid, wid)
+
+        # Deduplicate hop-3 (Fix 2)
+        hop3_seen: Dict[str, Dict[str, Any]] = {}
+        for p in hop3_papers_raw:
+            hop3_seen.setdefault(p.get("work_id", ""), p)
+        hop3_papers = list(hop3_seen.values())
+
+        # Filter hop-3 by drift threshold
+        for p in hop3_papers:
+            score = compute_relevance_score(p, structured_query, scope)
+            if score >= drift_config["hop3_threshold"]:
+                p["_relevance_score"] = score
+
+        logger.info(f"V2 Hop-3: {len(hop3_papers)} fetched")
+
+    # Cross-reference metadata backfill
+    _backfill_metadata_cross_source(all_candidates)
+
+    # Return all candidates for greedy selection
+    candidate_list = list(all_candidates.values())
+    return candidate_list, edge_tuples, all_edges
+
+
 def _score_seed_candidates(
     query: str,
     candidates: List[Dict[str, Any]],
@@ -2139,11 +2685,14 @@ def _score_seed_candidates(
     # Limit to top_k candidates (already sorted by citation count)
     candidates_to_score = candidates[:top_k]
 
-    # Prepare papers for prompt — include year and abstract for better judgment
+    # Prepare papers for prompt — use short IDs (P0, P1...) to save tokens
     papers_for_prompt = []
-    for c in candidates_to_score:
-        entry = {
-            "id": c.get("work_id"),
+    id_map: Dict[str, str] = {}  # "P0" -> work_id
+    for i, c in enumerate(candidates_to_score):
+        pid = f"P{i}"
+        id_map[pid] = c.get("work_id", "")
+        entry: Dict[str, Any] = {
+            "id": pid,
             "title": c.get("title", "")[:200],
         }
         if c.get("year"):
@@ -2155,7 +2704,7 @@ def _score_seed_candidates(
             entry["abstract"] = abstract[:300]
         papers_for_prompt.append(entry)
 
-    papers_json = json.dumps(papers_for_prompt, indent=2)
+    papers_json = json.dumps(papers_for_prompt)
 
     prompt = f"""Classify papers by relevance to the query for SEED PAPER selection. Return ONLY a JSON object mapping paper_id to relevance tier.
 
@@ -2206,7 +2755,7 @@ PAPERS:
 {papers_json}
 
 OUTPUT a JSON object mapping each paper_id to its tier. No commentary, no reasoning, no extra fields. Example format:
-{{"W1234": "HIGH", "W5678": "MEDIUM"}}"""
+{{"P0": "HIGH", "P3": "MEDIUM"}}"""
 
     client = Groq(api_key=api_key)
     # #region agent log
@@ -2221,13 +2770,13 @@ OUTPUT a JSON object mapping each paper_id to its tier. No commentary, no reason
     for attempt in range(MAX_RETRIES):
         try:
             response = client.chat.completions.create(
-                model="meta-llama/llama-4-maverick-17b-128e-instruct",
+                model="openai/gpt-oss-120b",
                 messages=[
                     {"role": "system", "content": "You are a research paper classifier. Output only valid JSON. No markdown, no commentary, no code blocks. Respond in English only."},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
-                max_tokens=4096,
+                max_tokens=8192,
                 timeout=GROQ_TIMEOUT,
                 response_format={"type": "json_object"},
             )
@@ -2255,11 +2804,10 @@ OUTPUT a JSON object mapping each paper_id to its tier. No commentary, no reason
             json_str = content[start:end]
             response_map = json.loads(json_str)
 
-            # Convert tiers to scores
+            # Convert tiers to scores — map short IDs back to work_ids
             result = {}
-            for c in candidates_to_score:
-                wid = c.get("work_id")
-                tier = response_map.get(wid, "NONE").upper()
+            for pid, wid in id_map.items():
+                tier = response_map.get(pid, "NONE").upper()
                 if tier not in TIER_SCORES:
                     tier = "NONE"
                 result[wid] = TIER_SCORES[tier]
@@ -2601,8 +3149,9 @@ def _search_openalex_by_doi(doi: str) -> Optional[Dict[str, Any]]:
         "filter": f"doi:{clean_doi}",
         "select": "id,title,publication_year,cited_by_count",
     }
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+    oa_key = get_oa_api_key()
+    if oa_key:
+        params["api_key"] = oa_key
 
     try:
         _oa_throttle()
@@ -2627,7 +3176,11 @@ def _search_openalex_by_doi(doi: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
+def select_seed_from_query(
+    query: str,
+    scope: str = "broad",
+    structured_query: Optional[Dict[str, Any]] = None,
+) -> Tuple[Optional[str], Dict[str, Any]]:
     """Select the best seed paper from a natural language query.
 
     Uses same retrieval sources as broad ranking:
@@ -2639,6 +3192,8 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
     Then validates topical relevance using LLM scoring:
     - Only papers with HIGH+ relevance (score >= 0.75) are considered
     - Among those, pick the highest cited
+    - When scope=intersection, additionally filters to papers matching
+      BOTH topic AND domain in title/abstract
 
     Returns:
         - seed_work_id (or None if not found)
@@ -2799,8 +3354,9 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
             try:
                 url = f"https://api.openalex.org/works/{wid}"
                 params = {"select": "abstract_inverted_index"}
-                if OPENALEX_API_KEY:
-                    params["api_key"] = OPENALEX_API_KEY
+                oa_key = get_oa_api_key()
+                if oa_key:
+                    params["api_key"] = oa_key
                 _oa_throttle()
                 resp = requests.get(url, params=params, timeout=10)
                 if resp.status_code == 200:
@@ -2843,7 +3399,7 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
         executor.map(_fetch_abstract_for_candidate, openalex_papers[:80])
 
     # Run LLM validation on top-80 candidates (interleaved by citations + relevance)
-    llm_scores = _score_seed_candidates(query, openalex_papers, top_k=80)
+    llm_scores = _score_seed_candidates(query, openalex_papers, top_k=40)
 
     # Helper: pick best seed from candidate list with keyword sanity check
     def _pick_best_seed(candidates, scores, strategy_label, filter_desc):
@@ -2894,6 +3450,30 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
             p for p in openalex_papers
             if llm_scores.get(p.get("work_id"), 0) >= MIN_SEED_LLM_SCORE
         ]
+
+        # Intersection-aware seed selection: prefer papers matching BOTH topic AND domain
+        if relevant_papers and scope == "intersection" and structured_query and structured_query.get("domain"):
+            from app.feature1.candidate_scoring import compute_relevance_score
+            both_match = []
+            either_match = []
+            for p in relevant_papers:
+                rel = compute_relevance_score(p, structured_query, "intersection")
+                if rel >= 0.5:  # Both topic AND domain match → base 0.8
+                    both_match.append(p)
+                elif rel >= 0.3:  # At least one matches
+                    either_match.append(p)
+            if both_match:
+                logger.info(
+                    f"Intersection seed filter: {len(both_match)} papers match both topic+domain "
+                    f"(from {len(relevant_papers)} LLM-validated)"
+                )
+                relevant_papers = both_match
+            elif either_match:
+                logger.info(
+                    f"Intersection seed filter: no both-match, falling back to {len(either_match)} either-match"
+                )
+                relevant_papers = either_match
+            # else: keep original relevant_papers (no intersection filtering)
 
         if relevant_papers:
             result = _pick_best_seed(
@@ -2957,6 +3537,84 @@ def select_seed_from_query(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
         "candidates_considered": len(all_papers),
         "seed_title": best_paper.get("title"),
     }
+
+
+def select_multi_seeds(
+    query: str,
+    structured_query: Dict[str, Any],
+    scope: str,
+    max_seeds: int = 3,
+) -> List[Tuple[str, Dict[str, Any]]]:
+    """Select multiple seed papers for multi-facet graph expansion.
+
+    For intersection queries, selects up to 3 seeds:
+    1. Intersection seed — matches both topic AND domain
+    2. Topic seed — best paper matching topic only
+    3. Domain seed — best paper matching domain only
+
+    For non-intersection queries, falls back to single seed.
+
+    Returns list of (work_id, paper_dict) tuples.
+    """
+    topic = structured_query.get("topic", "")
+    domain = structured_query.get("domain", "")
+    topic_aliases = structured_query.get("topic_aliases", [])
+    domain_aliases = structured_query.get("domain_aliases", [])
+
+    intent = structured_query.get("intent", "single_topic")
+    if (scope != "intersection" and intent != "cross_domain") or not domain:
+        # Non-intersection / non-cross-domain: single seed via existing function
+        seed_id, info = select_seed_from_query(query, scope=scope, structured_query=structured_query)
+        if seed_id:
+            paper = fetch_seed_paper_details(seed_id) or {"work_id": seed_id}
+            return [(seed_id, paper)]
+        return []
+
+    seeds = []
+    seen_ids: set = set()
+
+    # Seed 1: Intersection — search for papers matching both topic AND domain
+    intersection_query = f"{topic} {domain}"
+    intersection_id, _info = select_seed_from_query(
+        intersection_query, scope="intersection", structured_query=structured_query,
+    )
+    if intersection_id:
+        paper = fetch_seed_paper_details(intersection_id) or {"work_id": intersection_id}
+        seeds.append((intersection_id, paper))
+        seen_ids.add(intersection_id)
+
+    # Seed 2: Topic-focused
+    if intent == "cross_domain":
+        topic_query = topic  # bare topic works for cross-domain
+    else:
+        topic_query = f"{topic} {domain}"  # full query prevents off-topic seeds
+    topic_id, _ = select_seed_from_query(
+        topic_query, scope="topic_focused", structured_query=structured_query,
+    )
+    if topic_id and topic_id not in seen_ids:
+        paper = fetch_seed_paper_details(topic_id) or {"work_id": topic_id}
+        seeds.append((topic_id, paper))
+        seen_ids.add(topic_id)
+
+    # Seed 3: Domain-focused
+    if intent == "cross_domain":
+        domain_query = domain  # bare domain works for cross-domain
+    else:
+        domain_query = f"{topic} {domain}"  # full query prevents off-topic seeds
+    domain_id, _ = select_seed_from_query(
+        domain_query, scope="domain_focused", structured_query=structured_query,
+    )
+    if domain_id and domain_id not in seen_ids:
+        paper = fetch_seed_paper_details(domain_id) or {"work_id": domain_id}
+        seeds.append((domain_id, paper))
+        seen_ids.add(domain_id)
+
+    logger.info(
+        f"Multi-seed selection: {len(seeds)} seeds for scope={scope} "
+        f"[{', '.join(s[1].get('title', '?')[:40] for s in seeds)}]"
+    )
+
+    return seeds[:max_seeds]
 
 
 # ============================================================================
@@ -3051,7 +3709,7 @@ def _assemble_citation_graph(
 
 
 def _assemble_multihop_graph(
-    seed_work_id: str,
+    seed_work_ids: Set[str],
     papers_dict: Dict[str, Dict[str, Any]],
     edge_tuples: List[Tuple[str, str]],
     min_citations: int = 0,
@@ -3062,6 +3720,11 @@ def _assemble_multihop_graph(
     """
     nodes: List[CitationNode] = []
     edges: List[CitationEdge] = []
+
+    # Build edge index for O(1) lookup instead of scanning all tuples
+    edge_from_index: Dict[str, Set[str]] = {}
+    for f, t in edge_tuples:
+        edge_from_index.setdefault(f, set()).add(t)
 
     for work_id, paper in papers_dict.items():
         # Apply minimum citations filter
@@ -3075,8 +3738,9 @@ def _assemble_multihop_graph(
         if is_seed:
             relationship = "seed"
         elif hop == 1:
-            # Check edge direction to determine if it cites seed or is cited by seed
-            cites_seed = any(f == work_id and t == seed_work_id for f, t in edge_tuples)
+            # Check edge direction to determine if it cites any seed
+            targets = edge_from_index.get(work_id, set())
+            cites_seed = bool(targets & seed_work_ids)
             relationship = "cites_seed" if cites_seed else "cited_by_seed"
         else:
             relationship = "network"  # 2+ hop papers
@@ -3167,14 +3831,13 @@ CRITICAL: Every paper ID (0 through {len(paper_list) - 1}) must appear in exactl
     for attempt in range(3):
         try:
             resp = client.chat.completions.create(
-                model="meta-llama/llama-4-maverick-17b-128e-instruct",
+                model="openai/gpt-oss-120b",
                 messages=[
                     {"role": "system", "content": "You are a research librarian. Return only valid JSON. Respond in English only. No markdown code blocks."},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.3,
                 timeout=60.0,
-                response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
 
@@ -3219,8 +3882,12 @@ CRITICAL: Every paper ID (0 through {len(paper_list) - 1}) must appear in exactl
                 paper_ids = st.get("paper_ids", [])
                 work_ids = []
                 for pid in paper_ids:
-                    if isinstance(pid, int) and 0 <= pid < len(paper_list):
-                        wid = paper_list[pid]["work_id"]
+                    try:
+                        idx_int = int(pid)
+                    except (ValueError, TypeError):
+                        continue
+                    if 0 <= idx_int < len(paper_list):
+                        wid = paper_list[idx_int]["work_id"]
                         if wid not in seen_work_ids:
                             work_ids.append(wid)
                             seen_work_ids.add(wid)
@@ -3324,9 +3991,6 @@ def _assign_subtopics(nodes: List[CitationNode], query_text: Optional[str] = Non
                  "its", "it", "be", "was", "were", "been", "being", "do", "does",
                  "did", "has", "have", "had", "not", "but", "if", "we", "our",
                  "via", "using", "based", "towards", "toward"}
-    if query_text:
-        stopwords |= set(query_text.lower().replace("-", " ").split())
-
     node_by_wid = {n.work_id: n for n in nodes}
     subtopic_keywords: Dict[str, set] = {}
     for label in set(wid_to_label.values()):
@@ -3355,8 +4019,10 @@ def _assign_subtopics(nodes: List[CitationNode], query_text: Optional[str] = Non
         if not node.title:
             node.subtopic = "Other"
             continue
+        title_words = len(_subtopic_title_keywords(node.title, stopwords))
+        min_req = 2 if title_words >= 5 else 1
         best_label = _match_to_closest_subtopic(
-            node.title, subtopic_keywords, stopwords, min_overlap=2
+            node.title, subtopic_keywords, stopwords, min_overlap=min_req
         )
         if best_label:
             node.subtopic = best_label
@@ -3364,8 +4030,21 @@ def _assign_subtopics(nodes: List[CitationNode], query_text: Optional[str] = Non
         else:
             node.subtopic = "Other"
 
+    # Third pass: if "Other" is too large (>20%), retry with min_overlap=1
+    other_nodes = [n for n in nodes if n.subtopic == "Other"]
+    if len(other_nodes) > len(nodes) * 0.2:
+        for node in other_nodes:
+            if not node.title:
+                continue
+            best_label = _match_to_closest_subtopic(
+                node.title, subtopic_keywords, stopwords, min_overlap=1
+            )
+            if best_label:
+                node.subtopic = best_label
+                matched += 1
+
     total_assigned = assigned + matched
-    other_count = len(nodes) - total_assigned
+    other_count = len([n for n in nodes if n.subtopic == "Other"])
     logger.info(
         f"Subtopic assignment: {assigned} LLM-assigned + {matched} keyword-matched = "
         f"{total_assigned}/{len(nodes)} nodes in {len(subtopics)} subtopics, {other_count} as Other"
@@ -3603,7 +4282,65 @@ def build_citation_map(
     # #endregion
 
     with engine.connect() as conn:
+        # Step 0: Parse V2 inputs (needed before seed selection for intersection-aware filtering)
+        _scope = getattr(request, "scope", None) or "broad"
+        _drift = getattr(request, "drift", None) or "moderate"
+        _temporal = getattr(request, "temporal", None) or "all"
+        _map_size = getattr(request, "map_size", None) or "medium"
+
+        # Legacy backward compatibility mapping
+        if getattr(request, "map_focus", None) and not getattr(request, "drift", None):
+            _drift = {
+                "core_cluster": "strict",
+                "landscape": "open",
+                "evolution": "moderate",
+            }.get(request.map_focus, "moderate")
+
+        if getattr(request, "expansion", None) and not getattr(request, "drift", None):
+            _drift = {
+                "narrow": "strict",
+                "foundations": "moderate",
+                "wide": "open",
+            }.get(request.expansion, _drift)
+
+            if request.expansion == "foundations" and not getattr(request, "temporal", None):
+                _temporal = "seminal"
+            elif request.expansion == "narrow" and not getattr(request, "temporal", None):
+                _temporal = "recent"
+
+        if getattr(request, "map_focus", None) == "evolution" and not getattr(request, "temporal", None):
+            _temporal = "all"
+
+        # Build structured query (if provided or auto-decompose)
+        _sq = None
+        if getattr(request, "topic", None):
+            _sq = {
+                "topic": request.topic,
+                "domain": getattr(request, "domain", None),
+                "aspect": getattr(request, "aspect", None),
+                "topic_aliases": [],
+                "domain_aliases": [],
+                "aspect_aliases": [],
+                "intent": "single_topic",
+            }
+        elif request.query_text:
+            try:
+                from app.common.query_decomposition import decompose_query as _decompose_q
+                with engine.connect() as _dconn:
+                    _sq = _decompose_q(_dconn, request.query_text)
+            except Exception as _e:
+                logger.warning(f"Citation map auto-decomposition failed: {_e}")
+
+        if not _sq:
+            _sq = {"topic": request.query_text or "", "domain": None, "aspect": None, "intent": "single_topic"}
+
+        # If no domain, force scope to broad
+        if not _sq.get("domain"):
+            _scope = "broad"
+
         # Step 1: Determine seed paper (support multiple input modes)
+        all_seed_ids = None  # Set by query_text mode (multi-seed), defaulted after selection
+
         if request.seed_doi:
             # Mode: DOI (from PDF metadata or user input)
             logger.info(f"Looking up paper by DOI: {request.seed_doi}")
@@ -3730,23 +4467,22 @@ def build_citation_map(
             )
 
         elif request.query_text:
-            # Mode 2: Natural language query
-            seed_work_id, selection_info = select_seed_from_query(request.query_text)
-            if not seed_work_id:
-                logger.info(
-                    "Citation map query had no seed: strategy=%s reason=%s candidates=%s",
-                    selection_info.get("selection_strategy", "none"),
-                    selection_info.get("selection_reason", "No seed found"),
-                    selection_info.get("candidates_considered", 0),
-                )
-                # No seed found - return empty response
+            # Mode 2: Natural language query — multi-seed for intersection
+            seeds = select_multi_seeds(
+                request.query_text,
+                structured_query=_sq,
+                scope=_scope,
+                max_seeds=3,
+            )
+            if not seeds:
+                logger.info("Citation map query had no seeds for query: %s", request.query_text)
                 return CitationMapResponse(
                     seed_info=SeedSelectionInfo(
                         seed_work_id="",
                         seed_title=None,
-                        selection_strategy=selection_info.get("selection_strategy", "none"),
-                        selection_reason=selection_info.get("selection_reason", "No seed found"),
-                        candidates_considered=selection_info.get("candidates_considered", 0),
+                        selection_strategy="none",
+                        selection_reason="No seed found for query",
+                        candidates_considered=0,
                     ),
                     nodes=[],
                     edges=[],
@@ -3754,66 +4490,130 @@ def build_citation_map(
                     stats=CitationMapStats(),
                 )
 
-            seed_data = fetch_seed_paper_details(seed_work_id)
-            if not seed_data:
-                seed_data = {
-                    "work_id": seed_work_id,
-                    "title": selection_info.get("seed_title"),
-                    "year": None,
-                    "cited_by_count": 0,
-                }
+            seed_work_id = seeds[0][0]  # Primary seed for response metadata
+            seed_data = seeds[0][1]
+            all_seed_ids = [s[0] for s in seeds]
 
             seed_info = SeedSelectionInfo(
                 seed_work_id=seed_work_id,
-                seed_title=seed_data.get("title") or selection_info.get("seed_title"),
-                selection_strategy=selection_info.get("selection_strategy", "highest_cited_from_query"),
-                selection_reason=selection_info.get("selection_reason"),
-                candidates_considered=selection_info.get("candidates_considered", 0),
+                seed_title=seed_data.get("title"),
+                selection_strategy=f"multi_seed_{len(seeds)}",
+                selection_reason=f"Multi-seed: {', '.join(s[1].get('title', '?')[:30] for s in seeds)}",
+                candidates_considered=len(seeds),
             )
             logger.info(
-                "Citation map query selected seed: work_id=%s strategy=%s candidates=%s",
+                "Citation map query selected %d seeds: primary=%s strategy=%s",
+                len(seeds),
                 seed_info.seed_work_id,
                 seed_info.selection_strategy,
-                seed_info.candidates_considered,
             )
 
         else:
             raise ValueError("Either seed_work_id or query_text must be provided")
 
-        # Step 2: Build citation network (multi-hop exploration)
-        effective_total = request.total_nodes or (request.citing_limit + request.references_limit + 1)
+        # Normalize seed list: query_text mode sets all_seed_ids, others use single seed
+        if all_seed_ids is None:
+            all_seed_ids = [seed_work_id]
+
+        # Step 2: Build citation network (V2 score-and-select)
 
         expand_start = time.time()
         # #region agent log
         _debug_log(
             "H15",
             "app/feature1/citation_map_service.py:build_citation_map.expand_start",
-            "Citation network expansion started",
+            "V2 citation network expansion started",
             {
                 "seedWorkId": seed_work_id,
-                "effectiveTotal": effective_total,
-                "hop1Fetch": max(request.citing_limit, request.references_limit) * 3,
-                "hop2Fetch": 30,
+                "seedCount": len(all_seed_ids),
+                "scope": _scope,
+                "drift": _drift,
+                "temporal": _temporal,
+                "mapSize": _map_size,
             },
         )
         # #endregion
-        papers_dict, edge_tuples = _expand_citation_network(
-            seed_work_id=seed_work_id,
-            total_limit=effective_total,
-            hop1_fetch=max(request.citing_limit, request.references_limit) * 3,
-            hop2_fetch=30,
-            citation_weight=0.6,
-            connectivity_weight=0.4,
+
+        candidates, edge_tuples, adjacency = _expand_citation_network_v2(
+            seed_work_ids=all_seed_ids,
+            structured_query=_sq,
+            scope=_scope,
+            drift=_drift,
+            temporal=_temporal,
+            map_size=_map_size,
+            engine=engine,
         )
+
+        # Greedy graph selection
+        from app.feature1.candidate_scoring import greedy_graph_select, get_fetch_limits
+        target = get_fetch_limits(_map_size)["target_nodes"]
+
+        # Dedup by DOI — preprint vs published versions
+        by_doi: Dict[str, Dict[str, Any]] = {}
+        no_doi = []
+        for c in candidates:
+            doi = c.get("doi")
+            if doi:
+                existing = by_doi.get(doi)
+                if existing is None or c.get("cited_by_count", 0) > existing.get("cited_by_count", 0):
+                    by_doi[doi] = c
+            else:
+                no_doi.append(c)
+        candidates = list(by_doi.values()) + no_doi
+
+        # LLM relevance scoring — replaces keyword scores for top candidates
+        from app.feature1.candidate_scoring import llm_relevance_score
+        try:
+            llm_scores = llm_relevance_score(
+                candidates=candidates,
+                structured_query=_sq,
+                scope=_scope,
+                max_candidates=75,
+            )
+            if llm_scores:
+                for c in candidates:
+                    wid = c.get("work_id")
+                    if wid in llm_scores:
+                        c["_llm_relevance"] = llm_scores[wid]
+                logger.info(f"LLM relevance scoring: {len(llm_scores)} papers scored")
+        except Exception as e:
+            logger.warning(f"LLM relevance scoring failed (non-fatal): {e}")
+
+        _relevance_floors = {"intersection": 0.3, "topic_focused": 0.2, "domain_focused": 0.2, "broad": 0.1}
+
+        selected_ids = greedy_graph_select(
+            candidates=candidates,
+            edges=adjacency,
+            seed_ids=all_seed_ids,
+            target_size=target,
+            structured_query=_sq,
+            scope=_scope,
+            temporal=_temporal,
+            relevance_floor=_relevance_floors.get(_scope, 0.1),
+        )
+
+        # Build papers_dict from selected candidates
+        selected_set = set(selected_ids)
+        papers_dict = {}
+        for c in candidates:
+            wid = c.get("work_id")
+            if wid and wid in selected_set:
+                papers_dict[wid] = c
+
+        # Filter edge_tuples to only selected nodes
+        final_edge_tuples = [(s, t) for s, t in edge_tuples if s in selected_set and t in selected_set]
+
         # #region agent log
         _debug_log(
             "H15",
             "app/feature1/citation_map_service.py:build_citation_map.expand_done",
-            "Citation network expansion finished",
+            "V2 citation network expansion finished",
             {
                 "seedWorkId": seed_work_id,
-                "papersCount": len(papers_dict),
-                "edgeTupleCount": len(edge_tuples),
+                "seedCount": len(all_seed_ids),
+                "totalCandidates": len(candidates),
+                "selectedNodes": len(papers_dict),
+                "edgeTupleCount": len(final_edge_tuples),
                 "elapsedMs": int((time.time() - expand_start) * 1000),
             },
         )
@@ -3821,11 +4621,22 @@ def build_citation_map(
 
         # Convert to CitationNode and CitationEdge
         nodes, edges = _assemble_multihop_graph(
-            seed_work_id=seed_work_id,
+            seed_work_ids=set(all_seed_ids),
             papers_dict=papers_dict,
-            edge_tuples=edge_tuples,
+            edge_tuples=final_edge_tuples,
             min_citations=request.min_citations,
         )
+
+        # Safety net: remove any isolated non-seed nodes post-assembly
+        edge_endpoints = set()
+        for e in edges:
+            edge_endpoints.add(e.from_work_id)
+            edge_endpoints.add(e.to_work_id)
+        isolated = [n for n in nodes if not n.is_seed and n.work_id not in edge_endpoints]
+        if isolated:
+            logger.warning(f"Removing {len(isolated)} isolated nodes post-assembly")
+            isolated_ids = {n.work_id for n in isolated}
+            nodes = [n for n in nodes if n.work_id not in isolated_ids]
 
         # Step 4a: Assign subtopics via LLM clustering
         cluster_context = request.query_text or (seed_data.get("title") if seed_data else "") or ""

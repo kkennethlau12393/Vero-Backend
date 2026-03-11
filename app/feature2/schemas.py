@@ -227,13 +227,5 @@ class DirectRankResponse(BaseModel):
     job: dict[str, Any]
     query_classification: Optional[QueryClassificationResponse] = None
     convergence: Optional[ConvergenceInfo] = None
-    # Flat list of ranked papers (used by drill-down endpoint)
-    # When present, categorized fields are empty
+    # Flat ranked list of papers
     items: list[RankedItem] = []
-    # SIX CATEGORIES (matching rank_service.py implementation):
-    foundational: list[RankedItem] = []  # Field-defining foundational papers
-    methodology: list[RankedItem] = []  # Methods, tools, techniques
-    reviews: list[RankedItem] = []  # Review papers and surveys
-    applications: list[RankedItem] = []  # Clinical trials, case studies, implementations
-    textbooks: list[RankedItem] = []  # Educational materials
-    additional_relevant: list[RankedItem] = []  # Quality papers that passed LLM+RRF but missed citation thresholds
