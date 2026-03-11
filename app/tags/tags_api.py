@@ -75,6 +75,39 @@ def list_user_tags(
     return [dict(r) for r in rows]
 
 
+@router.get("/all")
+def list_all_user_tags(
+    engine: Engine = Depends(get_engine),
+    user_id: Optional[UUID] = Depends(get_current_user_id),
+):
+    """Get all tags for the current user across all workspaces."""
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT id, workspace_id, work_id, tag, color, created_at
+                FROM paper_tags
+                WHERE user_id = :uid
+                ORDER BY tag, created_at DESC
+            """),
+            {"uid": user_id},
+        ).mappings().all()
+
+    return [
+        {
+            "id": str(r["id"]),
+            "workspace_id": str(r["workspace_id"]),
+            "paper_id": r["work_id"],
+            "label": r["tag"],
+            "color": r.get("color") or "#6b7280",
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in rows
+    ]
+
+
 @router.get("/workspace/{workspace_id}")
 def list_workspace_tags(
     workspace_id: UUID,
