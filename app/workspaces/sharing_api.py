@@ -498,9 +498,12 @@ def delete_workspace(
 
         # 5. Gap analysis (FK cascades from maps/rank_jobs, but also has tenant_id)
         conn.execute(text("DELETE FROM gap_analysis_results WHERE tenant_id = :tid"), {"tid": workspace_id})
+        conn.execute(text("DELETE FROM gap_candidates WHERE job_id IN (SELECT job_id FROM gap_analysis_jobs WHERE tenant_id = :tid)"), {"tid": workspace_id})
         conn.execute(text("DELETE FROM gap_analysis_jobs WHERE tenant_id = :tid"), {"tid": workspace_id})
 
         # 6. Maps (cascades: map_nodes, map_edges, gap_feature_usage)
+        conn.execute(text("DELETE FROM map_nodes WHERE map_id IN (SELECT map_id FROM maps WHERE tenant_id = :tid)"), {"tid": workspace_id})
+        conn.execute(text("DELETE FROM map_edges WHERE map_id IN (SELECT map_id FROM maps WHERE tenant_id = :tid)"), {"tid": workspace_id})
         conn.execute(text("DELETE FROM maps WHERE tenant_id = :tid"), {"tid": workspace_id})
 
         # 7. Rank results first (FK references rank_jobs without CASCADE)
@@ -513,7 +516,9 @@ def delete_workspace(
         conn.execute(text("DELETE FROM rank_jobs WHERE tenant_id = :tid"), {"tid": workspace_id})
 
         # 9. Graph drafts & candidate sets (cascades: candidate_set_items)
+        conn.execute(text("DELETE FROM graph_draft_nodes WHERE graph_draft_id IN (SELECT graph_draft_id FROM graph_drafts WHERE tenant_id = :tid)"), {"tid": workspace_id})
         conn.execute(text("DELETE FROM graph_drafts WHERE tenant_id = :tid"), {"tid": workspace_id})
+        conn.execute(text("DELETE FROM candidate_set_items WHERE candidate_set_id IN (SELECT candidate_set_id FROM candidate_sets WHERE tenant_id = :tid)"), {"tid": workspace_id})
         conn.execute(text("DELETE FROM candidate_sets WHERE tenant_id = :tid"), {"tid": workspace_id})
 
         # 10. Workspace members
