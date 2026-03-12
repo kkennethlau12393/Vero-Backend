@@ -182,6 +182,7 @@ def score_batch(
     query_text: str,
     papers: List[Dict[str, str]],
     ranking_context: Optional[str] = None,
+    query_expansion: Any = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Score papers using LLM tier classification.
 
@@ -215,6 +216,20 @@ def score_batch(
             "abstract": p.get("abstract", "")[:1000],
         })
     papers_json = json.dumps(papers_for_prompt, indent=2)
+
+    # Build multi-concept scoring guidance if query has 2+ concepts
+    concept_context = ""
+    concept_names = []
+    if query_expansion and hasattr(query_expansion, 'concepts') and len(query_expansion.concepts) >= 2:
+        concept_names = [c.term for c in query_expansion.concepts]
+        concept_list = ", ".join(f'"{c}"' for c in concept_names)
+        concept_context = f"""
+- MULTI-CONCEPT QUERY (detected concepts: {concept_list}):
+  This query spans multiple concepts. Score based on how well the paper helps answer the FULL query.
+  Paper directly addressing the relationship/connection between concepts → score 7+.
+  Paper addressing one concept with some relevance to others → score 4-6.
+  Paper about only one concept with no connection to the others → score 2-4.
+  The key test: how much does this paper contribute to understanding the full query?"""
 
     prompt = f"""Score papers by relevance on a continuous 0-10 scale AND classify type. Return ONLY a JSON object.
 
@@ -252,6 +267,7 @@ STEP 3 - QUERY TYPE:
   "Federated learning" requires federated protocols, not just distributed or general ML.
   "Reinforcement learning" requires RL algorithms (Q-learning, policy gradient), not just optimization.
   The qualifier is what makes the topic specific — without it, the paper is a different topic.
+{concept_context}
 
 STEP 4 - CONTINUOUS SCORE (0-10):
 - 9-10: Seminal/foundational work that defined this specific field
@@ -277,7 +293,8 @@ PAPERS:
 {papers_json}
 
 OUTPUT (JSON only — use the paper IDs exactly as given above):
-{{"P1": {{"score": NUMBER, "type": "TYPE"}}, ...}}"""
+{{"P1": {{"score": NUMBER, "type": "TYPE"{', "concepts": [INDICES]' if concept_names else ''}}}, ...}}"""
+
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -323,6 +340,7 @@ OUTPUT (JSON only — use the paper IDs exactly as given above):
                 short_key = mapper.get_short(pid, pid)
                 entry = response_map.get(short_key, response_map.get(pid, {}))
 
+                concepts_covered = []
                 if isinstance(entry, (int, float)):
                     # Raw number — treat as 0-10 score
                     raw_score = float(entry)
@@ -341,6 +359,10 @@ OUTPUT (JSON only — use the paper IDs exactly as given above):
                         tier = entry.get("relevance", "NONE").upper()
                         if tier in TIER_SCORES:
                             raw_score = TIER_SCORES[tier] * 10.0
+                    # Parse concept indices for multi-concept queries
+                    concepts_covered = entry.get("concepts", [])
+                    if isinstance(concepts_covered, list) and concepts_covered:
+                        concepts_covered = [c for c in concepts_covered if isinstance(c, int)]
 
                 # Clamp to [0, 10] and normalize to [0, 1]
                 raw_score = max(0.0, min(10.0, raw_score))
@@ -349,10 +371,13 @@ OUTPUT (JSON only — use the paper IDs exactly as given above):
                 if paper_type not in PAPER_TYPES:
                     paper_type = "other"
 
-                result[pid] = {
+                result_entry = {
                     "score": normalized_score,
                     "paper_type": paper_type,
                 }
+                if concept_names and isinstance(entry, dict):
+                    result_entry["concepts"] = concepts_covered if concepts_covered else []
+                result[pid] = result_entry
 
             return result
 
@@ -377,6 +402,7 @@ def score_papers(
     works: Dict[str, WorkForMap],
     llm_scoring_cap: Optional[int] = None,
     ranking_context: Optional[str] = None,
+    query_expansion: Any = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Main entry point for relevance scoring.
 
@@ -421,7 +447,7 @@ def score_papers(
     new_scores: Dict[str, Dict[str, Any]] = {}
 
     def score_single_batch(batch: List[Dict[str, str]]) -> Dict[str, Dict[str, Any]]:
-        return score_batch(query_text, batch, ranking_context=ranking_context)
+        return score_batch(query_text, batch, ranking_context=ranking_context, query_expansion=query_expansion)
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_BATCHES) as executor:
         future_to_batch = {
@@ -460,6 +486,7 @@ def score_wave(
     paper_ids: List[str],
     works: Dict[str, WorkForMap],
     ranking_context: Optional[str] = None,
+    query_expansion: Any = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Score a single wave of papers (no cap logic — caller manages wave sizes).
 
@@ -485,7 +512,7 @@ def score_wave(
     new_scores: Dict[str, Dict[str, Any]] = {}
 
     def score_single_batch(batch: List[Dict[str, str]]) -> Dict[str, Dict[str, Any]]:
-        return score_batch(query_text, batch, ranking_context=ranking_context)
+        return score_batch(query_text, batch, ranking_context=ranking_context, query_expansion=query_expansion)
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_BATCHES) as executor:
         future_to_batch = {
