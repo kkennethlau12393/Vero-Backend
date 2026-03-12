@@ -166,7 +166,7 @@ def _call_groq(prompt: str) -> Optional[Dict[str, Any]]:
                 model=MODEL_VERSION,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
-                max_tokens=512,
+                max_tokens=1024,
             )
             content = (resp.choices[0].message.content or "").strip()
 
@@ -245,8 +245,9 @@ def decompose_query(conn: Connection, query_text: str) -> Dict[str, Any]:
             "reasoning": "Decomposition failed, using raw query as topic",
         }
 
-    # Cache result
-    _cache_decomposition(conn, query_hash, query_text, result)
+    # Only cache successful decompositions (not fallbacks)
+    if result.get("domain") is not None or result.get("reasoning", "") != "Decomposition failed, using raw query as topic":
+        _cache_decomposition(conn, query_hash, query_text, result)
     logger.info(f"Decomposed '{query_text[:50]}' → topic='{result.get('topic')}', domain='{result.get('domain')}'")
     return result
 
