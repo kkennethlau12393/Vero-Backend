@@ -1,0 +1,52 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set target host
+        id: target
+        run: |
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "HOST=${{ secrets.PROD_EC2_HOST }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "HOST=${{ secrets.DEV_EC2_HOST }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ steps.target.outputs.HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/vero-backend
+
+            echo "Pulling latest code..."
+            git fetch origin ${{ github.ref_name }}
+            git reset --hard origin/${{ github.ref_name }}
+
+            echo "Installing dependencies..."
+            pip install -e . --quiet
+
+            echo "Restarting service..."
+            sudo systemctl restart vero-backend
+
+            echo "Waiting for health check..."
+            for i in $(seq 1 10); do
+              if curl -sf http://localhost:8000/docs > /dev/null 2>&1; then
+                echo "Deploy successful!"
+                exit 0
+              fi
+              sleep 3
+            done
+
+            echo "Health check failed!"
+            exit 1
