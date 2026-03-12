@@ -563,6 +563,7 @@ def direct_rank_prod(
                     works=works,
                     llm_scoring_cap=llm_scoring_cap,
                     ranking_context=ranking_context,
+                    query_expansion=query_expansion,
                 )
                 convergence_state = None
             else:
@@ -575,6 +576,7 @@ def direct_rank_prod(
                     works=works,
                     llm_scoring_cap=len(work_ids),  # No additional cap
                     ranking_context=ranking_context,
+                    query_expansion=query_expansion,
                 )
                 convergence_state = None
 
@@ -764,6 +766,20 @@ def direct_rank_prod(
                 logger.info(f"RRF floor filter: removed {rrf_floor_filtered} papers below {MIN_RRF_SCORE}")
 
             logger.info(f"RRF fusion: {len(rrf_normalized)} papers scored with 4 rankers (BM25, TF-IDF, impact, LLM)")
+
+            # Gentle coverage boost for multi-concept queries
+            if query_expansion and hasattr(query_expansion, 'concepts') and len(query_expansion.concepts) >= 2:
+                n_concepts = len(query_expansion.concepts)
+                for wid in list(rrf_normalized.keys()):
+                    score_data = llm_scores.get(wid, {})
+                    concepts_covered = score_data.get("concepts", []) if isinstance(score_data, dict) else []
+                    if isinstance(concepts_covered, list) and concepts_covered:
+                        valid_concepts = [c for c in concepts_covered if isinstance(c, int) and 0 <= c < n_concepts]
+                        coverage_ratio = len(set(valid_concepts)) / n_concepts
+                    else:
+                        coverage_ratio = 0.5  # neutral when no data
+                    multiplier = 0.85 + 0.15 * coverage_ratio
+                    rrf_normalized[wid] = rrf_normalized[wid] * multiplier
 
             # Normalize BM25 and TF-IDF for breakdown display
             bm25_norm = robust_norm(bm25_scores)
