@@ -37,6 +37,7 @@ jobs:
             git reset --hard origin/${{ github.ref_name }}
 
             echo "Installing dependencies..."
+            source ~/backend/venv/bin/activate
             pip install -e . --quiet
 
             echo "Restarting service..."
