@@ -3215,6 +3215,14 @@ def select_seed_from_query(
     papers_by_id: Dict[str, Dict[str, Any]] = {}
     llm_expanded_ids: set = set()  # Track papers from LLM expansion (priority candidates)
 
+    # Generate targeted queries from structured decomposition
+    from app.common.query_generation import generate_citation_map_queries
+    map_focus = "core_cluster"
+    if structured_query and structured_query.get("topic"):
+        targeted_queries = generate_citation_map_queries(structured_query, map_focus)
+    else:
+        targeted_queries = [query]
+
     # Use LLM to get titles + years of foundational papers
     expanded_queries = _expand_search_queries(query)
 
@@ -3226,6 +3234,12 @@ def select_seed_from_query(
             executor.submit(_search_semantic_scholar, query, S2_LIMIT): "s2",
             executor.submit(_search_arxiv, query, ARXIV_LIMIT): "arxiv",
         }
+
+        # Additional targeted queries from decomposition
+        for tq in targeted_queries:
+            if tq.lower().strip() != query.lower().strip():
+                futures[executor.submit(_search_openalex, tq, OPENALEX_LIMIT)] = f"openalex_tq:{tq[:30]}"
+                futures[executor.submit(_search_semantic_scholar, tq, S2_LIMIT)] = f"s2_tq:{tq[:30]}"
 
         # Add LLM-generated searches - find by title + year + citation matching
         for exp in expanded_queries:
