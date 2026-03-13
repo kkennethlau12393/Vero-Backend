@@ -106,10 +106,13 @@ def generate_retrieval_queries(structured: Dict[str, Optional[str]], scope: str)
 def generate_citation_map_queries(structured: Dict[str, Optional[str]], map_focus: str) -> List[str]:
     """Generate retrieval queries for citation map seed papers.
 
+    Uses topic_aliases and domain_aliases for richer seed search coverage.
+
     Parameters
     ----------
     structured : dict
-        Decomposed query with keys: topic, domain, aspect.
+        Decomposed query with keys: topic, domain, aspect,
+        topic_aliases, domain_aliases.
     map_focus : str
         One of: core_cluster, landscape, evolution.
 
@@ -120,25 +123,46 @@ def generate_citation_map_queries(structured: Dict[str, Optional[str]], map_focu
     """
     topic = structured.get("topic", "")
     domain = structured.get("domain")
+    topic_aliases = structured.get("topic_aliases", []) or []
+    domain_aliases = structured.get("domain_aliases", []) or []
+
+    topic_terms = [topic] + [a for a in topic_aliases if a.lower() != topic.lower()]
+    domain_terms = ([domain] + [a for a in domain_aliases if a.lower() != (domain or "").lower()]) if domain else []
+
+    queries: List[str] = []
+    seen = set()
+
+    def add(q: str):
+        q = q.strip()
+        key = q.lower()
+        if key and key not in seen:
+            seen.add(key)
+            queries.append(q)
 
     if map_focus == "core_cluster" and domain:
-        queries = [
-            f"{topic} {domain}",
-            f"{domain} applications of {topic}",
-        ]
+        for t in topic_terms[:3]:
+            for d in domain_terms[:3]:
+                add(f"{t} {d}")
+        add(f"{domain} applications of {topic}")
+        add(f"{topic} applied to {domain}")
+
     elif map_focus == "landscape" and domain:
-        queries = [
-            f"{topic} {domain}",
-            f"{topic}",
-            f"{domain}",
-        ]
+        for t in topic_terms[:2]:
+            for d in domain_terms[:2]:
+                add(f"{t} {d}")
+        for t in topic_terms:
+            add(t)
+        for d in domain_terms:
+            add(d)
+
     elif map_focus == "evolution" and domain:
-        queries = [
-            f"{topic} {domain} survey",
-            f"history of {topic} in {domain}",
-            f"{topic} {domain}",
-        ]
+        add(f"{topic} {domain} survey")
+        add(f"history of {topic} in {domain}")
+        for t in topic_terms[:2]:
+            for d in domain_terms[:2]:
+                add(f"{t} {d}")
+
     else:
-        queries = [f"{topic} {domain}" if domain else topic]
+        add(f"{topic} {domain}" if domain else topic)
 
     return queries
