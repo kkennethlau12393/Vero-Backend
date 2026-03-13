@@ -25,9 +25,12 @@ jobs:
           host: ${{ steps.target.outputs.HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          timeout: 60s
+          command_timeout: 15m
           script: |
             set -e
-            cd ~/vero-backend
+            cd ~/backend
 
             echo "Pulling latest code..."
             git fetch origin ${{ github.ref_name }}
@@ -37,7 +40,7 @@ jobs:
             pip install -e . --quiet
 
             echo "Restarting service..."
-            sudo systemctl restart vero-backend
+            sudo systemctl restart alexandria-backend
 
             echo "Waiting for health check..."
             for i in $(seq 1 10); do
