@@ -2120,8 +2120,11 @@ def generate_candidates_direct(
     weighted_queries.sort(key=lambda x: -x[1])
 
     # LATENCY OPTIMIZATION: Limit to top N queries to reduce API calls
-    # Original query is always first (weight 1.0), keep up to 5 more
-    MAX_OPENALEX_QUERIES = 6
+    # Structured queries are curated alias cross-products — allow more
+    if structured_query and scope:
+        MAX_OPENALEX_QUERIES = 20
+    else:
+        MAX_OPENALEX_QUERIES = 6
     if len(weighted_queries) > MAX_OPENALEX_QUERIES:
         logger.info(f"Limiting OpenAlex queries from {len(weighted_queries)} to {MAX_OPENALEX_QUERIES}")
         weighted_queries = weighted_queries[:MAX_OPENALEX_QUERIES]
