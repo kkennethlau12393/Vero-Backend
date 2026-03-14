@@ -697,6 +697,9 @@ You may ONLY cite papers from the TWO lists above: "Papers This Work Cites (Refe
 Landmark papers are NOT just background context — they are first-class citable papers. You MUST cite landmark papers in your text fields, not just references.
 NEVER use in-paper reference numbers like [3], [28], [22] — the reader cannot look those up.
 NEVER mention papers by name alone (e.g., "ManiReg", "DeepWalk") without a work_id — if a paper is not in the lists above, do NOT cite it at all.
+NEVER write a paper's title in the prose — the [work_id] renders as a clickable chip showing the title.
+BAD: "Crenshaw's Mapping the Margins [W2163605009] exposed..."
+GOOD: "[W2163605009] exposed the analytical blind spot..."
 
 ## TECHNICAL DEPTH RULE
 Each reference and landmark above includes an abstract. USE these abstracts to write technically specific comparisons.
