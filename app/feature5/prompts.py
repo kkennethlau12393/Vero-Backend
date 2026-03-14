@@ -108,6 +108,7 @@ Each accepted gap MUST address a DIFFERENT aspect of the research area. If you f
 - Only accept gaps that represent genuine, actionable research opportunities
 - Merge similar gaps if they overlap significantly
 - Use inline citations in (Author, Year) format — ONLY cite papers listed in evidence_work_ids
+- NEVER write a paper's title in the prose — just use (Author, Year) as the reference. The title is already shown in the UI.
 - Suggested directions must be concrete and specific
 - A gap that passes your filter should be one a researcher would actually pursue
 
@@ -264,6 +265,7 @@ Each gap MUST address a DIFFERENT aspect of the research area. If you find multi
 - Each gap must be ACTIONABLE — a researcher should be able to pursue it
 - Reference specific papers from the list as evidence (use work_id)
 - In the description, cite papers using (Author, Year) format. ONLY cite papers that are also listed in your evidence_work_ids — do NOT mention papers that aren't direct evidence for this specific gap
+- NEVER write a paper's title in the prose — just use (Author, Year) as the reference. The title is already shown in the UI.
 - Be specific about WHAT is missing, not just that "more research is needed"
 - Consider whether apparent gaps are actually mature/completed areas
 - Do NOT flag early decades having fewer papers as gaps — that is natural field maturation

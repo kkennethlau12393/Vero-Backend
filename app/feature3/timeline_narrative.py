@@ -99,7 +99,14 @@ always write the complete ID.
 CRITICAL CONSTRAINT: You are telling a VERTICAL EVOLUTION story — how ideas evolved over \
 time in a research lineage. Do NOT compare methods side-by-side. Do NOT recommend which \
 paper to use. Do NOT create strengths/weaknesses analyses. Those are methodology comparison \
-tasks, not timeline narratives."""
+tasks, not timeline narratives.
+
+CITATION STYLE: When citing a paper, NEVER write its title in the prose. Use the citation \
+marker [work_id] AS the subject — the UI renders it as a clickable chip that already shows \
+the title.
+BAD: "Crenshaw's Mapping the Margins [W2163605009] exposed..."
+GOOD: "[W2163605009] exposed the analytical blind spot..."
+GOOD: "Crenshaw's foundational work [W2163605009] exposed..." """
 
 
 def _format_paper_for_prompt(
@@ -209,6 +216,8 @@ technique and what it enabled (1-2 sentences)"
 }}
 
 RULES:
+- NEVER write a paper's title in the prose. The [work_id] renders as a clickable chip \
+showing the title. Use the marker as the subject or after a brief descriptor.
 - historical_context, contribution_statement, downstream_impact, and cross_domain_influence \
 (when not null) must each cite at least 2 work_ids.
 - ONLY "foundational" papers can have is_paradigm_shift=true. Software, review, and \
@@ -244,6 +253,7 @@ era narrative.
 RULES:
 - Every sentence MUST name a concrete technique, architecture, metric, or dataset
 - Cite each paper using its FULL work_id in brackets: [W2163605009], [S2:204e3073870f], or [AX:2301.12345]. NEVER truncate.
+- NEVER write a paper's title in the prose — the [work_id] renders as a clickable chip showing the title. Use the marker as the subject: "[W2163605009] stacked five convolutional layers..."
 - For each paper you mention, state WHAT it did technically: the mechanism, the numbers, \
 the result — extracted directly from its abstract
 - End each era narrative with the specific technical bottleneck or open problem that the \
