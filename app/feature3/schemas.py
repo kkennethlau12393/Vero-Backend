@@ -104,7 +104,7 @@ class EraCommentary(BaseModel):
     """Narrative commentary for a single era in the timeline."""
 
     era: str  # "1990s", "2000s", etc.
-    headline: Union[str, StructuredText]  # One-line era title
+    headline: str  # One-line era title (never contains citations)
     narrative: Union[str, StructuredText]  # Flat fallback built from subsections
     subsections: list[EraSubsection] = []  # 2-4 thematic subsections
     key_work_ids: list[str] = []
