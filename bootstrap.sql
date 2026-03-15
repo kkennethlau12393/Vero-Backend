@@ -697,6 +697,17 @@ CREATE TABLE IF NOT EXISTS public.tenant_settings (
 );
 
 -- ==========================================================================
+-- User settings (per-user institutional access configuration)
+-- ==========================================================================
+CREATE TABLE IF NOT EXISTS public.user_settings (
+    user_id uuid PRIMARY KEY,
+    libkey_library_id text,           -- Optional LibKey library ID chosen by the user
+    libkey_api_key text,              -- Optional LibKey API key (user-supplied)
+    institutional_proxy_prefix text,  -- Optional institutional proxy prefix
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- ==========================================================================
 -- Feature 5: Research Gap Analysis
 -- ==========================================================================
 
