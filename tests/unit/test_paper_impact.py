@@ -15,33 +15,47 @@ from app.feature3.paper_impact_analytics import (
 @pytest.mark.unit
 class TestCalculateImpactScore:
     def test_no_references(self):
-        score = calculate_impact_score(1000, [])
-        assert 0.0 < score < 1.0  # Uses absolute + LLM only, not automatic 1.0
+        result = calculate_impact_score(1000, [])
+        assert isinstance(result, dict)
+        assert 0.0 < result["overall"] < 1.0
+        assert result["components"]["breadth"] is None
+        assert result["raw"]["reference_count"] == 0
 
     def test_high_impact(self):
         refs = [{"cited_by_count": 100}, {"cited_by_count": 200}]
-        score = calculate_impact_score(10000, refs)
-        assert score > 0.5
+        result = calculate_impact_score(10000, refs)
+        assert result["overall"] > 0.5
 
     def test_low_impact(self):
         refs = [{"cited_by_count": 5000}, {"cited_by_count": 10000}]
-        score = calculate_impact_score(100, refs)
-        assert score < 0.4
+        result = calculate_impact_score(100, refs)
+        assert result["overall"] < 0.4
 
     def test_equal_citations(self):
         refs = [{"cited_by_count": 500}]
-        score = calculate_impact_score(500, refs)
-        assert 0.0 < score < 1.0
+        result = calculate_impact_score(500, refs)
+        assert 0.0 < result["overall"] < 1.0
 
     def test_zero_ref_citations(self):
         refs = [{"cited_by_count": 0}, {"cited_by_count": 0}]
-        score = calculate_impact_score(1000, refs)
-        assert score > 0.0
+        result = calculate_impact_score(1000, refs)
+        assert result["overall"] > 0.0
 
     def test_normalized_to_0_1(self):
         refs = [{"cited_by_count": 100}]
-        score = calculate_impact_score(50000, refs)
-        assert 0.0 <= score <= 1.0
+        result = calculate_impact_score(50000, refs)
+        assert 0.0 <= result["overall"] <= 1.0
+
+    def test_breakdown_structure(self):
+        refs = [{"cited_by_count": 100}]
+        result = calculate_impact_score(5000, refs, is_paradigm_shift=True)
+        assert "overall" in result
+        assert "components" in result
+        assert "weights" in result
+        assert "raw" in result
+        assert result["components"]["paradigm_shift"] == 1.0
+        assert result["raw"]["is_paradigm_shift"] is True
+        assert result["raw"]["reference_count"] == 1
 
 
 @pytest.mark.unit

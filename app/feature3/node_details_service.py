@@ -1557,6 +1557,7 @@ def _build_narrative_obj(narrative_data: Optional[Dict[str, Any]]) -> Optional[R
         paper_type=narrative_data.get("paper_type"),
         is_paradigm_shift=narrative_data.get("is_paradigm_shift", False),
         impact_score=narrative_data.get("impact_score", 0.0),
+        impact_breakdown=narrative_data.get("impact_breakdown"),
     )
 
 

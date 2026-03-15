@@ -648,7 +648,7 @@ def generate_timeline_narrative(
         return None
 
     # Calculate impact score (needs is_paradigm_shift from Pass 1)
-    impact_score = calculate_impact_score(
+    impact_result = calculate_impact_score(
         cited_by_count, references, result.get("is_paradigm_shift", False)
     )
 
@@ -725,7 +725,8 @@ def generate_timeline_narrative(
     # ── Post-process ────────────────────────────────────────────────────
     result = _enforce_paper_type_constraints(result, title, abstract)
     result = _scrub_narrative_verbs(result)
-    result["impact_score"] = impact_score
+    result["impact_score"] = impact_result["overall"]
+    result["impact_breakdown"] = impact_result
 
     # Validate work_id citations
     known_ids = set()

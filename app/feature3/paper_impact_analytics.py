@@ -145,39 +145,56 @@ def calculate_impact_score(
     target_cited_by_count: int,
     references: List[Dict[str, Any]],
     is_paradigm_shift: bool = False,
-) -> float:
+) -> dict:
     """
-    Calculate impact score using three signals:
-
-    1. Absolute impact (45%): log-scaled citation count, ceiling 20K.
-    2. Breadth (10%): log-scaled number of references.
-    3. LLM paradigm shift (45%): 1.0 if paradigm shift, 0.3 otherwise.
-
-    No relative component: references passed here are curated timeline
-    landmarks (high-citation seminal works), not the paper's actual
-    bibliography. Comparing against them always tanks the ratio.
-
-    When no references available, uses absolute + LLM only (55/45).
-
-    Returns 0.0–1.0.
+    Calculate impact score with full component breakdown.
+    Returns dict with overall score + individual components.
     """
     import math
 
-    # -- Absolute impact (log-scaled, 20K ceiling) --
     abs_score = min(math.log10(max(target_cited_by_count, 1)) / math.log10(20_000), 1.0)
-
-    # -- LLM assessment signal --
     llm_score = 1.0 if is_paradigm_shift else 0.3
 
     if not references:
-        # No references available — absolute + LLM only
-        return round(0.55 * abs_score + 0.45 * llm_score, 3)
+        overall = round(0.55 * abs_score + 0.45 * llm_score, 3)
+        return {
+            "overall": overall,
+            "components": {
+                "absolute_impact": round(abs_score, 3),
+                "breadth": None,  # no references available
+                "paradigm_shift": round(llm_score, 3),
+            },
+            "weights": {
+                "absolute_impact": 0.55,
+                "breadth": 0.0,
+                "paradigm_shift": 0.45,
+            },
+            "raw": {
+                "citation_count": target_cited_by_count,
+                "reference_count": 0,
+                "is_paradigm_shift": is_paradigm_shift,
+            },
+        }
 
-    # -- Breadth (number of references, log-scaled) --
-    num_refs = len(references) if references else 1
+    num_refs = len(references)
     breadth = min(math.log10(max(num_refs, 1)) / math.log10(100), 1.0)
+    overall = round(0.45 * abs_score + 0.10 * breadth + 0.45 * llm_score, 3)
 
-    # -- Weighted combination --
-    score = 0.45 * abs_score + 0.10 * breadth + 0.45 * llm_score
-
-    return round(score, 3)
+    return {
+        "overall": overall,
+        "components": {
+            "absolute_impact": round(abs_score, 3),
+            "breadth": round(breadth, 3),
+            "paradigm_shift": round(llm_score, 3),
+        },
+        "weights": {
+            "absolute_impact": 0.45,
+            "breadth": 0.10,
+            "paradigm_shift": 0.45,
+        },
+        "raw": {
+            "citation_count": target_cited_by_count,
+            "reference_count": num_refs,
+            "is_paradigm_shift": is_paradigm_shift,
+        },
+    }
