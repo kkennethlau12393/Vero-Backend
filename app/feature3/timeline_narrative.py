@@ -39,7 +39,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
-NARRATIVE_VERSION = "narrative-v11"
+NARRATIVE_VERSION = "narrative-v12"
 MODEL_VERSION = "openai/gpt-oss-120b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MAX_RETRIES = 3
@@ -558,6 +558,43 @@ def _structure_citations(
     return {"text": structured_text, "citations": citations}
 
 
+def _structure_citations_shared(
+    text: str,
+    paper_lookup: Dict[str, Dict[str, Any]],
+    ref_map: Dict[str, int],
+    citations: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Like _structure_citations but shares ref_map and citations list across calls.
+
+    This keeps numbering continuous across multiple text blocks (e.g. subsections).
+    """
+    import re
+
+    ID_PAT = r'\[(W\d+|S2:[a-fA-F0-9]+|S[a-fA-F0-9]{20,}|AX:[\d.]+)\]'
+
+    def replacer(match):
+        work_id = match.group(1)
+        if work_id in ref_map:
+            return f"({ref_map[work_id]})"
+
+        ref_num = len(citations) + 1
+        ref_map[work_id] = ref_num
+
+        paper = paper_lookup.get(work_id, {})
+        citations.append({
+            "ref": ref_num,
+            "work_id": work_id,
+            "title": paper.get("title"),
+            "year": paper.get("year"),
+            "cited_by_count": paper.get("cited_by_count"),
+            "authors": paper.get("authors", []),
+        })
+        return f"({ref_num})"
+
+    structured_text = re.sub(ID_PAT, replacer, text)
+    return {"text": structured_text, "citations": citations}
+
+
 # ============================================================================
 # Technical Term Extraction
 # ============================================================================
@@ -791,14 +828,17 @@ def generate_timeline_narrative(
         if val and isinstance(val, str):
             result[field] = _structure_citations(val, paper_lookup)
 
-    # Convert era commentary fields (not headline — it's a short label without citations)
+    # Convert era commentary fields with continuous numbering per era
     for ec in result.get("era_commentaries", []):
+        # Shared state for this era — numbering is continuous across narrative + all subsections
+        era_ref_map: Dict[str, int] = {}
+        era_citations: List[Dict[str, Any]] = []
+
         if ec.get("narrative") and isinstance(ec["narrative"], str):
-            ec["narrative"] = _structure_citations(ec["narrative"], paper_lookup)
-        # Convert subsection body (not heading — headings are short labels without citations)
+            ec["narrative"] = _structure_citations_shared(ec["narrative"], paper_lookup, era_ref_map, era_citations)
         for sub in ec.get("subsections", []):
             if sub.get("body") and isinstance(sub["body"], str):
-                sub["body"] = _structure_citations(sub["body"], paper_lookup)
+                sub["body"] = _structure_citations_shared(sub["body"], paper_lookup, era_ref_map, era_citations)
 
     logger.info(
         f"Timeline narrative generated for {work_id}: "
