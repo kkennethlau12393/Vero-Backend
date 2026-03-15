@@ -355,6 +355,8 @@ REQUIREMENTS:
 - Each subsection body must cite every paper it covers by [work_id]
 - The last subsection should end with the bottleneck the next era solved
 - Extract technical details FROM THE ABSTRACTS — do not invent claims
+- If a paper has "(not available)" as its abstract, ONLY state its title and citation \
+count. Do NOT fabricate methods, results, or mechanisms for papers without abstracts
 - key_work_ids must list ALL work_ids actually cited across all subsections
 
 Answer ONLY with the JSON array, no additional text."""
@@ -652,26 +654,71 @@ def generate_timeline_narrative(
 
     # ── Pass 2: Era commentaries ────────────────────────────────────────
     if era_labels and era_papers:
-        logger.info(f"Pass 2: generating era commentaries for {len(era_labels)} eras")
-        era_prompt = _build_era_commentary_prompt(title, era_papers, era_labels)
-        era_result = _call_llm(
-            client, ERA_COMMENTARY_SYSTEM_PROMPT, era_prompt, expected_type="array",
-        )
-        if era_result and isinstance(era_result, list):
-            # Build flat narrative fallback from subsections (BEFORE structured citation conversion)
-            for ec in era_result:
-                subs = ec.get("subsections", [])
-                if subs and not ec.get("narrative"):
-                    # Join raw string bodies into flat narrative
-                    raw_bodies = [s.get("body", "") for s in subs if isinstance(s.get("body"), str)]
-                    ec["narrative"] = " ".join(raw_bodies) if raw_bodies else ""
-                elif not ec.get("narrative"):
-                    ec["narrative"] = ""
-            result["era_commentaries"] = era_result
-            logger.info(f"Era commentaries generated: {len(era_result)} eras")
+        # Check which eras have at least one paper with an abstract
+        eras_with_abstracts = []
+        eras_without_abstracts = []
+        for era in era_labels:
+            papers = era_papers.get(era, [])
+            has_any_abstract = any(
+                (p.get("abstract") or "").strip() for p in papers
+            )
+            if has_any_abstract:
+                eras_with_abstracts.append(era)
+            else:
+                eras_without_abstracts.append(era)
+
+        if eras_without_abstracts:
+            logger.info(f"Skipping era commentary for {eras_without_abstracts} (no abstracts available)")
+
+        # Only send eras with abstracts to LLM
+        filtered_era_labels = eras_with_abstracts
+        filtered_era_papers = {e: era_papers[e] for e in eras_with_abstracts if e in era_papers}
+
+        # Build placeholder commentaries for abstract-less eras
+        placeholder_eras = []
+        for era in eras_without_abstracts:
+            papers = era_papers.get(era, [])
+            paper_titles = [p.get("title", "Untitled") for p in papers]
+            work_ids = [p.get("work_id") for p in papers if p.get("work_id")]
+            placeholder_eras.append({
+                "era": era,
+                "headline": f"Early foundations ({len(papers)} paper{'s' if len(papers) != 1 else ''})",
+                "narrative": f"Abstracts are not available for papers in this era. "
+                    f"Based on titles alone: {'; '.join(paper_titles[:5])}. "
+                    f"Detailed analysis requires access to full paper text.",
+                "subsections": [],
+                "key_work_ids": work_ids,
+            })
+
+        if filtered_era_labels:
+            logger.info(f"Pass 2: generating era commentaries for {len(filtered_era_labels)} eras (skipping {len(eras_without_abstracts)} without abstracts)")
+            era_prompt = _build_era_commentary_prompt(title, filtered_era_papers, filtered_era_labels)
+            era_result = _call_llm(
+                client, ERA_COMMENTARY_SYSTEM_PROMPT, era_prompt, expected_type="array",
+            )
+            if era_result and isinstance(era_result, list):
+                # Build flat narrative fallback from subsections (BEFORE structured citation conversion)
+                for ec in era_result:
+                    subs = ec.get("subsections", [])
+                    if subs and not ec.get("narrative"):
+                        raw_bodies = [s.get("body", "") for s in subs if isinstance(s.get("body"), str)]
+                        ec["narrative"] = " ".join(raw_bodies) if raw_bodies else ""
+                    elif not ec.get("narrative"):
+                        ec["narrative"] = ""
+                # Combine: placeholders first (older eras), then LLM-generated
+                all_eras = placeholder_eras + era_result
+                # Sort by era label to maintain chronological order
+                era_order = {e: i for i, e in enumerate(era_labels)}
+                all_eras.sort(key=lambda x: era_order.get(x.get("era", ""), 999))
+                result["era_commentaries"] = all_eras
+                logger.info(f"Era commentaries: {len(era_result)} generated + {len(placeholder_eras)} placeholders")
+            else:
+                logger.warning(f"Pass 2 (era commentaries) failed for {work_id}, using placeholders only")
+                result["era_commentaries"] = placeholder_eras
         else:
-            logger.warning(f"Pass 2 (era commentaries) failed for {work_id}, using empty")
-            result["era_commentaries"] = []
+            # All eras lack abstracts
+            result["era_commentaries"] = placeholder_eras
+            logger.info(f"All {len(eras_without_abstracts)} eras lack abstracts, using placeholders only")
     else:
         result["era_commentaries"] = []
 
