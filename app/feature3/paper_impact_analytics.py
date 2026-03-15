@@ -147,46 +147,37 @@ def calculate_impact_score(
     is_paradigm_shift: bool = False,
 ) -> float:
     """
-    Calculate impact score using four signals:
+    Calculate impact score using three signals:
 
-    1. Absolute impact (30%): log-scaled citation count, ceiling 20K.
-    2. Relative impact (20%): citation ratio vs average reference citations.
-    3. Breadth (10%): log-scaled number of references.
-    4. LLM paradigm shift (40%): 1.0 if paradigm shift, 0.3 otherwise.
+    1. Absolute impact (45%): log-scaled citation count, ceiling 20K.
+    2. Breadth (10%): log-scaled number of references.
+    3. LLM paradigm shift (45%): 1.0 if paradigm shift, 0.3 otherwise.
 
-    When no references available, uses absolute + LLM only (50/50).
+    No relative component: references passed here are curated timeline
+    landmarks (high-citation seminal works), not the paper's actual
+    bibliography. Comparing against them always tanks the ratio.
+
+    When no references available, uses absolute + LLM only (55/45).
 
     Returns 0.0–1.0.
     """
     import math
 
+    # -- Absolute impact (log-scaled, 20K ceiling) --
+    abs_score = min(math.log10(max(target_cited_by_count, 1)) / math.log10(20_000), 1.0)
+
+    # -- LLM assessment signal --
+    llm_score = 1.0 if is_paradigm_shift else 0.3
+
     if not references:
-        # No references available — use absolute citation count + LLM signal only
-        abs_score = min(math.log10(max(target_cited_by_count, 1)) / math.log10(20_000), 1.0)
-        llm_score = 1.0 if is_paradigm_shift else 0.3
-        return round(0.50 * abs_score + 0.50 * llm_score, 3)
-
-    # -- Absolute impact (log-scaled) --
-    abs_score = math.log10(max(target_cited_by_count, 1)) / math.log10(20_000)
-    abs_score = min(abs_score, 1.0)
-
-    # -- Relative impact (ratio vs refs) --
-    ref_citations = [r.get("cited_by_count") or 0 for r in references]
-    avg_ref_citations = (sum(ref_citations) / len(ref_citations)) if ref_citations else 1
-    if avg_ref_citations < 1:
-        avg_ref_citations = 1
-
-    ratio = target_cited_by_count / avg_ref_citations
-    rel_score = min(ratio / (ratio + 2.0), 1.0)
+        # No references available — absolute + LLM only
+        return round(0.55 * abs_score + 0.45 * llm_score, 3)
 
     # -- Breadth (number of references, log-scaled) --
     num_refs = len(references) if references else 1
     breadth = min(math.log10(max(num_refs, 1)) / math.log10(100), 1.0)
 
-    # -- LLM assessment signal --
-    llm_score = 1.0 if is_paradigm_shift else 0.3
-
     # -- Weighted combination --
-    score = 0.30 * abs_score + 0.20 * rel_score + 0.10 * breadth + 0.40 * llm_score
+    score = 0.45 * abs_score + 0.10 * breadth + 0.45 * llm_score
 
     return round(score, 3)

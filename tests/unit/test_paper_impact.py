@@ -26,7 +26,7 @@ class TestCalculateImpactScore:
     def test_low_impact(self):
         refs = [{"cited_by_count": 5000}, {"cited_by_count": 10000}]
         score = calculate_impact_score(100, refs)
-        assert score < 0.3
+        assert score < 0.4
 
     def test_equal_citations(self):
         refs = [{"cited_by_count": 500}]
