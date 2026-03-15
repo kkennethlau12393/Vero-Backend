@@ -146,26 +146,42 @@ def calculate_impact_score(
     references: List[Dict[str, Any]],
 ) -> float:
     """
-    Calculate impact score based on citation velocity vs predecessors.
+    Calculate impact score using three signals:
 
-    Impact score = target_citations / avg(reference_citations)
+    1. Absolute impact (50%): log-scaled citation count, anchored at 200K as ceiling.
+       Captures raw influence — a 10K-citation paper is impactful regardless of its refs.
 
-    Higher scores indicate the paper had outsized impact relative to its
-    sources, which can indicate a paradigm shift.
+    2. Relative impact (35%): citation ratio vs average reference citations.
+       Captures whether the paper outperformed its predecessors.
+
+    3. Breadth (15%): log-scaled number of references.
+       Papers synthesizing many prior works (surveys, frameworks) get a small bonus.
+
+    Returns 0.0–1.0.
     """
+    import math
+
     if not references:
         return 1.0  # No references to compare against
 
+    # -- Absolute impact (log-scaled) --
+    abs_score = math.log10(max(target_cited_by_count, 1)) / math.log10(200_000)
+    abs_score = min(abs_score, 1.0)
+
+    # -- Relative impact (ratio vs refs) --
     ref_citations = [r.get("cited_by_count") or 0 for r in references]
-    avg_ref_citations = sum(ref_citations) / len(ref_citations) if ref_citations else 1
-
+    avg_ref_citations = (sum(ref_citations) / len(ref_citations)) if ref_citations else 1
     if avg_ref_citations < 1:
-        avg_ref_citations = 1  # Avoid division by zero
+        avg_ref_citations = 1
 
-    impact_score = target_cited_by_count / avg_ref_citations
+    ratio = target_cited_by_count / avg_ref_citations
+    rel_score = min(ratio / (ratio + 2.0), 1.0)
 
-    # Normalize to 0-1 range (sigmoid-like scaling)
-    # Score of 3.0 maps to ~0.75, score of 10.0 maps to ~0.95
-    normalized = impact_score / (impact_score + 3.0)
+    # -- Breadth (number of references, log-scaled) --
+    num_refs = len(references) if references else 1
+    breadth = min(math.log10(max(num_refs, 1)) / math.log10(100), 1.0)
 
-    return round(normalized, 3)
+    # -- Weighted combination --
+    score = 0.50 * abs_score + 0.35 * rel_score + 0.15 * breadth
+
+    return round(score, 3)
