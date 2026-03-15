@@ -7,7 +7,7 @@ endpoint, including the novelty assessment structure with grounding papers.
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel
 
@@ -68,26 +68,52 @@ class TimelineSection(BaseModel):
     papers: list[TimelinePaper] = []
 
 
+class StructuredCitation(BaseModel):
+    """A citation reference within structured narrative text."""
+
+    ref: int
+    work_id: str
+    title: Optional[str] = None
+    year: Optional[int] = None
+    cited_by_count: Optional[int] = None
+    authors: list[str] = []
+
+
+class StructuredText(BaseModel):
+    """Narrative text with numbered citation references and metadata."""
+
+    text: str
+    citations: list[StructuredCitation] = []
+
+
+class TechnicalTerm(BaseModel):
+    """A technical term extracted from the narrative with a tooltip explanation."""
+
+    term: str
+    explanation: str
+
+
 class EraCommentary(BaseModel):
     """Narrative commentary for a single era in the timeline."""
 
     era: str  # "1990s", "2000s", etc.
-    headline: str  # One-line era title (e.g., "The statistical learning era")
-    narrative: str  # 2-4 sentences with full work_id citations (e.g., [W2163605009])
+    headline: Union[str, StructuredText]  # One-line era title
+    narrative: Union[str, StructuredText]  # 2-4 sentences with citations
     key_work_ids: list[str] = []
 
 
 class ResearchLineageNarrative(BaseModel):
     """The vertical evolution story of a research lineage through one paper's lens."""
 
-    historical_context: str  # 3-5 sentences: how the field arrived at this paper
-    contribution_statement: str  # 2-3 sentences: what this paper specifically unlocked
-    downstream_impact: str  # 3-5 sentences: new research directions opened
+    historical_context: str  # 3-5 sentences: kept as raw string with [W...] markers
+    contribution_statement: Union[str, StructuredText]  # 2-3 sentences
+    downstream_impact: Union[str, StructuredText]  # 3-5 sentences
     era_commentaries: list[EraCommentary] = []
-    cross_domain_influence: Optional[str] = None  # 1-2 sentences if influenced other fields
+    cross_domain_influence: Optional[Union[str, StructuredText]] = None
     paper_type: Optional[str] = None  # software|review|foundational|empirical|measurement
     is_paradigm_shift: bool = False
     impact_score: float = 0.0  # 0-1 citation velocity vs predecessors
+    technical_terms: list[TechnicalTerm] = []
 
 
 class NodeTimeline(BaseModel):

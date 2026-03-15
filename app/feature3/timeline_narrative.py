@@ -39,7 +39,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
-NARRATIVE_VERSION = "narrative-v8"
+NARRATIVE_VERSION = "narrative-v9"
 MODEL_VERSION = "openai/gpt-oss-120b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MAX_RETRIES = 3
@@ -481,6 +481,76 @@ def _enforce_paper_type_constraints(
 
 
 # ============================================================================
+# Structured Citations
+# ============================================================================
+
+def _structure_citations(
+    text: str,
+    paper_lookup: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Convert raw LLM text with [W...] citations into structured format.
+
+    Replaces [W2163605009] with (N) and builds a citations array.
+    """
+    import re
+
+    ID_PAT = r'\[(W\d+|S2:[a-fA-F0-9]+|S[a-fA-F0-9]{20,}|AX:[\d.]+)\]'
+    citations: List[Dict[str, Any]] = []
+    ref_map: Dict[str, int] = {}
+
+    def replacer(match):
+        work_id = match.group(1)
+        if work_id in ref_map:
+            return f"({ref_map[work_id]})"
+
+        ref_num = len(citations) + 1
+        ref_map[work_id] = ref_num
+
+        paper = paper_lookup.get(work_id, {})
+        citations.append({
+            "ref": ref_num,
+            "work_id": work_id,
+            "title": paper.get("title"),
+            "year": paper.get("year"),
+            "cited_by_count": paper.get("cited_by_count"),
+            "authors": paper.get("authors", []),
+        })
+        return f"({ref_num})"
+
+    structured_text = re.sub(ID_PAT, replacer, text)
+    return {"text": structured_text, "citations": citations}
+
+
+# ============================================================================
+# Technical Term Extraction
+# ============================================================================
+
+TERM_EXTRACTION_SYSTEM_PROMPT = """You extract technical terms from research narratives and provide \
+concise explanations. Each explanation should be 1-2 sentences, technically precise but accessible \
+to someone outside the specific subfield. Focus on mechanisms, not definitions."""
+
+
+def _build_term_extraction_prompt(narrative_text: str) -> str:
+    return f"""Extract the key technical terms from this research narrative. For each term, \
+provide a 1-2 sentence explanation of what it IS and HOW it works (mechanism, not just definition).
+
+Only extract terms that are:
+- Specific techniques, architectures, or algorithms (not generic words like "model" or "approach")
+- Would benefit from explanation for someone in a related but different field
+
+Text:
+{narrative_text}
+
+Return JSON array:
+[
+    {{"term": "self-attention", "explanation": "A mechanism where..."}},
+    ...
+]
+
+Max 10 terms. Answer ONLY with the JSON array."""
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -570,6 +640,52 @@ def generate_timeline_narrative(
             if wid:
                 known_ids.add(wid)
     _validate_work_id_citations(result, known_ids)
+
+    # ── Pass 3: Technical term extraction ─────────────────────────────
+    all_narrative_text = " ".join(filter(None, [
+        result.get("contribution_statement") if isinstance(result.get("contribution_statement"), str)
+            else (result.get("contribution_statement") or {}).get("text"),
+        result.get("downstream_impact") if isinstance(result.get("downstream_impact"), str)
+            else (result.get("downstream_impact") or {}).get("text"),
+        *[ec.get("narrative") if isinstance(ec.get("narrative"), str)
+            else (ec.get("narrative") or {}).get("text", "")
+          for ec in result.get("era_commentaries", [])],
+    ]))
+
+    if all_narrative_text:
+        term_prompt = _build_term_extraction_prompt(all_narrative_text[:3000])
+        terms = _call_llm(client, TERM_EXTRACTION_SYSTEM_PROMPT, term_prompt, expected_type="array")
+        result["technical_terms"] = terms if terms else []
+    else:
+        result["technical_terms"] = []
+
+    # ── Structured citations ──────────────────────────────────────────
+    # Build paper lookup for citation metadata
+    paper_lookup: Dict[str, Dict[str, Any]] = {}
+    for paper_list in [references, landmarks, citing_papers]:
+        for p in paper_list:
+            wid = p.get("work_id")
+            if wid and wid not in paper_lookup:
+                paper_lookup[wid] = {
+                    "title": p.get("title"),
+                    "year": p.get("year"),
+                    "cited_by_count": p.get("cited_by_count"),
+                    "authors": p.get("authors", []),
+                }
+
+    # Convert narrative fields to structured format (NOT historical_context)
+    for field in ["contribution_statement", "downstream_impact", "cross_domain_influence",
+                   "before_approach", "after_approach"]:
+        val = result.get(field)
+        if val and isinstance(val, str):
+            result[field] = _structure_citations(val, paper_lookup)
+
+    # Convert era commentary fields
+    for ec in result.get("era_commentaries", []):
+        if ec.get("narrative") and isinstance(ec["narrative"], str):
+            ec["narrative"] = _structure_citations(ec["narrative"], paper_lookup)
+        if ec.get("headline") and isinstance(ec["headline"], str):
+            ec["headline"] = _structure_citations(ec["headline"], paper_lookup)
 
     logger.info(
         f"Timeline narrative generated for {work_id}: "
