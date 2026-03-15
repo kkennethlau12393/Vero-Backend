@@ -332,22 +332,24 @@ datasets", "Training paradigm shifts"). Extract specific details from each paper
 abstract: the architecture, the mechanism, the metric, the dataset, the result. \
 Do NOT summarize vaguely.
 
-Return a JSON array with one object per era:
-[
-    {{
-        "era": "{era_labels[0] if era_labels else '2020s'}",
-        "headline": "Short descriptive title for this era (e.g., 'Denoising diffusion emergence')",
-        "subsections": [
-            {{
-                "heading": "Short thematic heading (e.g., 'Architecture innovations')",
-                "body": "Technical paragraph. For each paper: state its work_id in \
+Return a JSON object with an "eras" key containing an array:
+{{
+    "eras": [
+        {{
+            "era": "{era_labels[0] if era_labels else '2020s'}",
+            "headline": "Short descriptive title for this era (e.g., 'Denoising diffusion emergence')",
+            "subsections": [
+                {{
+                    "heading": "Short thematic heading (e.g., 'Architecture innovations')",
+                    "body": "Technical paragraph. For each paper: state its work_id in \
 brackets, then what it specifically did (architecture, loss function, training procedure, \
 benchmark result)."
-            }}
-        ],
-        "key_work_ids": ["W...", "S..."]
-    }}
-]
+                }}
+            ],
+            "key_work_ids": ["W...", "S..."]
+        }}
+    ]
+}}
 
 REQUIREMENTS:
 - One entry per era: [{era_json_examples}]
@@ -357,7 +359,7 @@ REQUIREMENTS:
 - Extract technical details FROM THE ABSTRACTS — do not invent claims
 - key_work_ids must list ALL work_ids actually cited across all subsections
 
-Answer ONLY with the JSON array, no additional text."""
+Answer ONLY with the JSON object, no additional text."""
 
     return prompt
 
@@ -379,6 +381,7 @@ def _call_llm(
                 ],
                 timeout=90.0,
                 temperature=0,
+                response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
 
@@ -567,13 +570,15 @@ Only extract terms that are:
 Text:
 {narrative_text}
 
-Return JSON array:
-[
-    {{"term": "self-attention", "explanation": "A mechanism where..."}},
-    ...
-]
+Return a JSON object with a "terms" key:
+{{
+    "terms": [
+        {{"term": "self-attention", "explanation": "A mechanism where..."}},
+        ...
+    ]
+}}
 
-Max 10 terms. Answer ONLY with the JSON array."""
+Max 10 terms. Answer ONLY with the JSON object."""
 
 
 # ============================================================================
@@ -642,8 +647,11 @@ def generate_timeline_narrative(
         logger.info(f"Pass 2: generating era commentaries for {len(era_labels)} eras")
         era_prompt = _build_era_commentary_prompt(title, era_papers, era_labels)
         era_result = _call_llm(
-            client, ERA_COMMENTARY_SYSTEM_PROMPT, era_prompt, expected_type="array",
+            client, ERA_COMMENTARY_SYSTEM_PROMPT, era_prompt, expected_type="object",
         )
+        # Unwrap: JSON mode returns {"eras": [...]}
+        if era_result and isinstance(era_result, dict):
+            era_result = era_result.get("eras", [])
         if era_result and isinstance(era_result, list):
             # Build flat narrative fallback from subsections (BEFORE structured citation conversion)
             for ec in era_result:
@@ -689,7 +697,10 @@ def generate_timeline_narrative(
 
     if all_narrative_text:
         term_prompt = _build_term_extraction_prompt(all_narrative_text[:3000])
-        terms = _call_llm(client, TERM_EXTRACTION_SYSTEM_PROMPT, term_prompt, expected_type="array")
+        terms = _call_llm(client, TERM_EXTRACTION_SYSTEM_PROMPT, term_prompt, expected_type="object")
+        # Unwrap: JSON mode returns {"terms": [...]}
+        if terms and isinstance(terms, dict):
+            terms = terms.get("terms", [])
         result["technical_terms"] = terms if terms else []
     else:
         result["technical_terms"] = []
