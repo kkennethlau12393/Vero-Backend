@@ -380,11 +380,15 @@ def _call_llm(
                 ],
                 timeout=90.0,
                 temperature=0,
+                max_tokens=8192,
             )
             if use_json_mode:
                 kwargs["response_format"] = {"type": "json_object"}
             resp = client.chat.completions.create(**kwargs)
             content = (resp.choices[0].message.content or "").strip()
+            finish_reason = resp.choices[0].finish_reason
+            if finish_reason != "stop":
+                logger.warning(f"LLM finish_reason={finish_reason} (expected 'stop')")
 
             result, error = extract_json_from_llm_response(content, expected_type=expected_type)
             if result is None:
