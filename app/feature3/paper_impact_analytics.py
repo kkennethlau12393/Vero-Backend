@@ -165,7 +165,7 @@ def calculate_impact_score(
         return 1.0  # No references to compare against
 
     # -- Absolute impact (log-scaled) --
-    abs_score = math.log10(max(target_cited_by_count, 1)) / math.log10(200_000)
+    abs_score = math.log10(max(target_cited_by_count, 1)) / math.log10(20_000)
     abs_score = min(abs_score, 1.0)
 
     # -- Relative impact (ratio vs refs) --
