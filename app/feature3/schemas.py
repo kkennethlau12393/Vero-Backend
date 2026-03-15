@@ -105,7 +105,7 @@ class EraCommentary(BaseModel):
 class ResearchLineageNarrative(BaseModel):
     """The vertical evolution story of a research lineage through one paper's lens."""
 
-    historical_context: str  # 3-5 sentences: kept as raw string with [W...] markers
+    historical_context: Union[str, StructuredText]  # 3-5 sentences
     contribution_statement: Union[str, StructuredText]  # 2-3 sentences
     downstream_impact: Union[str, StructuredText]  # 3-5 sentences
     era_commentaries: list[EraCommentary] = []
