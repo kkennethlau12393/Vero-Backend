@@ -16,7 +16,7 @@ from app.feature3.paper_impact_analytics import (
 class TestCalculateImpactScore:
     def test_no_references(self):
         score = calculate_impact_score(1000, [])
-        assert score == 1.0
+        assert 0.0 < score < 1.0  # Uses absolute + LLM only, not automatic 1.0
 
     def test_high_impact(self):
         refs = [{"cited_by_count": 100}, {"cited_by_count": 200}]
