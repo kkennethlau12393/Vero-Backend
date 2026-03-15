@@ -332,24 +332,22 @@ datasets", "Training paradigm shifts"). Extract specific details from each paper
 abstract: the architecture, the mechanism, the metric, the dataset, the result. \
 Do NOT summarize vaguely.
 
-Return a JSON object with an "eras" key containing an array:
-{{
-    "eras": [
-        {{
-            "era": "{era_labels[0] if era_labels else '2020s'}",
-            "headline": "Short descriptive title for this era (e.g., 'Denoising diffusion emergence')",
-            "subsections": [
-                {{
-                    "heading": "Short thematic heading (e.g., 'Architecture innovations')",
-                    "body": "Technical paragraph. For each paper: state its work_id in \
+Return a JSON array with one object per era:
+[
+    {{
+        "era": "{era_labels[0] if era_labels else '2020s'}",
+        "headline": "Short descriptive title for this era (e.g., 'Denoising diffusion emergence')",
+        "subsections": [
+            {{
+                "heading": "Short thematic heading (e.g., 'Architecture innovations')",
+                "body": "Technical paragraph. For each paper: state its work_id in \
 brackets, then what it specifically did (architecture, loss function, training procedure, \
 benchmark result)."
-                }}
-            ],
-            "key_work_ids": ["W...", "S..."]
-        }}
-    ]
-}}
+            }}
+        ],
+        "key_work_ids": ["W...", "S..."]
+    }}
+]
 
 REQUIREMENTS:
 - One entry per era: [{era_json_examples}]
@@ -359,7 +357,7 @@ REQUIREMENTS:
 - Extract technical details FROM THE ABSTRACTS — do not invent claims
 - key_work_ids must list ALL work_ids actually cited across all subsections
 
-Answer ONLY with the JSON object, no additional text."""
+Answer ONLY with the JSON array, no additional text."""
 
     return prompt
 
@@ -369,11 +367,12 @@ def _call_llm(
     system_prompt: str,
     user_prompt: str,
     expected_type: str = "object",
+    use_json_mode: bool = False,
 ) -> Optional[Dict[str, Any] | List[Any]]:
     """Make an LLM call with retries. Returns parsed JSON or None."""
     for attempt in range(MAX_RETRIES):
         try:
-            resp = client.chat.completions.create(
+            kwargs = dict(
                 model=MODEL_VERSION,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -381,8 +380,10 @@ def _call_llm(
                 ],
                 timeout=90.0,
                 temperature=0,
-                response_format={"type": "json_object"},
             )
+            if use_json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
+            resp = client.chat.completions.create(**kwargs)
             content = (resp.choices[0].message.content or "").strip()
 
             result, error = extract_json_from_llm_response(content, expected_type=expected_type)
@@ -402,6 +403,7 @@ def _call_llm(
                 "rate" in error_str
                 or "timeout" in error_str
                 or "connection" in error_str
+                or "json_validate" in error_str
             )
             if is_transient and attempt < MAX_RETRIES - 1:
                 time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
@@ -637,7 +639,7 @@ def generate_timeline_narrative(
         references, landmarks, citing_papers,
     )
 
-    result = _call_llm(client, SYSTEM_PROMPT, prompt, expected_type="object")
+    result = _call_llm(client, SYSTEM_PROMPT, prompt, expected_type="object", use_json_mode=True)
     if result is None:
         logger.warning(f"Pass 1 (main narrative) failed for {work_id}")
         return None
@@ -647,11 +649,8 @@ def generate_timeline_narrative(
         logger.info(f"Pass 2: generating era commentaries for {len(era_labels)} eras")
         era_prompt = _build_era_commentary_prompt(title, era_papers, era_labels)
         era_result = _call_llm(
-            client, ERA_COMMENTARY_SYSTEM_PROMPT, era_prompt, expected_type="object",
+            client, ERA_COMMENTARY_SYSTEM_PROMPT, era_prompt, expected_type="array",
         )
-        # Unwrap: JSON mode returns {"eras": [...]}
-        if era_result and isinstance(era_result, dict):
-            era_result = era_result.get("eras", [])
         if era_result and isinstance(era_result, list):
             # Build flat narrative fallback from subsections (BEFORE structured citation conversion)
             for ec in era_result:
@@ -697,7 +696,7 @@ def generate_timeline_narrative(
 
     if all_narrative_text:
         term_prompt = _build_term_extraction_prompt(all_narrative_text[:3000])
-        terms = _call_llm(client, TERM_EXTRACTION_SYSTEM_PROMPT, term_prompt, expected_type="object")
+        terms = _call_llm(client, TERM_EXTRACTION_SYSTEM_PROMPT, term_prompt, expected_type="object", use_json_mode=True)
         # Unwrap: JSON mode returns {"terms": [...]}
         if terms and isinstance(terms, dict):
             terms = terms.get("terms", [])
