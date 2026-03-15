@@ -674,8 +674,7 @@ def generate_timeline_narrative(
                 }
 
     # Convert narrative fields to structured format (NOT historical_context)
-    for field in ["contribution_statement", "downstream_impact", "cross_domain_influence",
-                   "before_approach", "after_approach"]:
+    for field in ["contribution_statement", "downstream_impact", "cross_domain_influence"]:
         val = result.get(field)
         if val and isinstance(val, str):
             result[field] = _structure_citations(val, paper_lookup)
