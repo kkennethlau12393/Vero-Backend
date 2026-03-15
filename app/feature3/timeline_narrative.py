@@ -731,12 +731,10 @@ def generate_timeline_narrative(
             ec["narrative"] = _structure_citations(ec["narrative"], paper_lookup)
         if ec.get("headline") and isinstance(ec["headline"], str):
             ec["headline"] = _structure_citations(ec["headline"], paper_lookup)
-        # Convert subsection fields
+        # Convert subsection body (not heading — headings are short labels without citations)
         for sub in ec.get("subsections", []):
             if sub.get("body") and isinstance(sub["body"], str):
                 sub["body"] = _structure_citations(sub["body"], paper_lookup)
-            if sub.get("heading") and isinstance(sub["heading"], str):
-                sub["heading"] = _structure_citations(sub["heading"], paper_lookup)
 
     logger.info(
         f"Timeline narrative generated for {work_id}: "
