@@ -147,23 +147,24 @@ def calculate_impact_score(
     is_paradigm_shift: bool = False,
 ) -> float:
     """
-    Calculate impact score using three signals:
+    Calculate impact score using four signals:
 
-    1. Absolute impact (50%): log-scaled citation count, anchored at 200K as ceiling.
-       Captures raw influence — a 10K-citation paper is impactful regardless of its refs.
+    1. Absolute impact (30%): log-scaled citation count, ceiling 20K.
+    2. Relative impact (20%): citation ratio vs average reference citations.
+    3. Breadth (10%): log-scaled number of references.
+    4. LLM paradigm shift (40%): 1.0 if paradigm shift, 0.3 otherwise.
 
-    2. Relative impact (35%): citation ratio vs average reference citations.
-       Captures whether the paper outperformed its predecessors.
-
-    3. Breadth (15%): log-scaled number of references.
-       Papers synthesizing many prior works (surveys, frameworks) get a small bonus.
+    When no references available, uses absolute + LLM only (50/50).
 
     Returns 0.0–1.0.
     """
     import math
 
     if not references:
-        return 1.0  # No references to compare against
+        # No references available — use absolute citation count + LLM signal only
+        abs_score = min(math.log10(max(target_cited_by_count, 1)) / math.log10(20_000), 1.0)
+        llm_score = 1.0 if is_paradigm_shift else 0.3
+        return round(0.50 * abs_score + 0.50 * llm_score, 3)
 
     # -- Absolute impact (log-scaled) --
     abs_score = math.log10(max(target_cited_by_count, 1)) / math.log10(20_000)
