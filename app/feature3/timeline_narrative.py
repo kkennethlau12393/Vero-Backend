@@ -701,11 +701,23 @@ def generate_timeline_narrative(
     if all_narrative_text:
         term_prompt = _build_term_extraction_prompt(all_narrative_text[:3000])
         terms = _call_llm(client, TERM_EXTRACTION_SYSTEM_PROMPT, term_prompt, expected_type="object", use_json_mode=True)
-        # Unwrap: JSON mode returns {"terms": [...]}
+        logger.info(f"Pass 3 (technical terms) raw result type={type(terms).__name__}, value={str(terms)[:200]}")
+        # Unwrap: JSON mode may return {"terms": [...]} or just a list
         if terms and isinstance(terms, dict):
             terms = terms.get("terms", [])
-        result["technical_terms"] = terms if terms else []
+        elif terms and isinstance(terms, list):
+            pass  # Already a list
+        else:
+            terms = []
+        # Validate each term has required fields
+        valid_terms = []
+        for t in terms:
+            if isinstance(t, dict) and t.get("term") and t.get("explanation"):
+                valid_terms.append({"term": t["term"], "explanation": t["explanation"]})
+        result["technical_terms"] = valid_terms
+        logger.info(f"Pass 3: extracted {len(valid_terms)} technical terms")
     else:
+        logger.info("Pass 3: skipped (no narrative text)")
         result["technical_terms"] = []
 
     # ── Structured citations ──────────────────────────────────────────
@@ -729,12 +741,10 @@ def generate_timeline_narrative(
         if val and isinstance(val, str):
             result[field] = _structure_citations(val, paper_lookup)
 
-    # Convert era commentary fields
+    # Convert era commentary fields (not headline — it's a short label without citations)
     for ec in result.get("era_commentaries", []):
         if ec.get("narrative") and isinstance(ec["narrative"], str):
             ec["narrative"] = _structure_citations(ec["narrative"], paper_lookup)
-        if ec.get("headline") and isinstance(ec["headline"], str):
-            ec["headline"] = _structure_citations(ec["headline"], paper_lookup)
         # Convert subsection body (not heading — headings are short labels without citations)
         for sub in ec.get("subsections", []):
             if sub.get("body") and isinstance(sub["body"], str):
