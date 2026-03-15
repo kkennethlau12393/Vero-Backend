@@ -39,7 +39,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
-NARRATIVE_VERSION = "narrative-v9"
+NARRATIVE_VERSION = "narrative-v10"
 MODEL_VERSION = "openai/gpt-oss-120b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MAX_RETRIES = 3
@@ -248,7 +248,7 @@ Answer ONLY with the JSON object, no additional text."""
 
 ERA_COMMENTARY_SYSTEM_PROMPT = """You write technical research narratives. Your ONLY job: \
 read each paper's abstract and extract its specific technical contribution into a cohesive \
-era narrative.
+era narrative broken into thematic subsections.
 
 RULES:
 - Every sentence MUST name a concrete technique, architecture, metric, or dataset
@@ -256,8 +256,11 @@ RULES:
 - NEVER write a paper's title in the prose — the [work_id] renders as a clickable chip showing the title. Use the marker as the subject: "[W2163605009] stacked five convolutional layers..."
 - For each paper you mention, state WHAT it did technically: the mechanism, the numbers, \
 the result — extracted directly from its abstract
-- End each era narrative with the specific technical bottleneck or open problem that the \
-next era addressed
+- Break each era into 2-4 thematic subsections. Each subsection has a short heading \
+(e.g., "Architecture innovations", "Training paradigm shifts") and a body paragraph \
+covering 1-3 papers that share that theme.
+- The LAST subsection of each era should end with the specific technical bottleneck or \
+open problem that the next era addressed.
 - BANNED: "achieved state-of-the-art", "significant advances", "improved performance", \
 "laid the foundation", "further enhances", "paved the way", "played a crucial role", \
 "accelerated progress", "various domains", "notable improvements", "growing interest"
@@ -323,27 +326,36 @@ Target paper: {target_title}
 
 ---
 
-For each era above, write a technical narrative paragraph. Extract specific details \
-from each paper's abstract: the architecture, the mechanism, the metric, the dataset, \
-the result. Do NOT summarize vaguely.
+For each era above, break the narrative into 2-4 thematic subsections. Each subsection \
+groups 1-3 papers that share a theme (e.g., "Architecture innovations", "Benchmark \
+datasets", "Training paradigm shifts"). Extract specific details from each paper's \
+abstract: the architecture, the mechanism, the metric, the dataset, the result. \
+Do NOT summarize vaguely.
 
 Return a JSON array with one object per era:
 [
     {{
         "era": "{era_labels[0] if era_labels else '2020s'}",
         "headline": "Short descriptive title for this era (e.g., 'Denoising diffusion emergence')",
-        "narrative": "Technical narrative paragraph. For each paper: state its work_id in \
+        "subsections": [
+            {{
+                "heading": "Short thematic heading (e.g., 'Architecture innovations')",
+                "body": "Technical paragraph. For each paper: state its work_id in \
 brackets, then what it specifically did (architecture, loss function, training procedure, \
-benchmark result). End with the bottleneck the next era solved.",
+benchmark result)."
+            }}
+        ],
         "key_work_ids": ["W...", "S..."]
     }}
 ]
 
 REQUIREMENTS:
 - One entry per era: [{era_json_examples}]
-- Each narrative must cite every paper from that era by its [work_id]
+- 2-4 subsections per era, each with a heading and body
+- Each subsection body must cite every paper it covers by [work_id]
+- The last subsection should end with the bottleneck the next era solved
 - Extract technical details FROM THE ABSTRACTS — do not invent claims
-- key_work_ids must list the work_ids actually cited in the narrative
+- key_work_ids must list ALL work_ids actually cited across all subsections
 
 Answer ONLY with the JSON array, no additional text."""
 
@@ -404,6 +416,15 @@ def _scrub_narrative_verbs(narrative: Dict[str, Any]) -> Dict[str, Any]:
     """Scrub banned verbs from all narrative text fields."""
     from app.feature3.node_details_service import _scrub_banned_verbs
 
+    def _scrub_field(val):
+        """Scrub a field that may be a raw string or a StructuredText dict."""
+        if isinstance(val, str):
+            return _scrub_banned_verbs(val)
+        elif isinstance(val, dict) and "text" in val:
+            val["text"] = _scrub_banned_verbs(val["text"])
+            return val
+        return val
+
     text_fields = [
         "historical_context",
         "contribution_statement",
@@ -414,14 +435,19 @@ def _scrub_narrative_verbs(narrative: Dict[str, Any]) -> Dict[str, Any]:
     ]
     for field in text_fields:
         val = narrative.get(field)
-        if val and isinstance(val, str):
-            narrative[field] = _scrub_banned_verbs(val)
+        if val:
+            narrative[field] = _scrub_field(val)
 
     for ec in narrative.get("era_commentaries", []):
         if ec.get("narrative"):
-            ec["narrative"] = _scrub_banned_verbs(ec["narrative"])
+            ec["narrative"] = _scrub_field(ec["narrative"])
         if ec.get("headline"):
-            ec["headline"] = _scrub_banned_verbs(ec["headline"])
+            ec["headline"] = _scrub_field(ec["headline"])
+        for sub in ec.get("subsections", []):
+            if sub.get("body"):
+                sub["body"] = _scrub_field(sub["body"])
+            if sub.get("heading"):
+                sub["heading"] = _scrub_field(sub["heading"])
 
     return narrative
 
@@ -619,6 +645,15 @@ def generate_timeline_narrative(
             client, ERA_COMMENTARY_SYSTEM_PROMPT, era_prompt, expected_type="array",
         )
         if era_result and isinstance(era_result, list):
+            # Build flat narrative fallback from subsections (BEFORE structured citation conversion)
+            for ec in era_result:
+                subs = ec.get("subsections", [])
+                if subs and not ec.get("narrative"):
+                    # Join raw string bodies into flat narrative
+                    raw_bodies = [s.get("body", "") for s in subs if isinstance(s.get("body"), str)]
+                    ec["narrative"] = " ".join(raw_bodies) if raw_bodies else ""
+                elif not ec.get("narrative"):
+                    ec["narrative"] = ""
             result["era_commentaries"] = era_result
             logger.info(f"Era commentaries generated: {len(era_result)} eras")
         else:
@@ -686,6 +721,12 @@ def generate_timeline_narrative(
             ec["narrative"] = _structure_citations(ec["narrative"], paper_lookup)
         if ec.get("headline") and isinstance(ec["headline"], str):
             ec["headline"] = _structure_citations(ec["headline"], paper_lookup)
+        # Convert subsection fields
+        for sub in ec.get("subsections", []):
+            if sub.get("body") and isinstance(sub["body"], str):
+                sub["body"] = _structure_citations(sub["body"], paper_lookup)
+            if sub.get("heading") and isinstance(sub["heading"], str):
+                sub["heading"] = _structure_citations(sub["heading"], paper_lookup)
 
     logger.info(
         f"Timeline narrative generated for {work_id}: "

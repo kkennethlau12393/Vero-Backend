@@ -93,12 +93,20 @@ class TechnicalTerm(BaseModel):
     explanation: str
 
 
+class EraSubsection(BaseModel):
+    """A thematic subsection within an era commentary."""
+
+    heading: str
+    body: Union[str, StructuredText]
+
+
 class EraCommentary(BaseModel):
     """Narrative commentary for a single era in the timeline."""
 
     era: str  # "1990s", "2000s", etc.
     headline: Union[str, StructuredText]  # One-line era title
-    narrative: Union[str, StructuredText]  # 2-4 sentences with citations
+    narrative: Union[str, StructuredText]  # Flat fallback built from subsections
+    subsections: list[EraSubsection] = []  # 2-4 thematic subsections
     key_work_ids: list[str] = []
 
 
