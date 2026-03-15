@@ -121,6 +121,7 @@ class ResearchLineageNarrative(BaseModel):
     paper_type: Optional[str] = None  # software|review|foundational|empirical|measurement
     is_paradigm_shift: bool = False
     impact_score: float = 0.0  # 0-1 citation velocity vs predecessors
+    impact_breakdown: Optional[dict] = None  # component-level breakdown
     technical_terms: list[TechnicalTerm] = []
 
 
