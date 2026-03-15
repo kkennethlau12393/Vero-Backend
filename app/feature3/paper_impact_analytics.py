@@ -144,6 +144,7 @@ def _truncate_text(text_val: str, max_chars: int = 300) -> str:
 def calculate_impact_score(
     target_cited_by_count: int,
     references: List[Dict[str, Any]],
+    is_paradigm_shift: bool = False,
 ) -> float:
     """
     Calculate impact score using three signals:
@@ -181,7 +182,10 @@ def calculate_impact_score(
     num_refs = len(references) if references else 1
     breadth = min(math.log10(max(num_refs, 1)) / math.log10(100), 1.0)
 
+    # -- LLM assessment signal --
+    llm_score = 1.0 if is_paradigm_shift else 0.3
+
     # -- Weighted combination --
-    score = 0.50 * abs_score + 0.35 * rel_score + 0.15 * breadth
+    score = 0.30 * abs_score + 0.20 * rel_score + 0.10 * breadth + 0.40 * llm_score
 
     return round(score, 3)

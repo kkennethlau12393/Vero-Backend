@@ -627,9 +627,6 @@ def generate_timeline_narrative(
         logger.info(f"No papers available for timeline narrative of {work_id}")
         return None
 
-    # Calculate impact score (deterministic, no LLM needed)
-    impact_score = calculate_impact_score(cited_by_count, references)
-
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         logger.warning("GROQ_API_KEY not found, cannot generate timeline narrative")
@@ -647,6 +644,11 @@ def generate_timeline_narrative(
     if result is None:
         logger.warning(f"Pass 1 (main narrative) failed for {work_id}")
         return None
+
+    # Calculate impact score (needs is_paradigm_shift from Pass 1)
+    impact_score = calculate_impact_score(
+        cited_by_count, references, result.get("is_paradigm_shift", False)
+    )
 
     # ── Pass 2: Era commentaries ────────────────────────────────────────
     if era_labels and era_papers:
