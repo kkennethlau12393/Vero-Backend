@@ -874,6 +874,110 @@ def _format_author_str(authors: Any) -> str:
     return str(authors) if authors else "Unknown"
 
 
+def _structure_gap_citations(
+    text: str,
+    evidence: list,
+) -> dict:
+    """Convert (Author, Year) inline citations to numbered (N) refs.
+
+    Returns {"text": str, "citations": [{"ref": 1, "work_id": ..., ...}]}
+    """
+    if not text or not evidence:
+        return {"text": text, "citations": []}
+
+    # Build lookup: multiple keys per evidence paper for fuzzy matching
+    lookup: dict = {}
+    for ev in evidence:
+        year_str = str(ev.year)
+        authors = ev.authors
+
+        lookup[f"{authors}, {year_str}"] = ev
+        lookup[f"{authors} {year_str}"] = ev
+
+        last_name = authors.split()[0].rstrip(",") if authors else ""
+        if last_name and last_name != "Unknown":
+            lookup[f"{last_name}, {year_str}"] = ev
+            lookup[f"{last_name} et al., {year_str}"] = ev
+            lookup[f"{last_name} et al. {year_str}"] = ev
+
+    citation_pattern = re.compile(r'\(([^()]{2,60}?,?\s*\d{4}[a-z]?)\)')
+
+    citations: list = []
+    ref_map: dict = {}
+    ref_counter = [0]
+
+    def _replace(match: re.Match) -> str:
+        cite_text = match.group(1).strip()
+
+        # Direct lookup
+        matched_ev = None
+        for key, ev in lookup.items():
+            if key.lower() in cite_text.lower() or cite_text.lower() in key.lower():
+                matched_ev = ev
+                break
+
+        # Fuzzy: match by year + author last name
+        if not matched_ev:
+            year_match = re.search(r'(\d{4})', cite_text)
+            if year_match:
+                year = year_match.group(1)
+                year_matches = [ev for ev in evidence if str(ev.year) == year]
+                for ev in year_matches:
+                    ev_last = ev.authors.split()[0].rstrip(",").lower()
+                    if ev_last in cite_text.lower():
+                        matched_ev = ev
+                        break
+                if not matched_ev and len(year_matches) == 1:
+                    matched_ev = year_matches[0]
+
+        if not matched_ev:
+            return match.group(0)
+
+        if matched_ev.work_id not in ref_map:
+            ref_counter[0] += 1
+            ref_map[matched_ev.work_id] = ref_counter[0]
+            citations.append({
+                "ref": ref_counter[0],
+                "work_id": matched_ev.work_id,
+                "authors": matched_ev.authors,
+                "year": matched_ev.year,
+                "title": matched_ev.title,
+            })
+
+        return f"({ref_map[matched_ev.work_id]})"
+
+    processed_text = citation_pattern.sub(_replace, text)
+    return {"text": processed_text, "citations": citations}
+
+
+def _structure_gap_citations_continuous(
+    description: str,
+    why_it_matters: str,
+    evidence: list,
+) -> dict:
+    """Process description and why_it_matters with continuous numbering.
+
+    Returns {"description": str, "why_it_matters": str, "citations": [...]}
+    """
+    if not evidence:
+        return {
+            "description": description,
+            "why_it_matters": why_it_matters,
+            "citations": [],
+        }
+
+    SEP = "\n<<<GAP_SECTION_BREAK>>>\n"
+    combined = (description or "") + SEP + (why_it_matters or "")
+    combined_result = _structure_gap_citations(combined, evidence)
+
+    parts = combined_result["text"].split(SEP)
+    return {
+        "description": parts[0] if len(parts) > 0 else description,
+        "why_it_matters": parts[1] if len(parts) > 1 else why_it_matters,
+        "citations": combined_result["citations"],
+    }
+
+
 def _ensure_str(val: Any) -> str:
     """Coerce a value to string, joining lists if needed."""
     if isinstance(val, list):
@@ -961,6 +1065,13 @@ def create_gap_cards(
         why_it_matters = _ensure_str(gap.get("why_it_matters", ""))
         type_explanation = GAP_TYPE_EXPLANATIONS.get(gap_type, "")
 
+        # Structure inline citations: (Author, Year) → (N) with citations array
+        citation_result = _structure_gap_citations_continuous(
+            gap.get("description", ""),
+            why_it_matters,
+            evidence,
+        )
+
         # Always assign sequential IDs to avoid collisions between
         # heuristic and LLM-direct gaps that both start at gap_1
         cards.append(GapCard(
@@ -968,13 +1079,14 @@ def create_gap_cards(
             type=gap_type,
             type_explanation=type_explanation,
             title=gap_title,
-            description=gap.get("description", ""),
-            why_it_matters=why_it_matters,
+            description=citation_result["description"],
+            why_it_matters=citation_result["why_it_matters"],
             evidence=evidence,
             suggested_direction=_ensure_str(gap.get("suggested_direction", "")),
             confidence=0.0,  # Will be set after validation
             detection_score=gap.get("detection_score", 0.5),
             data_sources_used=gap.get("data_sources_used", []),
+            citations=citation_result["citations"],
         ))
 
     return cards

@@ -120,6 +120,7 @@ class GapCard(BaseModel):
     validation_result: Optional[ExternalValidationResult] = None
     detection_score: float = 0.0  # Internal score from heuristic detectors
     data_sources_used: list[str] = []  # Which internal data sources informed this gap
+    citations: list[dict] = []  # Numbered inline refs: [{"ref": 1, "work_id": ..., "authors": ..., "year": ..., "title": ...}]
 
 
 # ============================================================================
