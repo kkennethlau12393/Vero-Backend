@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MODEL_VERSION = "openai/gpt-oss-120b"
 COMPARISON_VERSION = "v4-source-text-10"  # complement title dedup
-EXTRACTION_VERSION = "v3-validation-metrics"  # + structured validation metrics
+EXTRACTION_VERSION = "v3-validation-metrics-llm"  # + LLM-extracted validation metrics
 MAX_RETRIES = 2
 RETRY_BACKOFF_BASE = 0.5
 
@@ -492,6 +492,12 @@ def _build_extraction_prompt(
         "5. 'validation_method': Name the EXACT metrics (top-1/top-5 accuracy, mAP@0.5, FID, etc.), "
         "datasets (ImageNet, CIFAR-10/100, COCO, etc.), and baselines compared against. "
         "Do NOT write 'Unknown' if you know the paper.\n"
+        "5b. 'validation_metrics': Extract ALL quantitative results reported in the paper as structured "
+        "objects. Each metric needs 'name' (what was measured), 'value' (the number), and 'unit' "
+        "(measurement unit, or '%' for percentages, or '' if dimensionless like R²). "
+        "Include domain-specific metrics (tensile strength, porosity, roughness, etc.), not just "
+        "standard ML metrics. Extract up to 6 most important metrics. Return [] only if truly no "
+        "quantitative results exist.\n"
         "6. 'data_requirements': Be specific about format, scale, and labeling. "
         "Do NOT write 'Unknown' if the paper specifies its data.\n"
         "7. 'novelty_over_prior': Name the SPECIFIC prior method and state the EXACT change. "
@@ -571,7 +577,8 @@ def _build_extraction_prompt(
         '      "domain": "Problem domain and subfield",\n'
         '      "key_components": ["Named technique (with dimensions/hyperparams in parentheses)", '
         '"3-5 required, each 15+ chars"],\n'
-        '      "novelty_over_prior": "Name prior method + exact change made"\n'
+        '      "novelty_over_prior": "Name prior method + exact change made",\n'
+        '      "validation_metrics": [{"name": "Metric name", "value": "number", "unit": "unit or empty string"}]\n'
         "    }\n"
         "  ]\n"
         "}"
@@ -1514,7 +1521,16 @@ def _extract_fingerprints(
                 "key_components": paper_fp.get("key_components", []),
                 "novelty_over_prior": paper_fp.get("novelty_over_prior"),
             }
-            fp["validation_metrics"] = _extract_validation_metrics(fp.get("validation_method", ""))
+            # Prefer LLM-extracted metrics; fall back to regex
+            llm_metrics = paper_fp.get("validation_metrics", [])
+            if isinstance(llm_metrics, list) and len(llm_metrics) > 0:
+                fp["validation_metrics"] = [
+                    {"name": str(m.get("name", "")), "value": str(m.get("value", "")), "unit": str(m.get("unit", ""))}
+                    for m in llm_metrics
+                    if isinstance(m, dict) and m.get("name") and m.get("value")
+                ]
+            else:
+                fp["validation_metrics"] = _extract_validation_metrics(fp.get("validation_method", ""))
             fingerprints[wid] = fp
             sq = content_map[wid].source_quality if wid in content_map else "abstract_only"
             _cache_fingerprint(conn, wid, fp, sq)
