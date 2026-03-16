@@ -1317,11 +1317,15 @@ def _call_llm(
     validator_args: tuple = (),
     relaxed_validator_args: Optional[tuple] = None,
     max_tokens: int = 4096,
+    use_json_mode: bool = True,
+    temperature: float = 0.2,
+    clean_retry: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Make an LLM call with retries and optional validation.
 
     If validator is provided, it's called as validator(result, *validator_args).
-    If it returns violations, the LLM is re-prompted with corrective feedback.
+    If it returns violations, the LLM is re-prompted with corrective feedback
+    (unless *clean_retry* is True, in which case messages are left unchanged).
 
     Progressive relaxation: if *relaxed_validator_args* is provided, it replaces
     *validator_args* on retry 3+ to soften validation and avoid exhausting retries.
@@ -1343,14 +1347,16 @@ def _call_llm(
 
     for attempt in range(MAX_RETRIES):
         try:
-            resp = client.chat.completions.create(
+            kwargs = dict(
                 model=MODEL_VERSION,
                 messages=messages,
-                temperature=0.2,
+                temperature=temperature,
                 timeout=90.0,
                 max_tokens=max_tokens,
-                response_format={"type": "json_object"},
             )
+            if use_json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
+            resp = client.chat.completions.create(**kwargs)
             content = (resp.choices[0].message.content or "").strip()
             result, error = extract_json_from_llm_response(
                 content, expected_type="object"
@@ -1386,16 +1392,18 @@ def _call_llm(
                             f"Validation failed (attempt {attempt+1}): "
                             f"{len(violations)} violations"
                         )
-                        # Append assistant response and corrective feedback
-                        messages.append({"role": "assistant", "content": content})
-                        messages.append({
-                            "role": "user",
-                            "content": (
-                                "Your output has format violations. Fix ALL of them and "
-                                "return the corrected JSON:\n\n"
-                                + "\n".join(f"- {v}" for v in violations[:10])
-                            ),
-                        })
+                        if not clean_retry:
+                            # Append correction feedback (small output like extraction)
+                            messages.append({"role": "assistant", "content": content})
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    "Your output has format violations. Fix ALL of them and "
+                                    "return the corrected JSON:\n\n"
+                                    + "\n".join(f"- {v}" for v in violations[:10])
+                                ),
+                            })
+                        # else: clean retry — messages stay unchanged
                         time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
                         continue
                     # Last attempt with violations — return this if it's the best
@@ -1414,8 +1422,51 @@ def _call_llm(
             return result
         except Exception as e:
             logger.warning(f"LLM call exception (attempt {attempt+1}): {e}")
-            err = str(e).lower()
-            is_transient = "rate" in err or "timeout" in err or "connection" in err
+
+            # Try to salvage from json_validate_failed errors — Groq includes
+            # the full generated text which is often perfectly valid JSON.
+            err_str = str(e)
+            if "json_validate_failed" in err_str.lower():
+                try:
+                    error_match = re.search(
+                        r"'failed_generation':\s*'(.*?)'}\s*}",
+                        err_str,
+                        re.DOTALL,
+                    )
+                    if error_match:
+                        failed_text = error_match.group(1).replace("\\'", "'")
+                        salvaged, _ = extract_json_from_llm_response(
+                            failed_text, expected_type="object"
+                        )
+                        if salvaged:
+                            logger.info(
+                                f"Salvaged valid JSON from failed_generation "
+                                f"(attempt {attempt+1})"
+                            )
+                            if validator is not None:
+                                args = validator_args
+                                if relaxed_validator_args is not None and attempt >= 2:
+                                    args = relaxed_validator_args
+                                violations = validator(salvaged, *args)
+                                if not violations:
+                                    return salvaged
+                                if len(violations) < best_violation_count:
+                                    best_result = salvaged
+                                    best_violation_count = len(violations)
+                                    logger.info(
+                                        f"Salvaged result has {len(violations)} "
+                                        f"violations — saved as best attempt"
+                                    )
+                            else:
+                                return salvaged
+                except Exception as salvage_err:
+                    logger.debug(f"Salvage attempt failed: {salvage_err}")
+
+            err = err_str.lower()
+            is_transient = (
+                "rate" in err or "timeout" in err
+                or "connection" in err or "json_validate" in err
+            )
             if is_transient and attempt < MAX_RETRIES - 1:
                 time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
                 continue
@@ -2135,6 +2186,9 @@ def _synthesize(
         validator_args=(short_work_ids, short_valid_complement, relaxed, short_fingerprints),
         relaxed_validator_args=(short_work_ids, short_valid_complement, True, short_fingerprints),
         max_tokens=8192,
+        use_json_mode=False,
+        temperature=0,
+        clean_retry=True,
     )
 
     if result:
