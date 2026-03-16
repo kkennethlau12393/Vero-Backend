@@ -1549,6 +1549,7 @@ def _extract_fingerprints(
         EXTRACTION_SYSTEM, prompt,
         validator=_validate_extraction,
         validator_args=(thin_wids,),
+        use_json_mode=False,
     )
 
     if result and "papers" in result:
@@ -1580,6 +1581,56 @@ def _extract_fingerprints(
             fingerprints[wid] = fp
             sq = content_map[wid].source_quality if wid in content_map else "abstract_only"
             _cache_fingerprint(conn, wid, fp, sq)
+
+        # Retry individually for any papers the batch missed
+        missing_papers = [p for p in uncached_papers if p["work_id"] not in fingerprints]
+        if missing_papers:
+            logger.warning(
+                f"Batch extraction missed {len(missing_papers)} papers, "
+                f"retrying individually"
+            )
+            for paper in missing_papers:
+                m_wid = paper["work_id"]
+                m_content = content_map.get(m_wid)
+                ind_prompt, _ind_mapper = _build_extraction_prompt(
+                    [paper],
+                    [m_content] if m_content else [],
+                )
+                ind_result = _call_llm(
+                    EXTRACTION_SYSTEM, ind_prompt,
+                    validator=_validate_extraction,
+                    validator_args=(thin_wids,),
+                    use_json_mode=False,
+                )
+                if ind_result and "papers" in ind_result:
+                    for paper_fp in ind_result["papers"]:
+                        fp = {
+                            "approach": paper_fp.get("approach", "Unknown"),
+                            "data_requirements": paper_fp.get("data_requirements", "Unknown"),
+                            "assumptions": paper_fp.get("assumptions", []),
+                            "validation_method": paper_fp.get("validation_method", "Unknown"),
+                            "limitations": paper_fp.get("limitations", []),
+                            "domain": paper_fp.get("domain", "Unknown"),
+                            "key_components": paper_fp.get("key_components", []),
+                            "novelty_over_prior": paper_fp.get("novelty_over_prior"),
+                        }
+                        llm_metrics = paper_fp.get("validation_metrics", [])
+                        if isinstance(llm_metrics, list) and len(llm_metrics) > 0:
+                            fp["validation_metrics"] = [
+                                {"name": str(m.get("name", "")), "value": str(m.get("value", "")), "unit": str(m.get("unit", ""))}
+                                for m in llm_metrics
+                                if isinstance(m, dict) and m.get("name") and m.get("value")
+                            ]
+                        else:
+                            fp["validation_metrics"] = _extract_validation_metrics(
+                                fp.get("validation_method", "")
+                            )
+                        fingerprints[m_wid] = fp
+                        sq = content_map[m_wid].source_quality if m_wid in content_map else "abstract_only"
+                        _cache_fingerprint(conn, m_wid, fp, sq)
+                        logger.info(f"Individual retry succeeded for {m_wid}")
+                else:
+                    logger.warning(f"Individual retry also failed for {m_wid}")
     else:
         logger.error("LLM extraction returned no valid papers")
         # Fill defaults for uncached
