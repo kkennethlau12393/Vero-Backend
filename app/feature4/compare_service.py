@@ -1229,16 +1229,6 @@ def _validate_synthesis(
                 if not s.get("consequence"):
                     violations.append(f"{wid} struggles_with entry missing 'consequence'.")
 
-            # Check assumptions
-            assumptions = sw.get("assumptions", [])
-            if len(assumptions) < 1:
-                violations.append(f"{wid} must have at least 1 'assumptions' entry.")
-            for a in assumptions:
-                if not a.get("assumption"):
-                    violations.append(f"{wid} assumptions entry missing 'assumption'.")
-                if not a.get("if_violated"):
-                    violations.append(f"{wid} assumptions entry missing 'if_violated'.")
-
             # Check complemented_by (cross-references — can reference external papers)
             complements = sw.get("complemented_by", [])
             for c in complements:
@@ -1326,6 +1316,7 @@ def _call_llm(
     validator: Optional[Any] = None,
     validator_args: tuple = (),
     relaxed_validator_args: Optional[tuple] = None,
+    max_tokens: int = 4096,
 ) -> Optional[Dict[str, Any]]:
     """Make an LLM call with retries and optional validation.
 
@@ -1357,7 +1348,7 @@ def _call_llm(
                 messages=messages,
                 temperature=0.2,
                 timeout=90.0,
-                max_tokens=4096,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
@@ -1858,7 +1849,7 @@ def _build_synthesis_prompt(
         "   - Group papers by their PARADIGM (methodological approach)\n"
         "   - Explain how each paradigm tackles the problem differently\n\n"
         "2. STRENGTHS/WEAKNESSES MATRIX (paper-centered)\n"
-        "   - For EACH paper: what it handles well, what it struggles with, key assumptions\n"
+        "   - For EACH paper: what it handles well, what it struggles with\n"
         "   - complemented_by: select the paper that BEST addresses each weakness from the "
         "COMPLEMENT CANDIDATES list. The complement does NOT have to be from the comparison set. "
         "Do NOT force a complement — if no candidate genuinely addresses the weakness, omit it. "
@@ -1923,14 +1914,15 @@ def _build_synthesis_prompt(
         "per paper being compared. If comparing 2 papers, the array MUST have 2 objects. "
         "If comparing 3 papers, the array MUST have 3 objects. Every paper MUST appear. "
         "NEVER skip a paper even if it has limited information — use domain knowledge to fill gaps.\n"
-        "13. RECOMMENDATION COMPLETENESS: ALL recommendation fields are REQUIRED regardless of "
-        "'can_combine'. When can_combine is false:\n"
-        "   - 'summary': Explain WHY they cannot be combined and which contexts favor each paper\n"
-        "   - 'decision_matrix': Provide at least 3 scenario objects with 'use', 'scenario', and 'why' "
-        "showing when to pick each paper. These are independent use-case recommendations, NOT "
-        "combination suggestions\n"
-        "   - 'combination_notes': Explain the fundamental incompatibility that prevents combination\n"
-        "   NEVER return empty arrays or empty strings for these fields.\n\n"
+        "13. RECOMMENDATION IS ALWAYS REQUIRED — even when can_combine is false:\n"
+        "   When can_combine is FALSE, you MUST still provide:\n"
+        "   - 'summary': 2-3 sentences explaining why combination is impractical and which "
+        "paper suits which research context\n"
+        "   - 'decision_matrix': EXACTLY 3 scenario objects. Each scenario describes a DIFFERENT "
+        "research context where one paper is preferred over the other. Format: "
+        "{\"use\": \"P1\", \"scenario\": \"When studying X\", \"why\": \"Because P1's approach...\"}\n"
+        "   - 'combination_notes': 1-2 sentences on the fundamental methodological incompatibility\n"
+        "   These fields are NEVER empty. An empty decision_matrix is a VALIDATION FAILURE.\n\n"
         "=== FULL WORKED EXAMPLE (study this level of depth) ===\n"
         "Given two GAN papers (pix2pix vs CycleGAN), here is what GOOD output looks like.\n"
         "Notice: every field quotes specific architectures, loss terms, and numbers.\n\n"
@@ -1980,12 +1972,6 @@ def _build_synthesis_prompt(
         '          "consequence": "Visible repetitive texture boundaries at 70-pixel intervals in generated images, particularly noticeable in uniform regions like sky or walls"\n'
         '        }\n'
         '      ],\n'
-        '      "assumptions": [\n'
-        '        {\n'
-        '          "assumption": "Input and output images are spatially aligned at pixel level",\n'
-        '          "if_violated": "L1 loss produces blurred outputs as it averages over misaligned pixels"\n'
-        '        }\n'
-        '      ],\n'
         '      "complemented_by": [\n'
         '        {\n'
         '          "other_work_id": "Wcyclegan",\n'
@@ -2010,12 +1996,6 @@ def _build_synthesis_prompt(
         '          "limitation": "Cannot handle geometric transformations",\n'
         '          "cause": "Cycle consistency F(G(X))≈X forces the generator to preserve spatial structure — any geometric change breaks the cycle",\n'
         '          "consequence": "Fails on tasks requiring shape changes (e.g., dog→cat), producing only texture/color transfer while preserving the source geometry"\n'
-        '        }\n'
-        '      ],\n'
-        '      "assumptions": [\n'
-        '        {\n'
-        '          "assumption": "A bijective mapping exists between source and target domains",\n'
-        '          "if_violated": "Many-to-one mappings (e.g., multiple cat breeds → one dog breed) cause mode collapse in the reverse generator F"\n'
         '        }\n'
         '      ],\n'
         '      "complemented_by": [\n'
@@ -2051,6 +2031,17 @@ def _build_synthesis_prompt(
         '    "combination_notes": "When sparse paired examples exist alongside large unpaired collections, use CycleGAN\'s cycle loss for the bulk of training and add pix2pix\'s L1 loss on the paired subset as an auxiliary objective."\n'
         '  }\n'
         '}\n\n'
+        "EXAMPLE when can_combine is FALSE:\n"
+        '  "recommendation": {\n'
+        '    "summary": "These methods target fundamentally different physical phenomena — P1 models quasi-static fracture propagation while P2 characterizes fatigue crack nucleation under cyclic loading. Direct combination is impractical as they require different experimental setups and loading regimes.",\n'
+        '    "decision_matrix": [\n'
+        '      {"use": "P1", "scenario": "Predicting crack path in monotonic tensile loading", "why": "The XFEM framework with cohesive zone model directly simulates crack tip stress fields under quasi-static conditions"},\n'
+        '      {"use": "P2", "scenario": "Assessing fatigue life under cyclic loading", "why": "S-N curve characterization with Paris law crack growth (C=1e-12, m=3) provides cycle-to-failure predictions"},\n'
+        '      {"use": "P1", "scenario": "Validating fracture toughness from CT specimen geometry", "why": "J-integral computation from the FE mesh directly yields K_IC values comparable to ASTM E399 standards"}\n'
+        '    ],\n'
+        '    "can_combine": false,\n'
+        '    "combination_notes": "P1 assumes monotonic loading with rate-independent material response while P2 requires cyclic loading with frequency-dependent crack nucleation — these loading regimes cannot be superimposed in a single simulation framework."\n'
+        '  }\n\n'
         "NOTICE how every field in the example above contains:\n"
         "- Specific architecture names (U-Net, ResNet-9, PatchGAN 70×70)\n"
         "- Exact loss formulations (L = L_cGAN + λ·L1 where λ=100, F(G(X))≈X with λ_cyc=10)\n"
@@ -2083,7 +2074,6 @@ def _build_synthesis_prompt(
             '    {"work_id": "' + wid + '", "title": "' + titles_map[wid][:50] + '", '
             '"handles_well": [{"capability": "...", "mechanism": "...", "evidence": "..."}], '
             '"struggles_with": [{"limitation": "...", "cause": "...", "consequence": "..."}], '
-            '"assumptions": [{"assumption": "...", "if_violated": "..."}], '
             '"complemented_by": [{"other_work_id": "W...", "other_title": "...", "other_year": 2020, '
             '"coverage": "SPECIFIC mechanism: explain exactly how this paper addresses the gap"}]}'
             for wid in work_id_list
@@ -2144,6 +2134,7 @@ def _synthesize(
         validator=_validate_synthesis,
         validator_args=(short_work_ids, short_valid_complement, relaxed, short_fingerprints),
         relaxed_validator_args=(short_work_ids, short_valid_complement, True, short_fingerprints),
+        max_tokens=8192,
     )
 
     if result:
@@ -2278,7 +2269,6 @@ def _run_comparison_pipeline(
                         "title": paper.get("title", "Unknown"),
                         "handles_well": [{"capability": "Insufficient data to assess", "mechanism": "Abstract-only source limits detailed analysis", "evidence": ""}],
                         "struggles_with": [{"limitation": "Limited source text available", "cause": "Only abstract was accessible for analysis", "consequence": "Full methodology assessment requires access to complete paper"}],
-                        "assumptions": [],
                         "complemented_by": [],
                     })
             synthesis["strengths_weaknesses_matrix"] = matrix
@@ -2286,10 +2276,30 @@ def _run_comparison_pipeline(
         # Validate recommendation completeness
         rec = synthesis.get("recommendation", {})
         if not rec.get("summary"):
-            rec["summary"] = "These methodologies serve different research contexts and are not directly combinable."
+            rec["summary"] = "These methodologies serve different research contexts. See decision matrix for specific scenario recommendations."
             logger.warning("Empty recommendation summary, filled with default")
         if not rec.get("decision_matrix"):
-            logger.warning("Empty decision_matrix — LLM failed to generate scenarios")
+            logger.warning("Empty decision_matrix — generating fallback from fingerprints")
+            fallback_matrix = []
+            for paper in papers_meta:
+                wid = paper["work_id"]
+                fp = fingerprints.get(wid, {})
+                approach_summary = str(fp.get("approach", ""))[:80]
+                domain = fp.get("domain", "its specific domain")
+                fallback_matrix.append({
+                    "use": wid,
+                    "scenario": f"When research focuses on {domain}",
+                    "why": approach_summary if approach_summary else "Provides a distinct methodological approach",
+                })
+            if len(fallback_matrix) == 2:
+                fallback_matrix.append({
+                    "use": papers_meta[0]["work_id"],
+                    "scenario": "When full-text methodological detail is required",
+                    "why": "Provides more detailed experimental parameters for replication",
+                })
+            rec["decision_matrix"] = fallback_matrix
+        if not rec.get("combination_notes") and not rec.get("can_combine", True):
+            rec["combination_notes"] = "These methodologies address different aspects of the problem domain and are not directly combinable in a single experimental framework."
         synthesis["recommendation"] = rec
 
     # 5. Compute confidence
