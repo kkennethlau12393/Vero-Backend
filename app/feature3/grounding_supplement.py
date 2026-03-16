@@ -87,15 +87,15 @@ CRITICAL RULES:
 - Suggest papers the target paper would CITE, not just papers in the same broad area.
 - Example: For a paper on object detection with CNNs, suggest prior object detection papers and the specific CNN architectures it builds on — NOT generic machine learning papers.
 
-Return a JSON array:
-[
+Return JSON:
+{{"papers": [
     {{
         "title": "Exact paper title",
         "authors": "First Author et al.",
         "year": 2015,
         "why_relevant": "Introduced [specific technique] that the target paper directly extends by [specific modification]"
     }}
-]
+]}}
 
 Focus on the papers the target paper would CITE for methodological lineage, not topic similarity."""
 
@@ -117,15 +117,15 @@ Suggest {num_needed} LANDMARK papers that:
 3. Were published BEFORE {year}
 4. Are NOT already in my list
 
-Return a JSON array:
-[
+Return JSON:
+{{"papers": [
     {{
         "title": "Exact paper title",
         "authors": "First Author et al.",
         "year": 2012,
         "why_relevant": "Introduced [specific technique] that this paper builds upon"
     }}
-]
+]}}
 
 Focus on papers that established the SPECIFIC TECHNIQUE used in the target paper."""
 
@@ -153,15 +153,15 @@ CRITICAL RULES:
 - Example: For "Attention Is All You Need" (transformers), suggest prior sequence-to-sequence models and attention mechanisms — NOT generic NLP papers about word embeddings or parsing
 - Each paper should help answer: "What was the state of the art BEFORE this paper, and what specific limitation did it address?"
 
-Return a JSON array:
-[
+Return JSON:
+{{"papers": [
     {{
         "title": "Exact paper title",
         "authors": "First Author et al.",
         "year": 1970,
         "why_relevant": "Was the prior state-of-the-art for [specific task], achieving [specific result], which this paper surpassed by [specific improvement]"
     }}
-]
+]}}
 
 Focus on the methodological lineage — the chain of papers that leads directly to this breakthrough."""
 
@@ -284,18 +284,22 @@ def suggest_papers_llm(
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert academic researcher. Return only valid JSON arrays.",
+                        "content": "You are an expert academic researcher. Return only valid JSON.",
                     },
                     {"role": "user", "content": prompt},
                 ],
                 timeout=30.0,
                 temperature=0,
+                response_format={"type": "json_object"},
             )
 
             content = (resp.choices[0].message.content or "").strip()
 
             # Use robust JSON extraction with repair (handles code blocks, extra text, malformed JSON)
-            suggestions, error = extract_json_from_llm_response_with_repair(content, expected_type="array")
+            suggestions, error = extract_json_from_llm_response_with_repair(content, expected_type="object")
+            # Unwrap {"papers": [...]} from JSON mode response
+            if isinstance(suggestions, dict):
+                suggestions = suggestions.get("papers", suggestions.get("results", []))
 
             if suggestions is None:
                 logger.warning(f"Failed to parse LLM {paper_type} suggestions: {error}")

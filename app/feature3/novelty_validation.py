@@ -320,6 +320,7 @@ Respond in JSON:
             ],
             temperature=0.1,
             max_tokens=300,
+            response_format={"type": "json_object"},
         )
 
         content = response.choices[0].message.content or ""
