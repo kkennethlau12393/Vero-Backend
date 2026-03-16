@@ -1918,7 +1918,19 @@ def _build_synthesis_prompt(
         "If the text says 'synchrosqueezed wavelet transforms (SWT)', write EXACTLY that — "
         "not 'wavelet-based processing'. If a profile's approach mentions 'cross-entropy loss "
         "with Adam optimizer (lr=1e-4)', write that — not 'standard training loss'. "
-        "NEVER generalize terminology that appears in the source text or profiles.\n\n"
+        "NEVER generalize terminology that appears in the source text or profiles.\n"
+        "12. MATRIX COMPLETENESS: 'strengths_weaknesses_matrix' MUST contain EXACTLY one entry "
+        "per paper being compared. If comparing 2 papers, the array MUST have 2 objects. "
+        "If comparing 3 papers, the array MUST have 3 objects. Every paper MUST appear. "
+        "NEVER skip a paper even if it has limited information — use domain knowledge to fill gaps.\n"
+        "13. RECOMMENDATION COMPLETENESS: ALL recommendation fields are REQUIRED regardless of "
+        "'can_combine'. When can_combine is false:\n"
+        "   - 'summary': Explain WHY they cannot be combined and which contexts favor each paper\n"
+        "   - 'decision_matrix': Provide at least 3 scenario objects with 'use', 'scenario', and 'why' "
+        "showing when to pick each paper. These are independent use-case recommendations, NOT "
+        "combination suggestions\n"
+        "   - 'combination_notes': Explain the fundamental incompatibility that prevents combination\n"
+        "   NEVER return empty arrays or empty strings for these fields.\n\n"
         "=== FULL WORKED EXAMPLE (study this level of depth) ===\n"
         "Given two GAN papers (pix2pix vs CycleGAN), here is what GOOD output looks like.\n"
         "Notice: every field quotes specific architectures, loss terms, and numbers.\n\n"
@@ -2249,6 +2261,36 @@ def _run_comparison_pipeline(
     synthesis = _normalize_work_ids(synthesis)
     synthesis = _scrub_self_references(synthesis)
     synthesis = _scrub_complement_titles(synthesis)
+
+    # 4b. Validate strengths_weaknesses_matrix completeness
+    if synthesis:
+        matrix = synthesis.get("strengths_weaknesses_matrix", [])
+        if len(matrix) < len(work_ids):
+            logger.warning(
+                f"strengths_weaknesses_matrix has {len(matrix)} entries, expected {len(work_ids)}"
+            )
+            existing_wids = {entry.get("work_id") for entry in matrix}
+            for paper in papers_meta:
+                wid = paper["work_id"]
+                if wid not in existing_wids:
+                    matrix.append({
+                        "work_id": wid,
+                        "title": paper.get("title", "Unknown"),
+                        "handles_well": [{"capability": "Insufficient data to assess", "mechanism": "Abstract-only source limits detailed analysis", "evidence": ""}],
+                        "struggles_with": [{"limitation": "Limited source text available", "cause": "Only abstract was accessible for analysis", "consequence": "Full methodology assessment requires access to complete paper"}],
+                        "assumptions": [],
+                        "complemented_by": [],
+                    })
+            synthesis["strengths_weaknesses_matrix"] = matrix
+
+        # Validate recommendation completeness
+        rec = synthesis.get("recommendation", {})
+        if not rec.get("summary"):
+            rec["summary"] = "These methodologies serve different research contexts and are not directly combinable."
+            logger.warning("Empty recommendation summary, filled with default")
+        if not rec.get("decision_matrix"):
+            logger.warning("Empty decision_matrix — LLM failed to generate scenarios")
+        synthesis["recommendation"] = rec
 
     # 5. Compute confidence
     content_map = {c.work_id: c for c in contents}
