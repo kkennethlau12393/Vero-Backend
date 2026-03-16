@@ -711,6 +711,7 @@ class TestCallLlmBestAttemptFallback:
         result = _call_llm("sys", "usr", validator=validator, validator_args=())
         assert result is good_result
 
+    @patch("app.feature4.compare_service.MAX_RETRIES", 4)
     @patch("app.feature4.compare_service.time.sleep")
     @patch("app.feature4.compare_service._get_client")
     @patch("app.feature4.compare_service.extract_json_from_llm_response")
@@ -773,6 +774,7 @@ class TestCallLlmBestAttemptFallback:
         # Should only call LLM once
         assert client.chat.completions.create.call_count == 1
 
+    @patch("app.feature4.compare_service.MAX_RETRIES", 4)
     @patch("app.feature4.compare_service.time.sleep")
     @patch("app.feature4.compare_service._get_client")
     @patch("app.feature4.compare_service.extract_json_from_llm_response")

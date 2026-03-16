@@ -63,7 +63,7 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MODEL_VERSION = "openai/gpt-oss-120b"
 COMPARISON_VERSION = "v4-source-text-10"  # complement title dedup
 EXTRACTION_VERSION = "v3-validation-metrics"  # + structured validation metrics
-MAX_RETRIES = 4
+MAX_RETRIES = 2
 RETRY_BACKOFF_BASE = 0.5
 
 
@@ -1346,6 +1346,7 @@ def _call_llm(
                 messages=messages,
                 temperature=0.2,
                 timeout=90.0,
+                max_tokens=4096,
                 response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
