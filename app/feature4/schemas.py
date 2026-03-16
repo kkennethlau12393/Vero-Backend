@@ -48,6 +48,7 @@ class MethodologyFingerprint(BaseModel):
     domain: Optional[str] = None
     key_components: list[str] = []
     novelty_over_prior: Optional[str] = None
+    validation_metrics: list[dict] = []
 
 
 class PaperMethodProfile(BaseModel):

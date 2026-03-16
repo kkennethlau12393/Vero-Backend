@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -61,9 +62,46 @@ logger = logging.getLogger(__name__)
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MODEL_VERSION = "openai/gpt-oss-120b"
 COMPARISON_VERSION = "v4-source-text-10"  # complement title dedup
-EXTRACTION_VERSION = "v2-rich-no-selfref"  # + self-reference prohibition
+EXTRACTION_VERSION = "v3-validation-metrics"  # + structured validation metrics
 MAX_RETRIES = 4
 RETRY_BACKOFF_BASE = 0.5
+
+
+def _extract_validation_metrics(validation_text: str) -> List[Dict[str, str]]:
+    """Extract numeric metrics from validation prose into structured data."""
+    if not validation_text:
+        return []
+
+    patterns = [
+        (r"R[²2]\s*[=:of ]*\s*([\d.]+)", "R²", ""),
+        (r"RMSE\s*[=:of ]*\s*([\d.]+)\s*([a-zA-Z/%μ·\-]+)?", "RMSE", ""),
+        (r"MAE\s*[=:of ]*\s*([\d.]+)\s*([a-zA-Z/%μ·\-]+)?", "MAE", ""),
+        (r"accuracy\s*[=:of ]*\s*([\d.]+)\s*%?", "Accuracy", "%"),
+        (r"F1[- ]?score?\s*[=:of ]*\s*([\d.]+)", "F1", ""),
+        (r"AUC\s*[=:of ]*\s*([\d.]+)", "AUC", ""),
+        (r"precision\s*[=:of ]*\s*([\d.]+)", "Precision", ""),
+        (r"recall\s*[=:of ]*\s*([\d.]+)", "Recall", ""),
+        (r"mAP\s*[=:of ]*\s*([\d.]+)", "mAP", ""),
+        (r"BLEU\s*[=:of ]*\s*([\d.]+)", "BLEU", ""),
+        (r"IoU\s*[=:of ]*\s*([\d.]+)", "IoU", ""),
+        (r"(\d+)\s*(?:test|validation|eval)\s*(?:samples?|specimens?|images?|cases?|examples?)", "Test samples", ""),
+    ]
+
+    metrics: List[Dict[str, str]] = []
+    seen: set = set()
+    for pattern, name, default_unit in patterns:
+        m = re.search(pattern, validation_text, re.IGNORECASE)
+        if m and name not in seen:
+            value = m.group(1)
+            unit = ""
+            if m.lastindex and m.lastindex >= 2 and m.group(2):
+                unit = m.group(2).strip(".,;)( ")
+            elif default_unit:
+                unit = default_unit
+            metrics.append({"name": name, "value": value, "unit": unit})
+            seen.add(name)
+
+    return metrics
 
 
 def _get_client() -> Optional[OpenAI]:
@@ -1416,7 +1454,10 @@ def _extract_fingerprints(
         cached = _get_cached_fingerprint(conn, wid)
         if cached:
             logger.info(f"Fingerprint cache hit for {wid}")
-            fingerprints[wid] = cached["fingerprint"]
+            fp = cached["fingerprint"]
+            if "validation_metrics" not in fp:
+                fp["validation_metrics"] = _extract_validation_metrics(fp.get("validation_method", ""))
+            fingerprints[wid] = fp
         else:
             uncached_papers.append(paper)
 
@@ -1472,6 +1513,7 @@ def _extract_fingerprints(
                 "key_components": paper_fp.get("key_components", []),
                 "novelty_over_prior": paper_fp.get("novelty_over_prior"),
             }
+            fp["validation_metrics"] = _extract_validation_metrics(fp.get("validation_method", ""))
             fingerprints[wid] = fp
             sq = content_map[wid].source_quality if wid in content_map else "abstract_only"
             _cache_fingerprint(conn, wid, fp, sq)
@@ -1489,6 +1531,7 @@ def _extract_fingerprints(
                 "domain": "Unknown",
                 "key_components": [],
                 "novelty_over_prior": None,
+                "validation_metrics": [],
             }
 
     return fingerprints

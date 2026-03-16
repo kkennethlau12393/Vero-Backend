@@ -14,6 +14,7 @@ from app.feature4.compare_service import (
     _validate_synthesis,
     _SHALLOW_PATTERN,
     _extract_search_terms_from_gaps,
+    _extract_validation_metrics,
     _detect_paper_type,
     _compute_paper_overlap,
     _call_llm,
@@ -1000,3 +1001,86 @@ class TestValidateDepthFingerprintGrounding:
         violations = _validate_depth(result, fingerprints=fingerprints)
         number_violations = [v for v in violations if "numbers" in v]
         assert len(number_violations) == 0
+
+
+@pytest.mark.unit
+class TestExtractValidationMetrics:
+    """Test regex extraction of numeric metrics from validation prose."""
+
+    def test_r_squared(self):
+        metrics = _extract_validation_metrics("R² = 0.92 on test set")
+        assert len(metrics) == 1
+        assert metrics[0]["name"] == "R²"
+        assert metrics[0]["value"] == "0.92"
+
+    def test_rmse_with_unit(self):
+        metrics = _extract_validation_metrics("RMSE = 3.4 mm on 200 test specimens")
+        names = {m["name"] for m in metrics}
+        assert "RMSE" in names
+        rmse = next(m for m in metrics if m["name"] == "RMSE")
+        assert rmse["value"] == "3.4"
+        assert rmse["unit"] == "mm"
+
+    def test_accuracy_percent(self):
+        metrics = _extract_validation_metrics("accuracy = 95.3%")
+        assert len(metrics) == 1
+        assert metrics[0]["name"] == "Accuracy"
+        assert metrics[0]["value"] == "95.3"
+        assert metrics[0]["unit"] == "%"
+
+    def test_multiple_metrics(self):
+        text = "R² = 0.89, RMSE = 2.1 MPa, MAE = 1.5 MPa on 150 test specimens"
+        metrics = _extract_validation_metrics(text)
+        names = {m["name"] for m in metrics}
+        assert "R²" in names
+        assert "RMSE" in names
+        assert "MAE" in names
+        assert "Test samples" in names
+
+    def test_f1_score(self):
+        metrics = _extract_validation_metrics("F1-score = 0.87 on validation set")
+        assert len(metrics) == 1
+        assert metrics[0]["name"] == "F1"
+        assert metrics[0]["value"] == "0.87"
+
+    def test_auc(self):
+        metrics = _extract_validation_metrics("AUC of 0.95")
+        assert len(metrics) == 1
+        assert metrics[0]["name"] == "AUC"
+        assert metrics[0]["value"] == "0.95"
+
+    def test_bleu(self):
+        metrics = _extract_validation_metrics("BLEU = 32.5")
+        assert len(metrics) == 1
+        assert metrics[0]["name"] == "BLEU"
+        assert metrics[0]["value"] == "32.5"
+
+    def test_test_samples(self):
+        metrics = _extract_validation_metrics("Evaluated on 500 test images")
+        assert len(metrics) == 1
+        assert metrics[0]["name"] == "Test samples"
+        assert metrics[0]["value"] == "500"
+
+    def test_empty_string(self):
+        assert _extract_validation_metrics("") == []
+
+    def test_no_metrics(self):
+        assert _extract_validation_metrics("Validated using cross-validation approach") == []
+
+    def test_deduplication(self):
+        text = "R² = 0.85 and R2 = 0.85 on different splits"
+        metrics = _extract_validation_metrics(text)
+        r2_count = sum(1 for m in metrics if m["name"] == "R²")
+        assert r2_count == 1
+
+    def test_map_metric(self):
+        metrics = _extract_validation_metrics("mAP = 0.412 on COCO")
+        assert len(metrics) == 1
+        assert metrics[0]["name"] == "mAP"
+        assert metrics[0]["value"] == "0.412"
+
+    def test_iou(self):
+        metrics = _extract_validation_metrics("IoU of 0.76")
+        assert len(metrics) == 1
+        assert metrics[0]["name"] == "IoU"
+        assert metrics[0]["value"] == "0.76"
