@@ -232,6 +232,7 @@ Query: {query_text}"""
                 ],
                 temperature=0.1,  # Low temperature for more consistent JSON output
                 timeout=30.0,
+                response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
 

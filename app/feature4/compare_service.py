@@ -1308,6 +1308,7 @@ def _call_llm(
                 messages=messages,
                 temperature=0.2,
                 timeout=90.0,
+                response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
             result, error = extract_json_from_llm_response(

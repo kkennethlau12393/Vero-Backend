@@ -1067,6 +1067,7 @@ def generate_node_details_llm(
                 ],
                 timeout=90.0,
                 temperature=0,
+                response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
 

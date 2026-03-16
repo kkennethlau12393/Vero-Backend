@@ -167,6 +167,7 @@ def _call_groq(prompt: str) -> Optional[Dict[str, Any]]:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
                 max_tokens=1024,
+                response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
 

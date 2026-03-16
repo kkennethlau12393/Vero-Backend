@@ -303,6 +303,7 @@ OUTPUT (JSON only — use the paper IDs exactly as given above):
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=4096,
+                response_format={"type": "json_object"},
             )
 
             content = response.choices[0].message.content.strip()
