@@ -264,8 +264,8 @@ Each gap MUST address a DIFFERENT aspect of the research area. If you find multi
 
 - Each gap must be ACTIONABLE — a researcher should be able to pursue it
 - Reference specific papers from the list as evidence (use work_id)
-- In the description, cite papers using (Author, Year) format. ONLY cite papers that are also listed in your evidence_work_ids — do NOT mention papers that aren't direct evidence for this specific gap
-- NEVER write a paper's title in the prose — just use (Author, Year) as the reference. The title is already shown in the UI.
+- In the description and why_it_matters, cite papers using their work_id in square brackets like [W1234567] or [S2:abc123]. ONLY cite papers that are also listed in your evidence_work_ids. Do NOT use (Author, Year) format — use the work_id markers instead, they will be post-processed into numbered citations.
+- NEVER write a paper's title in the prose — just use [work_id] as the reference. The title is already shown in the UI.
 - Be specific about WHAT is missing, not just that "more research is needed"
 - Consider whether apparent gaps are actually mature/completed areas
 - Do NOT flag early decades having fewer papers as gaps — that is natural field maturation
