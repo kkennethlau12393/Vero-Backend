@@ -874,90 +874,22 @@ def _format_author_str(authors: Any) -> str:
     return str(authors) if authors else "Unknown"
 
 
-def _structure_gap_citations(
-    text: str,
-    evidence: list,
-) -> dict:
-    """Convert (Author, Year) inline citations to numbered (N) refs.
-
-    Returns {"text": str, "citations": [{"ref": 1, "work_id": ..., ...}]}
-    """
-    if not text or not evidence:
-        return {"text": text, "citations": []}
-
-    # Build lookup: multiple keys per evidence paper for fuzzy matching
-    lookup: dict = {}
-    for ev in evidence:
-        year_str = str(ev.year)
-        authors = ev.authors
-
-        lookup[f"{authors}, {year_str}"] = ev
-        lookup[f"{authors} {year_str}"] = ev
-
-        last_name = authors.split()[0].rstrip(",") if authors else ""
-        if last_name and last_name != "Unknown":
-            lookup[f"{last_name}, {year_str}"] = ev
-            lookup[f"{last_name} et al., {year_str}"] = ev
-            lookup[f"{last_name} et al. {year_str}"] = ev
-
-    citation_pattern = re.compile(r'\(([^()]{2,60}?,?\s*\d{4}[a-z]?)\)')
-
-    citations: list = []
-    ref_map: dict = {}
-    ref_counter = [0]
-
-    def _replace(match: re.Match) -> str:
-        cite_text = match.group(1).strip()
-
-        # Direct lookup
-        matched_ev = None
-        for key, ev in lookup.items():
-            if key.lower() in cite_text.lower() or cite_text.lower() in key.lower():
-                matched_ev = ev
-                break
-
-        # Fuzzy: match by year + author last name
-        if not matched_ev:
-            year_match = re.search(r'(\d{4})', cite_text)
-            if year_match:
-                year = year_match.group(1)
-                year_matches = [ev for ev in evidence if str(ev.year) == year]
-                for ev in year_matches:
-                    ev_last = ev.authors.split()[0].rstrip(",").lower()
-                    if ev_last in cite_text.lower():
-                        matched_ev = ev
-                        break
-                if not matched_ev and len(year_matches) == 1:
-                    matched_ev = year_matches[0]
-
-        if not matched_ev:
-            return match.group(0)
-
-        if matched_ev.work_id not in ref_map:
-            ref_counter[0] += 1
-            ref_map[matched_ev.work_id] = ref_counter[0]
-            citations.append({
-                "ref": ref_counter[0],
-                "work_id": matched_ev.work_id,
-                "authors": matched_ev.authors,
-                "year": matched_ev.year,
-                "title": matched_ev.title,
-            })
-
-        return f"({ref_map[matched_ev.work_id]})"
-
-    processed_text = citation_pattern.sub(_replace, text)
-    return {"text": processed_text, "citations": citations}
-
-
 def _structure_gap_citations_continuous(
     description: str,
     why_it_matters: str,
     evidence: list,
 ) -> dict:
-    """Process description and why_it_matters with continuous numbering.
+    """Convert ALL citation forms to continuous numbered (N) refs across
+    description and why_it_matters.
 
-    Returns {"description": str, "why_it_matters": str, "citations": [...]}
+    Matches (in order):
+    1. [WorkID] markers — e.g. [S2:abc123], [W1234567], [AX:1234.5678]
+    2. (WorkID, Year) patterns — e.g. (S2:abc123, 2019)
+    3. Bare work IDs in text — e.g. S2:abc123
+    4. (Author, Year) patterns that match evidence papers
+
+    Returns {"description": str, "why_it_matters": str,
+             "citations": [{"ref": N, "work_id": ..., ...}]}
     """
     if not evidence:
         return {
@@ -966,15 +898,110 @@ def _structure_gap_citations_continuous(
             "citations": [],
         }
 
-    SEP = "\n<<<GAP_SECTION_BREAK>>>\n"
-    combined = (description or "") + SEP + (why_it_matters or "")
-    combined_result = _structure_gap_citations(combined, evidence)
+    # Build evidence lookup
+    ev_by_id: dict = {}
+    ev_by_year: dict = {}
+    for ev in evidence:
+        ev_by_id[ev.work_id] = ev
+        yr = str(ev.year)
+        ev_by_year.setdefault(yr, []).append(ev)
 
-    parts = combined_result["text"].split(SEP)
+    citations: list = []
+    ref_map: dict = {}
+    ref_counter = [0]
+
+    def _get_or_assign_ref(work_id: str):
+        """Get existing ref or assign new one for a work_id."""
+        if work_id not in ref_map:
+            ev = ev_by_id.get(work_id)
+            if not ev:
+                return None
+            ref_counter[0] += 1
+            ref_map[work_id] = ref_counter[0]
+            citations.append({
+                "ref": ref_counter[0],
+                "work_id": ev.work_id,
+                "authors": ev.authors,
+                "year": ev.year,
+                "title": ev.title,
+            })
+        return ref_map[work_id]
+
+    WORK_ID_PAT = r'S2:[a-fA-F0-9]+|W\d+|AX:\d+\.\d+'
+
+    def _process_text(text: str) -> str:
+        if not text:
+            return text
+
+        # Step 1: Replace [WorkID] markers → (N)
+        def _replace_bracketed(m):
+            wid = m.group(1)
+            ref = _get_or_assign_ref(wid)
+            return f"({ref})" if ref else m.group(0)
+
+        text = re.sub(rf'\[({WORK_ID_PAT})\]', _replace_bracketed, text)
+
+        # Step 2: Replace (WorkID, Year) patterns → (N)
+        def _replace_id_year(m):
+            wid = m.group(1)
+            ref = _get_or_assign_ref(wid)
+            return f"({ref})" if ref else m.group(0)
+
+        text = re.sub(
+            rf'\(({WORK_ID_PAT}),?\s*\d{{4}}[a-z]?\)',
+            _replace_id_year, text,
+        )
+
+        # Step 3: Replace bare WorkID references → (N)
+        def _replace_bare_id(m):
+            wid = m.group(0)
+            ref = _get_or_assign_ref(wid)
+            return f"({ref})" if ref else m.group(0)
+
+        text = re.sub(WORK_ID_PAT, _replace_bare_id, text)
+
+        # Step 4: Replace (Author, Year) patterns that match evidence
+        def _replace_author_year(m):
+            cite_text = m.group(1).strip()
+            year_m = re.search(r'(\d{4})', cite_text)
+            if not year_m:
+                return m.group(0)
+            year = year_m.group(1)
+            candidates = ev_by_year.get(year, [])
+
+            for ev in candidates:
+                last_name = (
+                    ev.authors.split()[0].rstrip(",").lower()
+                    if ev.authors and ev.authors != "Unknown" else ""
+                )
+                if last_name and last_name in cite_text.lower():
+                    ref = _get_or_assign_ref(ev.work_id)
+                    return f"({ref})" if ref else m.group(0)
+
+            unassigned = [ev for ev in candidates if ev.work_id not in ref_map]
+            if len(unassigned) == 1:
+                ref = _get_or_assign_ref(unassigned[0].work_id)
+                return f"({ref})" if ref else m.group(0)
+
+            return m.group(0)
+
+        text = re.sub(
+            r'\(([^()]{2,60}?,?\s*\d{4}[a-z]?)\)',
+            _replace_author_year, text,
+        )
+
+        # Step 5: Clean up double-parens
+        text = re.sub(r'\(\((\d+)\)\)', r'(\1)', text)
+
+        return text
+
+    processed_desc = _process_text(description)
+    processed_why = _process_text(why_it_matters)
+
     return {
-        "description": parts[0] if len(parts) > 0 else description,
-        "why_it_matters": parts[1] if len(parts) > 1 else why_it_matters,
-        "citations": combined_result["citations"],
+        "description": processed_desc,
+        "why_it_matters": processed_why,
+        "citations": citations,
     }
 
 
