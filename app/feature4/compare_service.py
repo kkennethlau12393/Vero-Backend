@@ -911,6 +911,37 @@ def _scrub_complement_titles(synthesis: Dict[str, Any]) -> Dict[str, Any]:
     return synthesis
 
 
+def _strip_inline_citations(synthesis: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip redundant inline citations from synthesis text fields.
+
+    Users already see which paper is on each side, so (Author, Year) and
+    [WorkID] markers in prose are noise.  Removes them from all free-text
+    fields in convergence_divergence, strengths_weaknesses_matrix, and
+    recommendation.
+    """
+    # Patterns: [W1234567], [S2:abc], (Author et al., 2020), (Author, 2020)
+    _cite_re = re.compile(
+        r'\s*\[(?:S2:[a-fA-F0-9]+|W\d+|AX:\d+\.\d+)\]'       # [WorkID]
+        r'|\s*\((?:[A-Z][a-z]+(?:\s+(?:et\s+al\.|&\s+[A-Z][a-z]+))?'
+        r',?\s*\d{4}[a-z]?)\)'                                  # (Author, Year)
+    )
+
+    def _clean(val):
+        if isinstance(val, str):
+            return _cite_re.sub('', val).strip()
+        if isinstance(val, list):
+            return [_clean(item) for item in val]
+        if isinstance(val, dict):
+            return {k: _clean(v) for k, v in val.items()}
+        return val
+
+    for key in ("convergence_divergence", "strengths_weaknesses_matrix", "recommendation"):
+        if key in synthesis:
+            synthesis[key] = _clean(synthesis[key])
+
+    return synthesis
+
+
 _SHALLOW_PATTERN = _re.compile(
     r'(provides? (?:a |the )?(?:method|way|approach|technique|means)\b|'
     r'(?:increased?|reduced?|improved?|better|worse) (?:computational|performance|quality|efficiency)\b|'
@@ -2353,10 +2384,12 @@ def _run_comparison_pipeline(
         has_survey=has_survey, low_overlap=low_overlap,
     )
 
-    # 5. Normalize work_ids, scrub self-references, and clean complement titles
+    # 5. Normalize work_ids, scrub self-references, clean complement titles,
+    #    and strip redundant inline citations (users already see which paper is which)
     synthesis = _normalize_work_ids(synthesis)
     synthesis = _scrub_self_references(synthesis)
     synthesis = _scrub_complement_titles(synthesis)
+    synthesis = _strip_inline_citations(synthesis)
 
     # 4b. Validate strengths_weaknesses_matrix completeness
     if synthesis:
