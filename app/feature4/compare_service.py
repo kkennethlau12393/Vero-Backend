@@ -911,35 +911,78 @@ def _scrub_complement_titles(synthesis: Dict[str, Any]) -> Dict[str, Any]:
     return synthesis
 
 
-def _strip_inline_citations(synthesis: Dict[str, Any]) -> Dict[str, Any]:
-    """Strip redundant inline citations from synthesis text fields.
+def _replace_work_ids_in_text(text: str, paper_index: Dict[str, int]) -> str:
+    """Replace work_id references in text with [N] numbered markers.
 
-    Users already see which paper is on each side, so (Author, Year) and
-    [WorkID] markers in prose are noise.  Removes them from all free-text
-    fields in convergence_divergence, strengths_weaknesses_matrix, and
-    recommendation.
+    Handles bare work IDs (W1234567, S2:abc123) and bracketed [WorkID].
+    Also strips (Author, Year) citations since users already see which paper
+    is which from the numbered markers.
     """
-    # Patterns: [W1234567], [S2:abc], (Author et al., 2020), (Author, 2020)
-    _cite_re = re.compile(
-        r'\s*\[(?:S2:[a-fA-F0-9]+|W\d+|AX:\d+\.\d+)\]'       # [WorkID]
-        r'|\s*\((?:[A-Z][a-z]+(?:\s+(?:et\s+al\.|&\s+[A-Z][a-z]+))?'
-        r',?\s*\d{4}[a-z]?)\)'                                  # (Author, Year)
+    if not text or not paper_index:
+        return text
+
+    # Sort by length descending to match longer IDs first
+    sorted_ids = sorted(paper_index.keys(), key=len, reverse=True)
+
+    for wid in sorted_ids:
+        num = paper_index[wid]
+        text = text.replace(f"[{wid}]", f"[{num}]")
+        text = re.sub(re.escape(wid) + r'(?![a-fA-F0-9])', f"[{num}]", text)
+
+    # Strip remaining (Author, Year) citations
+    text = re.sub(
+        r'\s*\((?:[A-Z][a-z]+(?:\s+(?:et\s+al\.|&\s+[A-Z][a-z]+))?'
+        r',?\s*\d{4}[a-z]?)\)',
+        '', text,
     )
 
-    def _clean(val):
-        if isinstance(val, str):
-            return _cite_re.sub('', val).strip()
-        if isinstance(val, list):
-            return [_clean(item) for item in val]
-        if isinstance(val, dict):
-            return {k: _clean(v) for k, v in val.items()}
-        return val
+    return text.strip()
 
-    for key in ("convergence_divergence", "strengths_weaknesses_matrix", "recommendation"):
-        if key in synthesis:
-            synthesis[key] = _clean(synthesis[key])
 
-    return synthesis
+def _post_process_citations(
+    response: "MethodologyComparisonResponse",
+) -> "MethodologyComparisonResponse":
+    """Replace all work_id references in text fields with [N] numbered markers."""
+    idx = response.paper_index
+    if not idx:
+        return response
+
+    _r = _replace_work_ids_in_text
+
+    # Convergence & Divergence
+    cd = response.convergence_divergence
+    if cd:
+        if cd.common_problem:
+            cd.common_problem.challenge = _r(cd.common_problem.challenge, idx)
+            cd.common_problem.why_hard = _r(cd.common_problem.why_hard, idx)
+        for p in cd.paradigms:
+            p.mechanism = _r(p.mechanism, idx)
+            p.philosophy = _r(p.philosophy, idx)
+            p.papers = [f"[{idx[pid]}]" if pid in idx else pid for pid in p.papers]
+        cd.divergence_summary = _r(cd.divergence_summary, idx)
+
+    # Strengths & Weaknesses
+    for sw in response.strengths_weaknesses_matrix:
+        for h in sw.handles_well:
+            h.mechanism = _r(h.mechanism, idx)
+            h.evidence = _r(h.evidence, idx)
+        for s in sw.struggles_with:
+            s.cause = _r(s.cause, idx)
+            s.consequence = _r(s.consequence, idx)
+        for c in sw.complemented_by:
+            c.coverage = _r(c.coverage, idx)
+
+    # Recommendation
+    rec = response.recommendation
+    if rec:
+        rec.summary = _r(rec.summary, idx)
+        for d in rec.decision_matrix:
+            d.use = _r(d.use, idx)
+            d.why = _r(d.why, idx)
+        if rec.combination_notes:
+            rec.combination_notes = _r(rec.combination_notes, idx)
+
+    return response
 
 
 _SHALLOW_PATTERN = _re.compile(
@@ -2384,12 +2427,10 @@ def _run_comparison_pipeline(
         has_survey=has_survey, low_overlap=low_overlap,
     )
 
-    # 5. Normalize work_ids, scrub self-references, clean complement titles,
-    #    and strip redundant inline citations (users already see which paper is which)
+    # 5. Normalize work_ids, scrub self-references, clean complement titles
     synthesis = _normalize_work_ids(synthesis)
     synthesis = _scrub_self_references(synthesis)
     synthesis = _scrub_complement_titles(synthesis)
-    synthesis = _strip_inline_citations(synthesis)
 
     # 4b. Validate strengths_weaknesses_matrix completeness
     if synthesis:
@@ -2560,9 +2601,13 @@ def _run_comparison_pipeline(
     }
     referenced_works = _build_referenced_works(conn, response_dict_for_refs)
 
+    # Build paper_index: work_id → 1-based number
+    paper_index = {wid: i + 1 for i, wid in enumerate(work_ids)}
+
     response = MethodologyComparisonResponse(
         work_ids=work_ids,
         papers=paper_profiles,
+        paper_index=paper_index,
         referenced_works=referenced_works,
         lineage=lineage,
         convergence_divergence=convergence_divergence,
@@ -2570,6 +2615,9 @@ def _run_comparison_pipeline(
         recommendation=recommendation,
         confidence=confidence,
     )
+
+    # Post-process: replace work_ids with [N] numbered markers in text fields
+    response = _post_process_citations(response)
 
     # 7. Cache (volatile + persistent)
     result_dump = response.model_dump()

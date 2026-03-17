@@ -194,6 +194,7 @@ class MethodologyComparisonResponse(BaseModel):
 
     work_ids: list[str]
     papers: list[PaperMethodProfile]
+    paper_index: dict[str, int] = {}  # work_id → 1-based number, e.g. {"W123": 1, "W456": 2}
     referenced_works: dict[str, str] = {}  # work_id -> title for external papers mentioned
     lineage: CitationLineage
     convergence_divergence: ConvergenceDivergence
