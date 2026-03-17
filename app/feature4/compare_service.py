@@ -2475,16 +2475,7 @@ def _run_comparison_pipeline(
             challenge=common_prob_data.get("challenge", "Unknown"),
             why_hard=common_prob_data.get("why_hard", "Unknown"),
         ),
-        paradigms=[
-            Paradigm(
-                name=p.get("name", "Unknown"),
-                papers=p.get("papers", []),
-                mechanism=p.get("mechanism", "Unknown"),
-                philosophy=p.get("philosophy", "Unknown"),
-            )
-            for p in conv_div_data.get("paradigms", [])
-            if isinstance(p, dict)
-        ],
+        paradigms=[],  # Omitted — fingerprint cards already show each paper's approach
         divergence_summary=conv_div_data.get("divergence_summary", ""),
     )
 
