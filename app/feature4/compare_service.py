@@ -386,7 +386,8 @@ def _validate_work_ids_in_rank_results(
     """
     Verify all work_ids belong to a rank job's results. Returns metadata dict keyed by work_id.
     Raises ValueError if any work_id is missing from rank_results.
-    Falls back to external API for S2/AX papers not in the works table.
+    Falls back to workspaces.rank_result JSON for legacy workspaces,
+    and to external API for S2/AX papers not in the works table.
     """
     rows = conn.execute(
         sa_text("""
@@ -402,9 +403,41 @@ def _validate_work_ids_in_rank_results(
 
     found = {row["work_id"]: dict(row) for row in rows}
 
+    # Legacy fallback: check workspaces.rank_result JSON
+    if len(found) < len(work_ids):
+        ws = conn.execute(
+            sa_text("""
+                SELECT rank_result FROM workspaces
+                WHERE rank_result->>'rankJobId' = :rjid
+                LIMIT 1
+            """),
+            {"rjid": rank_job_id},
+        ).mappings().first()
+
+        if ws:
+            rr = ws["rank_result"]
+            if isinstance(rr, str):
+                rr = json.loads(rr)
+
+            for cat in rr.get("categories", []):
+                for paper in cat.get("papers", []):
+                    pid = paper.get("id") or paper.get("work_id")
+                    if pid and pid in work_ids and pid not in found:
+                        found[pid] = {
+                            "work_id": pid,
+                            "title": paper.get("title"),
+                            "year": paper.get("year"),
+                            "venue": paper.get("venue"),
+                            "cited_by_count": paper.get("citations"),
+                            "doi": paper.get("doi"),
+                            "arxiv_id": None,
+                            "abstract": paper.get("abstract"),
+                            "referenced_works_json": None,
+                        }
+
     # Backfill S2/AX papers missing from works table
     for wid, meta in found.items():
-        if meta["title"] is None and (wid.startswith("S2:") or wid.startswith("AX:")):
+        if meta.get("title") is None and (wid.startswith("S2:") or wid.startswith("AX:")):
             from app.feature3.node_details_service import _fetch_external_work_data
             ext = _fetch_external_work_data(wid)
             if ext:
