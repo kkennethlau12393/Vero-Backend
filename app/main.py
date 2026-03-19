@@ -23,6 +23,7 @@ from app.common.decomposition_api import router as decomposition_router
 from app.tags.tags_api import router as tags_router
 from app.admin.admin_api import router as admin_router
 from app.admin.analytics_api import router as analytics_router
+from app.admin.stripe_api import router as stripe_admin_router
 
 app = FastAPI()
 app.add_middleware(
@@ -47,6 +48,7 @@ app.include_router(decomposition_router)
 app.include_router(tags_router)
 app.include_router(admin_router)
 app.include_router(analytics_router)
+app.include_router(stripe_admin_router)
 
 @app.get("/test")
 async def test():
