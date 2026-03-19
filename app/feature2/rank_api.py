@@ -44,6 +44,7 @@ from app.feature2.schemas import (
     TemporalPaper,
 )
 from app.feature2.rank_service import direct_rank_prod
+from app.feature2.repos import verify_rank_job_access, verify_work_in_rank_job, get_legacy_work_ids
 from app.feature2.subtopic_service import generate_subtopics
 from app.feature2.temporal_map_service import build_temporal_map
 from app.feature2.title_to_query import extract_display_title, generate_topic_query_from_title
@@ -655,30 +656,18 @@ def rank_novelty_endpoint(
                 require_credits(conn, user_id, 0.25, "feature_3_novelty", {"rank_job_id": str(rank_job_id), "work_id": work_id})
 
         with engine.connect() as conn:
-            # Verify rank job exists and belongs to tenant
-            job_row = conn.execute(
-                sql_text("""
-                    SELECT rank_job_id FROM rank_jobs
-                    WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
-                """),
-                {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
-            ).first()
-
-            if not job_row:
+            # Verify rank job exists and belongs to tenant (supports legacy workspaces)
+            try:
+                source = verify_rank_job_access(conn, rank_job_id, tenant_id)
+            except ValueError:
                 raise HTTPException(status_code=404, detail="rank_job_not_found")
+            except PermissionError:
+                raise HTTPException(status_code=403, detail="rank_job_wrong_tenant")
 
-            # Verify work_id is in this job's results
-            work_row = conn.execute(
-                sql_text("""
-                    SELECT 1 FROM rank_results
-                    WHERE rank_job_id = :rank_job_id AND work_id = :work_id
-                    LIMIT 1
-                """),
-                {"rank_job_id": rank_job_id, "work_id": work_id},
-            ).first()
-
-            if not work_row:
-                raise HTTPException(status_code=404, detail="work_not_in_rank_results")
+            try:
+                verify_work_in_rank_job(conn, rank_job_id, work_id, source)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
 
         # Delegate to Feature 3 novelty pipeline
         from app.feature3.node_details_service import get_novelty_for_work
@@ -754,30 +743,18 @@ def rank_timeline_endpoint(
                 require_credits(conn, user_id, 0.25, "feature_3_timeline", {"rank_job_id": str(rank_job_id), "work_id": work_id})
 
         with engine.connect() as conn:
-            # Verify rank job exists and belongs to tenant
-            job_row = conn.execute(
-                sql_text("""
-                    SELECT rank_job_id FROM rank_jobs
-                    WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
-                """),
-                {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
-            ).first()
-
-            if not job_row:
+            # Verify rank job exists and belongs to tenant (supports legacy workspaces)
+            try:
+                source = verify_rank_job_access(conn, rank_job_id, tenant_id)
+            except ValueError:
                 raise HTTPException(status_code=404, detail="rank_job_not_found")
+            except PermissionError:
+                raise HTTPException(status_code=403, detail="rank_job_wrong_tenant")
 
-            # Verify work_id is in this job's results
-            work_row = conn.execute(
-                sql_text("""
-                    SELECT 1 FROM rank_results
-                    WHERE rank_job_id = :rank_job_id AND work_id = :work_id
-                    LIMIT 1
-                """),
-                {"rank_job_id": rank_job_id, "work_id": work_id},
-            ).first()
-
-            if not work_row:
-                raise HTTPException(status_code=404, detail="work_not_in_rank_results")
+            try:
+                verify_work_in_rank_job(conn, rank_job_id, work_id, source)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
 
             # Check persistent storage
             cached_row = conn.execute(
@@ -872,17 +849,13 @@ def rank_compare_methodologies_endpoint(
                 require_credits(conn, user_id, 0.25, "feature_4", {"rank_job_id": str(rank_job_id)})
 
         with engine.connect() as conn:
-            # Verify rank job exists and belongs to tenant
-            job_row = conn.execute(
-                sql_text("""
-                    SELECT rank_job_id FROM rank_jobs
-                    WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
-                """),
-                {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
-            ).first()
-
-            if not job_row:
+            # Verify rank job exists and belongs to tenant (supports legacy workspaces)
+            try:
+                verify_rank_job_access(conn, rank_job_id, tenant_id)
+            except ValueError:
                 raise HTTPException(status_code=404, detail="rank_job_not_found")
+            except PermissionError:
+                raise HTTPException(status_code=403, detail="rank_job_wrong_tenant")
 
         result = compare_methodologies_for_rank_job(
             engine=engine,
@@ -930,28 +903,27 @@ def get_rank_novelty_assessments(
     from sqlalchemy import text as sql_text
 
     with engine.connect() as conn:
-        # Verify rank job exists and belongs to tenant
-        job_row = conn.execute(
-            sql_text("""
-                SELECT rank_job_id FROM rank_jobs
-                WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
-            """),
-            {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
-        ).first()
-
-        if not job_row:
+        # Verify rank job exists and belongs to tenant (supports legacy workspaces)
+        try:
+            source = verify_rank_job_access(conn, rank_job_id, tenant_id)
+        except ValueError:
             raise HTTPException(status_code=404, detail="rank_job_not_found")
+        except PermissionError:
+            raise HTTPException(status_code=403, detail="rank_job_wrong_tenant")
 
         # Get all work_ids in this rank job
-        work_id_rows = conn.execute(
-            sql_text("""
-                SELECT work_id FROM rank_results
-                WHERE rank_job_id = :rank_job_id
-            """),
-            {"rank_job_id": rank_job_id},
-        ).mappings().all()
+        if source == "table":
+            work_id_rows = conn.execute(
+                sql_text("""
+                    SELECT work_id FROM rank_results
+                    WHERE rank_job_id = :rank_job_id
+                """),
+                {"rank_job_id": rank_job_id},
+            ).mappings().all()
+            wids = [r["work_id"] for r in work_id_rows]
+        else:
+            wids = get_legacy_work_ids(conn, rank_job_id)
 
-        wids = [r["work_id"] for r in work_id_rows]
         if not wids:
             return {"assessments": {}}
 
@@ -1001,17 +973,13 @@ def get_rank_methodology_comparisons(
     from sqlalchemy import text as sql_text
 
     with engine.connect() as conn:
-        # Verify rank job exists and belongs to tenant
-        job_row = conn.execute(
-            sql_text("""
-                SELECT rank_job_id FROM rank_jobs
-                WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
-            """),
-            {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
-        ).first()
-
-        if not job_row:
+        # Verify rank job exists and belongs to tenant (supports legacy workspaces)
+        try:
+            verify_rank_job_access(conn, rank_job_id, tenant_id)
+        except ValueError:
             raise HTTPException(status_code=404, detail="rank_job_not_found")
+        except PermissionError:
+            raise HTTPException(status_code=403, detail="rank_job_wrong_tenant")
 
         rows = conn.execute(
             sql_text("""
@@ -1048,17 +1016,13 @@ def get_rank_timelines(
     from sqlalchemy import text as sql_text
 
     with engine.connect() as conn:
-        # Verify rank job exists and belongs to tenant
-        job_row = conn.execute(
-            sql_text("""
-                SELECT rank_job_id FROM rank_jobs
-                WHERE rank_job_id = :rank_job_id AND tenant_id = :tenant_id
-            """),
-            {"rank_job_id": rank_job_id, "tenant_id": tenant_id},
-        ).first()
-
-        if not job_row:
+        # Verify rank job exists and belongs to tenant (supports legacy workspaces)
+        try:
+            verify_rank_job_access(conn, rank_job_id, tenant_id)
+        except ValueError:
             raise HTTPException(status_code=404, detail="rank_job_not_found")
+        except PermissionError:
+            raise HTTPException(status_code=403, detail="rank_job_wrong_tenant")
 
         # Fetch all persisted timelines with paper metadata
         rows = conn.execute(

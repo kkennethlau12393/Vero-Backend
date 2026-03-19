@@ -534,4 +534,130 @@ class RankRepo:
         return dict(row) if row else None
 
 
+# ---------------------------------------------------------------------------
+# Standalone helpers — legacy workspace fallback
+# ---------------------------------------------------------------------------
 
+def verify_rank_job_access(
+    conn: Connection, rank_job_id, tenant_id,
+) -> str:
+    """Verify rank job exists and belongs to tenant.
+
+    Returns ``"table"`` if found in ``rank_jobs``, ``"legacy"`` if found in
+    ``workspaces.rank_result`` JSON.
+
+    Raises:
+        ValueError  – rank_job_not_found
+        PermissionError – rank_job_wrong_tenant
+    """
+    import json as _json
+
+    hdr = conn.execute(
+        text("""
+            SELECT rank_job_id, tenant_id FROM rank_jobs
+            WHERE rank_job_id = :id LIMIT 1
+        """),
+        {"id": rank_job_id},
+    ).mappings().first()
+
+    if hdr:
+        if str(hdr["tenant_id"]) != str(tenant_id):
+            raise PermissionError("rank_job_wrong_tenant")
+        return "table"
+
+    # Fallback: legacy workspaces store rank_job_id inside rank_result JSON
+    ws = conn.execute(
+        text("""
+            SELECT owner_user_id FROM workspaces
+            WHERE rank_result->>'rankJobId' = :rjid
+            LIMIT 1
+        """),
+        {"rjid": str(rank_job_id)},
+    ).mappings().first()
+
+    if not ws:
+        raise ValueError("rank_job_not_found")
+
+    if str(ws["owner_user_id"]) != str(tenant_id):
+        raise PermissionError("rank_job_wrong_tenant")
+
+    return "legacy"
+
+
+def verify_work_in_rank_job(
+    conn: Connection, rank_job_id, work_id: str, source: str,
+) -> bool:
+    """Verify *work_id* belongs to a rank job.
+
+    *source* should be ``"table"`` or ``"legacy"`` (from
+    :func:`verify_rank_job_access`).
+
+    Raises ``ValueError`` if the work is not found.
+    """
+    import json as _json
+
+    if source == "table":
+        row = conn.execute(
+            text("""
+                SELECT 1 FROM rank_results
+                WHERE rank_job_id = :rank_job_id AND work_id = :work_id
+                LIMIT 1
+            """),
+            {"rank_job_id": rank_job_id, "work_id": work_id},
+        ).first()
+        if not row:
+            raise ValueError("work_not_in_rank_results")
+        return True
+
+    # Legacy: search categories[].papers[].id
+    ws = conn.execute(
+        text("""
+            SELECT rank_result FROM workspaces
+            WHERE rank_result->>'rankJobId' = :rjid
+            LIMIT 1
+        """),
+        {"rjid": str(rank_job_id)},
+    ).mappings().first()
+
+    if not ws:
+        raise ValueError("rank_job_not_found")
+
+    rr = ws["rank_result"]
+    if isinstance(rr, str):
+        rr = _json.loads(rr)
+
+    for cat in rr.get("categories", []):
+        for paper in cat.get("papers", []):
+            if paper.get("id") == work_id or paper.get("work_id") == work_id:
+                return True
+
+    raise ValueError("work_not_in_rank_results")
+
+
+def get_legacy_work_ids(conn: Connection, rank_job_id) -> list[str]:
+    """Return all work_ids from a legacy workspace's rank_result JSON."""
+    import json as _json
+
+    ws = conn.execute(
+        text("""
+            SELECT rank_result FROM workspaces
+            WHERE rank_result->>'rankJobId' = :rjid
+            LIMIT 1
+        """),
+        {"rjid": str(rank_job_id)},
+    ).mappings().first()
+
+    if not ws:
+        return []
+
+    rr = ws["rank_result"]
+    if isinstance(rr, str):
+        rr = _json.loads(rr)
+
+    wids: list[str] = []
+    for cat in rr.get("categories", []):
+        for paper in cat.get("papers", []):
+            pid = paper.get("id") or paper.get("work_id")
+            if pid:
+                wids.append(pid)
+    return wids
