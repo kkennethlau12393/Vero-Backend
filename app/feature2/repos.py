@@ -568,7 +568,7 @@ def verify_rank_job_access(
     # Fallback: legacy workspaces store rank_job_id inside rank_result JSON
     ws = conn.execute(
         text("""
-            SELECT owner_user_id FROM workspaces
+            SELECT workspace_id FROM workspaces
             WHERE rank_result->>'rankJobId' = :rjid
             LIMIT 1
         """),
@@ -578,7 +578,7 @@ def verify_rank_job_access(
     if not ws:
         raise ValueError("rank_job_not_found")
 
-    if str(ws["owner_user_id"]) != str(tenant_id):
+    if str(ws["workspace_id"]) != str(tenant_id):
         raise PermissionError("rank_job_wrong_tenant")
 
     return "legacy"
