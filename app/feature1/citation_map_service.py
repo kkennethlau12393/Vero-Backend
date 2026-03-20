@@ -3845,14 +3845,13 @@ CRITICAL: Every paper ID (0 through {len(paper_list) - 1}) must appear in exactl
     for attempt in range(3):
         try:
             resp = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model="llama-3.3-70b-versatile",
                 messages=[
                     {"role": "system", "content": "You are a research librarian. Return only valid JSON. Respond in English only. No markdown code blocks."},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.3,
                 timeout=60.0,
-                response_format={"type": "json_object"},
             )
             content = (resp.choices[0].message.content or "").strip()
 
