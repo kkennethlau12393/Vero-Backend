@@ -227,5 +227,6 @@ class DirectRankResponse(BaseModel):
     job: dict[str, Any]
     query_classification: Optional[QueryClassificationResponse] = None
     convergence: Optional[ConvergenceInfo] = None
+    topic_brief: Optional[dict[str, Any]] = None
     # Flat ranked list of papers
     items: list[RankedItem] = []
