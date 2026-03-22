@@ -961,6 +961,28 @@ def direct_rank_prod(
                 "scoring": item.get("breakdown", {}).get("scoring"),
             }
 
+        # ── Topic Brief ──
+        topic_brief = None
+        try:
+            from app.common.topic_brief_service import generate_topic_brief
+
+            brief_papers = []
+            for item in ranked_items[:15]:
+                brief_papers.append({
+                    "work_id": item.get("work_id", ""),
+                    "title": item.get("title", ""),
+                    "authors": item.get("authors", ""),
+                    "year": item.get("year", None),
+                    "abstract": item.get("abstract", ""),
+                })
+            topic_brief = generate_topic_brief(
+                query=query_text,
+                papers=brief_papers,
+                feature="ranked_list",
+            )
+        except Exception as e:
+            logger.warning(f"Topic brief generation failed: {e}")
+
         # Assemble flat list response
         return {
             "rank_job_id": rank_job_id,
@@ -979,6 +1001,7 @@ def direct_rank_prod(
                 "query_specificity": query_classification.query_specificity.value,
             },
             "convergence": convergence_info,
+            "topic_brief": topic_brief,
             "items": [
                 _format_item(item, idx) for idx, item in enumerate(ranked_items[:top_k])
             ],
