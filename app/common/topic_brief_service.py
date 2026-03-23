@@ -36,7 +36,7 @@ def generate_topic_brief(
     -------
     dict with keys:
         - overview (str): Main synthesis paragraph with [N] citations
-        - sections (list[dict]): Two sections, each with:
+        - sections (list[dict]): Three sections, each with:
             - title (str): Dynamic, query-specific section title
             - content (str): 2-4 sentence paragraph with [N] citations
         - citations (list[dict]): Ordered list of {index, work_id, title, authors, year}
@@ -80,7 +80,7 @@ def generate_topic_brief(
             "Frame the brief as a synthesis of what these top papers collectively reveal about the topic."
         )
 
-    prompt = f"""You are an expert research synthesizer. Given a user's research query and the top {len(top_papers)} papers retrieved, write a structured topic brief.
+    prompt = f"""You are an expert research synthesizer writing a review of a research area. Given a user's query and the top {len(top_papers)} papers, write a structured topic brief.
 
 {feature_context}
 
@@ -89,38 +89,37 @@ USER QUERY: {query}
 PAPERS:
 {papers_text}
 
-Write exactly THREE parts. Use inline citations like [1], [2], etc. referencing the paper numbers above. Every factual claim must be cited. Cite MULTIPLE papers where relevant (e.g., [1, 3, 7]).
+Write exactly FOUR parts: one overview and three sections. Use inline citations like [1], [2], etc. referencing the paper numbers above. Every factual claim must be cited.
 
 Respond in this exact JSON format:
 {{
-    "overview": "A 4-6 sentence paragraph giving a high-level synthesis of this research area. What is it about? Why does it matter? What are the main threads? What has been achieved? Must include citations.",
+    "overview": "A 5-7 sentence paragraph synthesizing what this research area is about, why it matters, and the major threads of work. Write with authority as if introducing the field to an informed reader.",
     "sections": [
         {{
-            "title": "A short, specific, dynamic title that captures the core technical theme of these papers (e.g., 'Cas9 Engineering & Guide RNA Design' not 'Key Concepts')",
-            "content": "A 3-4 sentence paragraph exploring this theme in depth. Reference specific methods, findings, and frameworks from the papers. Must include citations."
+            "title": "A short, specific title capturing the core technical methods and concepts (e.g., 'Cas9 Engineering & Guide RNA Optimization' not 'Key Concepts')",
+            "content": "A 5-6 sentence paragraph exploring the foundational methods, architectures, or frameworks. Reference specific techniques, formulations, and findings."
         }},
         {{
-            "title": "A short, specific, dynamic title that captures where the field is heading (e.g., 'Beyond Cas9: Base Editing & Prime Editing Frontiers' not 'Current State')",
-            "content": "A 3-4 sentence paragraph on recent developments, active debates, emerging techniques, or open challenges. Must include citations."
+            "title": "A short, specific title capturing recent results and emerging techniques (e.g., 'Base Editing & Prime Editing Frontiers' not 'Recent Developments')",
+            "content": "A 5-6 sentence paragraph on key results, breakthroughs, and newer approaches. Reference specific experimental outcomes, performance gains, or novel formulations."
+        }},
+        {{
+            "title": "A short, specific title capturing open problems and future directions (e.g., 'Off-Target Effects & In Vivo Delivery Barriers' not 'Challenges')",
+            "content": "A 5-6 sentence paragraph on active debates, unresolved challenges, and promising directions. Reference specific limitations identified and proposed solutions."
         }}
     ]
 }}
 
 Rules:
-- The overview should be substantive — a full paragraph that someone could read and understand the field
-- Section titles MUST be specific to the query topic — never use generic titles like "Key Concepts", "Current State", "Recent Developments", "Core Methodologies", or "Future Directions"
-- Good title examples: "Diffusion Model Architectures & Sampling Strategies", "From Supervised to Self-Supervised: The Pretraining Paradigm Shift", "Immunotherapy Resistance Mechanisms & Combination Strategies"
-- Bad title examples: "Key Technical Concepts", "Current State of the Field", "Recent Advances"
-- Write in clear, authoritative academic prose
-- Every sentence must cite at least one paper
-- Use [N] format for citations, where N matches the paper number
-- Be specific — reference actual findings, methods, and results from the papers
-- Do NOT use generic filler phrases like "various studies have shown"
-- NEVER cite more than 3-4 papers in a single claim — mass-citing every paper means you're being lazy
-- Only cite a paper when you reference something SPECIFIC from its title or abstract
-- If a paper has no abstract provided, you may still cite it by title/year but only when directly relevant
-- Each citation should ADD information — don't cite papers that say the same thing as ones you've already cited
-- Keep each section concise but dense with insight"""
+- Write as if authoring a review article, not commenting on a paper collection. Never say "the papers", "this set", "the corpus", "a subset of papers", "across the collection", "the top papers", "empirical comparisons in the corpus", or any similar meta-commentary. The reader should feel they are learning about the topic, not reading an analysis of a reading list.
+- Weave citations naturally into claims about the field. Good: "Message-passing networks iteratively update node features by aggregating neighborhood information [1, 3], with attention-weighted variants improving performance on relational tasks [4]." Bad: "Several papers in this set develop message-passing formulations [1, 3, 4]."
+- Section titles MUST be specific to the query topic — never use generic titles like "Key Concepts", "Current State", "Recent Developments", "Core Methodologies", "Challenges", or "Future Directions"
+- NEVER cite more than 4 papers in a single claim — each citation should add distinct information
+- Only cite a paper when you reference something specific from it
+- Each citation should add information — don't cite papers that say the same thing as ones already cited
+- Be specific — reference actual methods, findings, metrics, and results
+- Do NOT use generic filler phrases like "various studies have shown" or "research has demonstrated"
+- Every sentence must include at least one citation"""
 
     try:
         client = get_openai_client()
@@ -131,7 +130,7 @@ Rules:
                 {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
-            max_completion_tokens=8000,
+            max_completion_tokens=16000,
         )
 
         content = response.choices[0].message.content
@@ -150,15 +149,14 @@ Rules:
 
         # Validate sections
         sections = brief_data.get("sections", [])
-        if not isinstance(sections, list) or len(sections) < 2:
-            sections = [
-                {"title": "Key Themes", "content": sections[0].get("content", "") if sections else ""},
-                {"title": "Recent Developments", "content": sections[1].get("content", "") if len(sections) > 1 else ""},
-            ]
+        if not isinstance(sections, list) or len(sections) < 3:
+            # Pad to 3 if LLM returned fewer
+            while len(sections) < 3:
+                sections.append({"title": "", "content": ""})
 
         return {
             "overview": brief_data.get("overview", ""),
-            "sections": sections[:2],
+            "sections": sections[:3],
             "citations": citations,
         }
 
