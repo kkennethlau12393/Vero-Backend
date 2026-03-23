@@ -319,6 +319,29 @@ def direct_rank_prod(
                     # Return cached results as flat list
                     cached_query_class = classify_query(tx, query_text)
                     top_k = rank_params_json.get("top_k", 50)
+
+                    # Generate topic brief for cached results
+                    topic_brief = None
+                    try:
+                        from app.common.topic_brief_service import generate_topic_brief
+                        brief_papers = []
+                        for it in items[:15]:
+                            preview = it.get("preview", {})
+                            brief_papers.append({
+                                "work_id": it.get("work_id", ""),
+                                "title": preview.get("title", ""),
+                                "authors": preview.get("authors", ""),
+                                "year": preview.get("year", None),
+                                "abstract": preview.get("abstract", ""),
+                            })
+                        topic_brief = generate_topic_brief(
+                            query=query_text,
+                            papers=brief_papers,
+                            feature="ranked_list",
+                        )
+                    except Exception:
+                        pass
+
                     return {
                         "rank_job_id": rank_job_id,
                         "job": loaded.get("job", {}),
@@ -327,6 +350,7 @@ def direct_rank_prod(
                             "confidence": cached_query_class.confidence,
                             "query_specificity": cached_query_class.query_specificity.value if cached_query_class.query_specificity else None,
                         },
+                        "topic_brief": topic_brief,
                         "items": [
                             {
                                 "rank_index": idx,
@@ -343,7 +367,7 @@ def direct_rank_prod(
                         ],
                     }
             else:
-                return {"rank_job_id": rank_job_id, **loaded}
+                return {"rank_job_id": rank_job_id, "topic_brief": None, **loaded}
         if not created_new and status in ("pending", "running"):
             return {
                 "rank_job_id": rank_job_id,
@@ -968,12 +992,13 @@ def direct_rank_prod(
 
             brief_papers = []
             for item in ranked_items[:15]:
+                preview = item.get("preview", {})
                 brief_papers.append({
                     "work_id": item.get("work_id", ""),
-                    "title": item.get("title", ""),
-                    "authors": item.get("authors", ""),
-                    "year": item.get("year", None),
-                    "abstract": item.get("abstract", ""),
+                    "title": preview.get("title", ""),
+                    "authors": preview.get("authors", ""),
+                    "year": preview.get("year", None),
+                    "abstract": preview.get("abstract", ""),
                 })
             topic_brief = generate_topic_brief(
                 query=query_text,

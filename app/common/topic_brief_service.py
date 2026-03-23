@@ -44,7 +44,10 @@ def generate_topic_brief(
     if not papers:
         return None
 
-    top_papers = papers[:max_papers]
+    top_papers = [p for p in papers[:max_papers] if p.get("abstract") and len(p.get("abstract", "")) > 50]
+    if len(top_papers) < 3:
+        logger.info(f"Topic brief skipped: only {len(top_papers)} papers with abstracts")
+        return None
 
     # Build paper context for prompt
     paper_context = []
@@ -113,6 +116,10 @@ Rules:
 - Use [N] format for citations, where N matches the paper number
 - Be specific — reference actual findings, methods, and results from the papers
 - Do NOT use generic filler phrases like "various studies have shown"
+- NEVER cite more than 3-4 papers in a single claim — mass-citing every paper means you're being lazy
+- Only cite a paper when you reference something SPECIFIC from its title or abstract
+- If a paper has no abstract provided, you may still cite it by title/year but only when directly relevant
+- Each citation should ADD information — don't cite papers that say the same thing as ones you've already cited
 - Keep each section concise but dense with insight"""
 
     try:
