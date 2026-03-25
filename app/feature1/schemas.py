@@ -111,6 +111,7 @@ class CitationMapResponse(BaseModel):
     graph_draft_id: Optional[UUID] = None
 
     stats: CitationMapStats
+    topic_brief: Optional[dict] = None
 
 
 class CitationMapListItem(BaseModel):

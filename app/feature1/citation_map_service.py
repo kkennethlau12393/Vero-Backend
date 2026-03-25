@@ -4697,12 +4697,40 @@ def build_citation_map(
             },
         )
         # #endregion
+        # ── Topic Brief ──
+        topic_brief = None
+        try:
+            from app.common.topic_brief_service import generate_topic_brief
+
+            sorted_nodes = sorted(
+                [n for n in nodes if n.title],
+                key=lambda x: x.cited_by_count or 0,
+                reverse=True,
+            )[:15]
+            brief_papers = []
+            for node in sorted_nodes:
+                brief_papers.append({
+                    "work_id": node.work_id or "",
+                    "title": node.title or "",
+                    "authors": node.authors or "",
+                    "year": node.year,
+                    "abstract": node.abstract or "",
+                })
+            topic_brief = generate_topic_brief(
+                query=request.query_text or request.seed_title or "",
+                papers=brief_papers,
+                feature="citation_map",
+            )
+        except Exception as e:
+            logger.warning(f"Topic brief generation failed: {e}")
+
         response = CitationMapResponse(
             seed_info=seed_info,
             nodes=nodes,
             edges=edges,
             graph_draft_id=graph_draft_id,
             stats=stats,
+            topic_brief=topic_brief,
         )
 
         # Step 6: Persist the full citation map response

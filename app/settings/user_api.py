@@ -158,7 +158,7 @@ async def _get_institutions() -> List[dict]:
     for item in raw_items:
         attrs = item.get("attributes", {})
         institutions.append({
-            "library_id": item.get("id", ""),
+            "library_id": str(item.get("id", "")),
             "name": attrs.get("name", ""),
             "homepage_url": attrs.get("homepageUrl"),
             "image_url": attrs.get("imageUrl"),
