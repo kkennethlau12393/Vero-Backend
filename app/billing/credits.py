@@ -18,8 +18,8 @@ _BILLING_DDL = """
 CREATE TABLE IF NOT EXISTS public.user_billing (
     user_id              uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     plan                 text NOT NULL DEFAULT 'free',
-    credits_remaining    numeric(10,2) NOT NULL DEFAULT 10,
-    credits_monthly      numeric(10,2) NOT NULL DEFAULT 10,
+    credits_remaining    numeric(10,2) NOT NULL DEFAULT 50,
+    credits_monthly      numeric(10,2) NOT NULL DEFAULT 50,
     stripe_customer_id   text,
     stripe_subscription_id text,
     subscription_status  text NOT NULL DEFAULT 'none',

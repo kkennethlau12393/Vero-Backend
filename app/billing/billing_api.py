@@ -31,8 +31,7 @@ STRIPE_PRICE_PRO = os.environ.get("STRIPE_PRICE_PRO", "")
 STRIPE_PRICE_PRO_ANNUAL = os.environ.get("STRIPE_PRICE_PRO_ANNUAL", "")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://www.alexandrialabs.uk")
 
-PRO_CREDITS = 200
-FREE_CREDITS = 10
+DEFAULT_CREDITS = 50
 
 
 @lru_cache(maxsize=1)
@@ -242,8 +241,8 @@ def _handle_checkout_completed(conn, session: dict) -> None:
         """),
         {
             "uid": user_id,
-            "credits": PRO_CREDITS,
-            "monthly": PRO_CREDITS,
+            "credits": DEFAULT_CREDITS,
+            "monthly": DEFAULT_CREDITS,
             "cid": customer_id,
             "sid": subscription_id,
             "period_end": period_end,
@@ -355,22 +354,22 @@ def _handle_subscription_deleted(conn, subscription: dict) -> None:
         return
 
     user_id = row["user_id"]
-    # Cap credits at free tier allowance
-    capped_credits = min(float(row["credits_remaining"]), FREE_CREDITS)
+    # Cap credits at default allowance
+    capped_credits = min(float(row["credits_remaining"]), DEFAULT_CREDITS)
 
     conn.execute(
         text("""
             UPDATE user_billing
             SET plan = 'free',
                 credits_remaining = :credits,
-                credits_monthly = :free_monthly,
+                credits_monthly = :default_monthly,
                 subscription_status = 'canceled',
                 stripe_subscription_id = NULL,
                 current_period_end = NULL,
                 updated_at = now()
             WHERE user_id = :uid
         """),
-        {"uid": user_id, "credits": capped_credits, "free_monthly": FREE_CREDITS},
+        {"uid": user_id, "credits": capped_credits, "default_monthly": DEFAULT_CREDITS},
     )
     conn.commit()
     logger.info("Downgraded user %s to free plan", user_id)

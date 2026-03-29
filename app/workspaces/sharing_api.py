@@ -400,7 +400,7 @@ def create_workspace(
     engine: Engine = Depends(get_engine),
     user_id: Optional[UUID] = Depends(get_current_user_id),
 ):
-    """Create a new workspace. Free plan limited to 1 workspace ever."""
+    """Create a new workspace. All users get unlimited workspaces."""
     uid = _require_user(user_id)
 
     with engine.connect() as conn:
@@ -415,17 +415,6 @@ def create_workspace(
             """),
             {"uid": uid},
         )
-
-        row = conn.execute(
-            text("SELECT plan, workspaces_created_count FROM user_billing WHERE user_id = :uid"),
-            {"uid": uid},
-        ).mappings().first()
-
-        if row["plan"] == "free" and row["workspaces_created_count"] >= 1:
-            raise HTTPException(
-                status_code=403,
-                detail="Free plan limited to 1 workspace. Upgrade to Alexandria X for unlimited workspaces.",
-            )
 
         # Create workspace
         ws_row = conn.execute(
